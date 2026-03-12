@@ -25,15 +25,16 @@ class ShellExecutor:
                 },
                 timeout=300,
             )
-            success = result.returncode == 0
-            output = result.stdout if success else result.stderr
-            return success, output
         except Exception as exc:  # pragma: no cover - defensive path
-            return False, f"命令执行异常: {exc}"
+            return False, f"Command execution failed: {exc}"
+
+        success = result.returncode == 0
+        output = result.stdout if success else result.stderr
+        return success, output
 
     def run_commands(self, commands: list[str]) -> tuple[bool, str]:
         for command in commands:
             success, output = self.run_command(command)
             if not success:
-                return False, f"命令执行失败: {command}\n错误信息: {output}"
-        return True, "所有命令执行成功"
+                return False, f"Command failed: {command}\nError output: {output}"
+        return True, "All commands completed successfully."

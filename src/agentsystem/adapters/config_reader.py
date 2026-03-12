@@ -22,17 +22,43 @@ class RepoBConfigReader:
 
     def load_all_config(self) -> RepoBConfig:
         if not self.agents_dir.exists():
-            raise FileNotFoundError(f"Repo B 的 .agents 目录不存在: {self.agents_dir}")
+            raise FileNotFoundError(f"Repo B .agents directory does not exist: {self.agents_dir}")
+
+        commands_payload = self._load_yaml("commands.yaml")
         return RepoBConfig(
             project=self._load_yaml("project.yaml"),
             rules=self._load_yaml("rules.yaml"),
-            commands=self._load_yaml("commands.yaml"),
+            commands=self._normalize_commands(commands_payload),
             review_policy=self._load_yaml("review_policy.yaml"),
             contracts=self._load_yaml("contracts.yaml"),
         )
 
+    def load_commands(self) -> dict[str, Any]:
+        return self._normalize_commands(self._load_yaml("commands.yaml"))
+
     def _load_yaml(self, filename: str) -> dict[str, Any]:
         file_path = self.agents_dir / filename
         if not file_path.exists():
-            raise FileNotFoundError(f"配置文件不存在: {file_path}")
-        return yaml.safe_load(file_path.read_text(encoding="utf-8"))
+            raise FileNotFoundError(f"Configuration file does not exist: {file_path}")
+
+        payload = yaml.safe_load(file_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"{file_path} must contain a mapping")
+        return payload
+
+    def _normalize_commands(self, payload: dict[str, Any]) -> dict[str, Any]:
+        commands_payload = payload.get("commands", payload)
+        if not isinstance(commands_payload, dict):
+            raise ValueError("commands.yaml must contain a mapping or a top-level 'commands' mapping")
+
+        normalized: dict[str, Any] = {}
+        for phase, values in commands_payload.items():
+            if not isinstance(phase, str):
+                raise ValueError("command phase names must be strings")
+            if phase == "start":
+                normalized[phase] = values
+                continue
+            if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                raise ValueError(f"commands for phase {phase!r} must be a list of strings")
+            normalized[phase] = list(values)
+        return normalized

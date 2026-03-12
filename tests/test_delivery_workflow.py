@@ -101,8 +101,14 @@ def write_agents_contracts(repo_root: Path, *, failing_test: bool = False) -> No
     (agents_dir / "commands.yaml").write_text(
         json.dumps(
             {
-                "lint": ["python -c \"print('lint ok')\""],
-                "test": ["python -c \"import sys; sys.exit(1)\""] if failing_test else ["python -c \"print('test ok')\""],
+                "commands": {
+                    "lint": ["python -c \"print('lint ok')\""],
+                    "test": (
+                        ["python -c \"import sys; sys.exit(1)\""]
+                        if failing_test
+                        else ["python -c \"print('test ok')\""]
+                    ),
+                },
             },
             indent=2,
         )

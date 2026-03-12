@@ -15,6 +15,14 @@ class ContextAssembler:
     def build_constitution(self) -> str:
         constitution_parts: list[str] = []
 
+        agents_file = self.repo_b_root / "AGENTS.md"
+        if agents_file.exists():
+            constitution_parts.append("=" * 40)
+            constitution_parts.append("Execution Rules (AGENTS.md)")
+            constitution_parts.append("=" * 40)
+            constitution_parts.append(agents_file.read_text(encoding="utf-8"))
+            constitution_parts.append("\n" + "=" * 40 + "\n")
+
         claude_file = self.repo_b_root / "CLAUDE.md"
         if claude_file.exists():
             constitution_parts.append("=" * 40)

@@ -30,8 +30,11 @@ def load_project_config(target_repo: Path) -> ProjectConfig:
 
 def load_commands_config(target_repo: Path) -> dict[str, list[str]]:
     payload = load_contract_mapping(target_repo, "commands.yaml")
+    commands_payload = payload.get("commands", payload)
+    if not isinstance(commands_payload, dict):
+        raise ValueError("commands.yaml must contain a mapping or a top-level 'commands' mapping")
     commands: dict[str, list[str]] = {}
-    for phase, values in payload.items():
+    for phase, values in commands_payload.items():
         if not isinstance(phase, str):
             raise ValueError("command phase names must be strings")
         if phase == "start":
