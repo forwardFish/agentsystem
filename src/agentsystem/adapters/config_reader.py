@@ -5,6 +5,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
 
 class RepoBConfig(BaseModel):
@@ -62,3 +63,26 @@ class RepoBConfigReader:
                 raise ValueError(f"commands for phase {phase!r} must be a list of strings")
             normalized[phase] = list(values)
         return normalized
+
+
+class SystemConfigReader:
+    def __init__(self) -> None:
+        load_dotenv()
+
+    def load(self, config_path: str | Path) -> dict[str, Any]:
+        config_file = Path(config_path).resolve()
+        payload = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"{config_file} must contain a mapping")
+        return self._replace_env_vars(payload)
+
+    def _replace_env_vars(self, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {key: self._replace_env_vars(value) for key, value in data.items()}
+        if isinstance(data, list):
+            return [self._replace_env_vars(item) for item in data]
+        if isinstance(data, str) and data.startswith("${") and data.endswith("}"):
+            import os
+
+            return os.getenv(data[2:-1], "")
+        return data
