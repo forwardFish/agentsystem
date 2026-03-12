@@ -150,8 +150,7 @@ class SkillManager:
             "## 执行规则",
             f"仅处理以下文件：{', '.join(target_files)}",
         ]
-        constraints = task_yaml.get("constraints", [])
-        for item in constraints:
+        for item in task_yaml.get("constraints", []):
             task_lines.append(f"- {item}")
         task_lines.extend(
             [
