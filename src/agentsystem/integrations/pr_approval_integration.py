@@ -73,13 +73,14 @@ def approval_node_with_pr(state: TaskState) -> TaskState:
         return state
 
     client = PRApprovalClient(token=token, owner=owner, repo=repo)
-    worktree_path = Path(state.worktree_path)
-    task_yaml = yaml.safe_load((worktree_path / "task.yaml").read_text(encoding="utf-8"))
+    worktree_path = Path(state.worktree_path).resolve()
+    task_yaml_path = worktree_path.parent / ".meta" / worktree_path.name / "task.yaml"
+    task_yaml = yaml.safe_load(task_yaml_path.read_text(encoding="utf-8"))
     pr_number = task_yaml.get("pr_number")
     if not pr_number:
         pr_number = client.create_pr(task_id=state.task_id, head_branch=task_yaml["branch"])
         task_yaml["pr_number"] = pr_number
-        (worktree_path / "task.yaml").write_text(
+        task_yaml_path.write_text(
             yaml.safe_dump(task_yaml, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )

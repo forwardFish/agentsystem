@@ -1,0 +1,13 @@
+goal: "给前端页面加一个有小错误的副标题，验证 Fixer 能自动修复"
+blast_radius: "L1"
+mode: "Fast"
+acceptance_criteria:
+  - "页面顶部有副标题"
+  - "代码通过 prettier 格式化"
+constraints:
+  - "只修改这一个文件"
+explicitly_not_doing:
+  - "不加新功能"
+related_files:
+  - "apps/web/src/app/(dashboard)/agents/[agentId]/page.tsx"
+test_failure_info: "TypeError: Cannot read property 'text' of undefined at line 42"

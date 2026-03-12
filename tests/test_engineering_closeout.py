@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from agentsystem.integrations.checkpoint_saver import get_checkpoint_saver
@@ -32,7 +33,7 @@ class EngineeringCloseoutTestCase(unittest.TestCase):
             manager = WorkspaceManager(repo_root=root)
 
             worktree = manager.create_worktree("task-001", "feature/task-001")
-            self.assertTrue((worktree / "task.yaml").exists())
+            self.assertTrue((manager.meta_dir / "task-001" / "task.yaml").exists())
             manager.update_task_state("task-001", {"status": "implementing"})
             self.assertEqual(manager.get_task_state("task-001")["status"], "implementing")
 
@@ -41,7 +42,7 @@ class EngineeringCloseoutTestCase(unittest.TestCase):
 
             manager.clean_worktree("task-001", archive=True)
             self.assertFalse(worktree.exists())
-            self.assertTrue((root / "archive" / "task-001" / "task.yaml").exists())
+            self.assertTrue((root / "archive" / "task-001" / "meta" / "task.yaml").exists())
 
     def test_identity_runtime_reads_writes_memory_and_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,10 +79,17 @@ class EngineeringCloseoutTestCase(unittest.TestCase):
             root = Path(tmp)
             worktree = root / "task-001"
             worktree.mkdir(parents=True)
-            (worktree / "task.yaml").write_text("task_id: task-001\nbranch: feature/task-001\n", encoding="utf-8")
+            meta_dir = root / ".meta" / "task-001"
+            meta_dir.mkdir(parents=True)
+            (meta_dir / "task.yaml").write_text("task_id: task-001\nbranch: feature/task-001\n", encoding="utf-8")
 
             state = TaskState(task_id="task-001", worktree_path=str(worktree))
-            result = approval_node_with_pr(state)
+            with patch.dict(
+                "os.environ",
+                {"GITHUB_TOKEN": "", "GITHUB_OWNER": "", "GITHUB_REPO_B_NAME": ""},
+                clear=False,
+            ):
+                result = approval_node_with_pr(state)
 
             self.assertEqual(result.status, TaskStatus.GATED)
             self.assertFalse(result.approval_result["approved"])

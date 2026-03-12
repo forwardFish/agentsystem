@@ -15,6 +15,7 @@ from langgraph.graph import END, StateGraph
 import yaml
 
 from agentsystem.integrations.checkpoint_saver import get_checkpoint_saver
+from agentsystem.orchestration.checkpoint_saver import build_task_checkpoint_saver
 from agentsystem.orchestration.workspace_manager import WorkspaceLockError
 
 
@@ -136,12 +137,13 @@ class TaskStateMachine:
     def __init__(self, config: dict[str, Any], workspace_manager):
         self.config = config
         self.workspace_manager = workspace_manager
-        self.graph = build_task_state_machine(checkpointer=get_checkpoint_saver())
+        self.graph = build_task_state_machine(checkpointer=get_checkpoint_saver(config))
+        self.task_checkpoint_saver = build_task_checkpoint_saver(config)
         self.last_result: dict[str, Any] | None = None
         self.last_task_id: str | None = None
         self.last_worktree_path: str | None = None
 
-    def run(self, task_file: str | Path) -> dict[str, Any]:
+    def run(self, task_file: str | Path, *, resume: bool = False) -> dict[str, Any]:
         task_path = Path(task_file).resolve()
         payload = yaml.safe_load(task_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
@@ -149,12 +151,20 @@ class TaskStateMachine:
 
         task_name = str(payload.get("task_name", "task"))
         task_id = self._slugify(task_name)
+        self.last_task_id = task_id
+
+        if resume:
+            restored = self.resume_task(task_id)
+            if restored is not None:
+                self.last_result = restored
+                self.last_worktree_path = restored["worktree_path"]
+                return restored
+
         branch = f"feature/{task_id}"
         try:
             worktree_path = self.workspace_manager.create_worktree(task_id, branch)
         except WorkspaceLockError:
             worktree_path = self.workspace_manager.worktree_root / task_id
-        self.last_task_id = task_id
         self.last_worktree_path = str(worktree_path)
 
         state = TaskState(task_id=task_id, worktree_path=str(worktree_path))
@@ -164,6 +174,12 @@ class TaskStateMachine:
         else:
             values = self._normalize(result)
         self.workspace_manager.update_task_state(task_id, {"status": values["status"], "retry_count": values["retry_count"]})
+        self.task_checkpoint_saver.save(
+            task_id=task_id,
+            state=values["status"],
+            workspace_path=str(worktree_path),
+            metadata=values,
+        )
         self.last_result = values
         return values
 
@@ -171,7 +187,32 @@ class TaskStateMachine:
         if not self.last_task_id:
             return None
         values = self.graph.get_state({"configurable": {"thread_id": self.last_task_id}}).values
-        return self._normalize(values)
+        normalized = self._normalize(values)
+        if self.last_worktree_path:
+            self.task_checkpoint_saver.save(
+                task_id=self.last_task_id,
+                state=normalized["status"],
+                workspace_path=self.last_worktree_path,
+                metadata=normalized,
+            )
+        return normalized
+
+    def resume_task(self, task_id: str) -> dict[str, Any] | None:
+        checkpoint = self.task_checkpoint_saver.load(task_id)
+        if not checkpoint:
+            return None
+        restored = {
+            "task_id": checkpoint["task_id"],
+            "status": checkpoint["state"],
+            "worktree_path": checkpoint["workspace_path"],
+            **self._normalize(checkpoint.get("metadata", {})),
+        }
+        restored["task_id"] = checkpoint["task_id"]
+        restored["status"] = checkpoint["state"]
+        restored["worktree_path"] = checkpoint["workspace_path"]
+        restored.setdefault("retry_count", 0)
+        restored.setdefault("max_retries", 3)
+        return restored
 
     def write_audit_log(self, output_path: str | Path) -> Path:
         if self.last_result is None:

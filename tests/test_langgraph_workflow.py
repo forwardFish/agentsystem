@@ -118,6 +118,11 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertIn("frontend", final_state["dev_results"])
             self.assertGreater(final_state["dev_results"]["frontend"]["constitution_length"], 0)
             self.assertTrue(final_state["branch_name"].startswith("agent/parallel-dev-"))
+            self.assertTrue(final_state["sync_merge_success"])
+            self.assertTrue(final_state["pr_prep_success"])
+            self.assertTrue(final_state["pr_prep_dir"].endswith("pr_prep"))
+            self.assertIn("## Change Summary", final_state["pr_desc"])
+            self.assertIn("feat(auto-dev):", final_state["commit_msg"])
 
             frontend_content = (
                 repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
@@ -131,7 +136,66 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
 
             repo = Repo(repo_path)
             self.assertEqual(repo.active_branch.name, final_state["branch_name"])
-            self.assertIn("synchronize multi-agent", repo.head.commit.message)
+            self.assertEqual(repo.head.commit.message.strip(), final_state["commit_msg"])
+
+            pr_prep_dir = Path(final_state["pr_prep_dir"])
+            self.assertTrue((pr_prep_dir / "pr_description.md").exists())
+            self.assertTrue((pr_prep_dir / "commit_message.txt").exists())
+
+    def test_workflow_runs_fixer_cycle_after_simulated_failure(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            repo_path = Path(tmp) / "versefina"
+            self._create_repo_fixture(repo_path)
+
+            graph = create_dev_graph()
+            initial_state = {
+                "user_requirement": "Fix the failing frontend observation page.",
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "goal": "给前端页面加一个有小错误的副标题，验证 Fixer 能自动修复",
+                    "related_files": ["apps/web/src/app/(dashboard)/agents/[agentId]/page.tsx"],
+                    "test_failure_info": "TypeError: Cannot read property 'text' of undefined at line 42",
+                },
+                "branch_name": None,
+                "auto_commit": False,
+                "current_step": "init",
+                "subtasks": [],
+                "dev_results": {},
+                "backend_result": None,
+                "frontend_result": None,
+                "database_result": None,
+                "devops_result": None,
+                "generated_code_diff": None,
+                "test_results": None,
+                "test_passed": None,
+                "test_failure_info": None,
+                "security_report": None,
+                "review_report": None,
+                "doc_result": None,
+                "fix_result": None,
+                "fixer_needed": None,
+                "fixer_success": None,
+                "fix_attempts": 0,
+                "error_message": None,
+            }
+
+            final_state = graph.invoke(initial_state)
+
+            self.assertEqual(final_state["current_step"], "doc_done")
+            self.assertEqual(final_state["fix_attempts"], 1)
+            self.assertTrue(final_state["fixer_needed"])
+            self.assertTrue(final_state["fixer_success"])
+            self.assertTrue(final_state["test_passed"])
+            self.assertIsNone(final_state["error_message"])
+            self.assertIn("Applied automated remediation", final_state["fix_result"])
+            self.assertTrue(final_state["sync_merge_success"])
+            self.assertTrue(final_state["pr_prep_success"])
+            self.assertEqual(final_state["fix_attempts"], 1)
+
+            frontend_content = (
+                repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Fixed by Fix Agent after validation failure", frontend_content)
 
     def _create_repo_fixture(self, repo_path: Path) -> None:
         (repo_path / ".agents").mkdir(parents=True)
