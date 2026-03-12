@@ -42,6 +42,12 @@ class DevState(TypedDict, total=False):
     test_passed: bool | None
     test_failure_info: str | None
     security_report: str | None
+    review_success: bool | None
+    review_passed: bool | None
+    review_dir: str | None
+    blocking_issues: list[str] | None
+    important_issues: list[str] | None
+    nice_to_haves: list[str] | None
     review_report: str | None
     doc_result: str | None
     fix_result: str | None

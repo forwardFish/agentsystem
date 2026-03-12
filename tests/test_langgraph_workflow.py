@@ -112,7 +112,7 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertIn("service.py", final_state["generated_code_diff"])
             self.assertIn("page.tsx", final_state["generated_code_diff"])
             self.assertIn("Lint: PASS", final_state["test_results"])
-            self.assertIn("PASS: code style checks completed", final_state["review_report"])
+            self.assertIn("# Review Report", final_state["review_report"])
             self.assertIn("Documented workflow outcome.", final_state["doc_result"])
             self.assertIn("backend", final_state["dev_results"])
             self.assertIn("frontend", final_state["dev_results"])
@@ -123,6 +123,9 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertTrue(final_state["pr_prep_dir"].endswith("pr_prep"))
             self.assertIn("## Change Summary", final_state["pr_desc"])
             self.assertIn("feat(auto-dev):", final_state["commit_msg"])
+            self.assertTrue(final_state["review_success"])
+            self.assertTrue(final_state["review_passed"])
+            self.assertTrue(final_state["review_dir"].endswith("review"))
 
             frontend_content = (
                 repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
@@ -141,6 +144,11 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             pr_prep_dir = Path(final_state["pr_prep_dir"])
             self.assertTrue((pr_prep_dir / "pr_description.md").exists())
             self.assertTrue((pr_prep_dir / "commit_message.txt").exists())
+            review_dir = Path(final_state["review_dir"])
+            self.assertTrue((review_dir / "review_report.md").exists())
+            self.assertIn("# Review Report", final_state["review_report"])
+            self.assertEqual(final_state["blocking_issues"], [])
+            self.assertNotIn(".git/", final_state["review_report"])
 
     def test_workflow_runs_fixer_cycle_after_simulated_failure(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
@@ -170,6 +178,12 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 "test_passed": None,
                 "test_failure_info": None,
                 "security_report": None,
+                "review_success": None,
+                "review_passed": None,
+                "review_dir": None,
+                "blocking_issues": None,
+                "important_issues": None,
+                "nice_to_haves": None,
                 "review_report": None,
                 "doc_result": None,
                 "fix_result": None,
@@ -191,6 +205,8 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertTrue(final_state["sync_merge_success"])
             self.assertTrue(final_state["pr_prep_success"])
             self.assertEqual(final_state["fix_attempts"], 1)
+            self.assertTrue(final_state["review_success"])
+            self.assertTrue(final_state["review_passed"])
 
             frontend_content = (
                 repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
