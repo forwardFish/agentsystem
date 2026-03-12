@@ -1,0 +1,15 @@
+{
+  "rule_version": "kernel-example-v1",
+  "shard_affinity": "agent_id",
+  "resource_limits": {
+    "max_artifacts": 4,
+    "max_events": 4
+  },
+  "compliance_base_rules": [
+    "output_ref.required",
+    "artifact_refs.min_1",
+    "trace_id.required",
+    "output.result.required",
+    "output.result.non_empty"
+  ]
+}

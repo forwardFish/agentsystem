@@ -1,0 +1,32 @@
+{
+  "contracts": {
+    "runtime-task-input": {
+      "description": "Pure kernel input contract.",
+      "required_fields": [
+        "task_id",
+        "run_id",
+        "shard_id",
+        "graph_type",
+        "stage",
+        "status",
+        "input_ref",
+        "rule_version",
+        "metadata.agent_id",
+        "metadata.agent_version",
+        "metadata.trace_id",
+        "metadata.upstream_event"
+      ]
+    },
+    "runtime-task-output": {
+      "description": "Pure kernel output contract.",
+      "required_fields": [
+        "result",
+        "task_id",
+        "agent_id",
+        "trace_id",
+        "artifact_refs",
+        "events"
+      ]
+    }
+  }
+}

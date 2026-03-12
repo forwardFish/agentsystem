@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package agent_system_framework;
+
+message TaskEnvelope {
+  string task_id = 1;
+  string run_id = 2;
+  string shard_id = 3;
+  string graph_type = 4;
+  string input_ref = 5;
+  string rule_version = 6;
+  string trace_id = 7;
+}
+
+message AgentMeta {
+  string agent_id = 1;
+  string agent_type = 2;
+  string plane = 3;
+  repeated string capabilities = 4;
+}

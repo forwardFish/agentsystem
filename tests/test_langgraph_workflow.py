@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from git import Repo
+
+from agentsystem.graph.dev_workflow import create_dev_graph
+
+
+PROJECT_YAML = """name: versefina
+stack:
+  frontend:
+    path: apps/web
+  backend:
+    path: apps/api
+git:
+  default_branch: main
+  working_branch_prefix: "agent/"
+"""
+
+RULES_YAML = "{}\n"
+COMMANDS_YAML = """lint:
+  - "python -c \\"print('lint ok')\\""
+"""
+REVIEW_POLICY_YAML = "{}\n"
+CONTRACTS_YAML = "{}\n"
+CLAUDE_MD = """# VerseFina Constitution
+
+Follow existing code patterns first.
+"""
+STYLE_GUIDE_MD = """# Style Guide
+
+Use existing structures before creating new ones.
+"""
+
+BACKEND_CONTENT = """from __future__ import annotations
+
+from dataclasses import dataclass
+
+from schemas.common import AcceptedResponse
+from schemas.command import AgentRegisterRequest, HeartbeatRequest
+from schemas.agent import AgentSnapshot, Position
+
+
+@dataclass(slots=True)
+class AgentRegistryService:
+    default_world_id: str
+
+    def register(self, payload: AgentRegisterRequest) -> AcceptedResponse:
+        return AcceptedResponse(status="accepted", task_id=f"register::{payload.agent_id}")
+
+    def heartbeat(self, agent_id: str, payload: HeartbeatRequest) -> AcceptedResponse:
+        return AcceptedResponse(status="accepted", task_id=f"heartbeat::{agent_id}::{payload.heartbeat_at}")
+
+    def snapshot(self, agent_id: str) -> AgentSnapshot:
+        return AgentSnapshot(
+            agent_id=agent_id,
+            status="active",
+            equity=105000.00,
+            cash=50000.00,
+            drawdown=0.05,
+            tags=["trend", "swing"],
+            positions=[Position(symbol="600519.SH", qty=100, avg_cost=1680.0)],
+        )
+"""
+
+FRONTEND_CONTENT = """export default function Page() {
+  return <div>Agent page</div>;
+}
+"""
+
+
+class LangGraphWorkflowTestCase(unittest.TestCase):
+    def test_workflow_runs_parallel_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            repo_path = Path(tmp) / "versefina"
+            self._create_repo_fixture(repo_path)
+
+            graph = create_dev_graph()
+            initial_state = {
+                "user_requirement": "Render agent positions on the observation page.",
+                "repo_b_path": str(repo_path),
+                "branch_name": None,
+                "current_step": "init",
+                "subtasks": [],
+                "dev_results": {},
+                "backend_result": None,
+                "frontend_result": None,
+                "database_result": None,
+                "devops_result": None,
+                "generated_code_diff": None,
+                "test_results": None,
+                "security_report": None,
+                "review_report": None,
+                "doc_result": None,
+                "fix_result": None,
+                "fix_attempts": 0,
+                "error_message": None,
+            }
+
+            final_state = graph.invoke(initial_state)
+
+            self.assertEqual(final_state["current_step"], "doc_done")
+            self.assertEqual(len(final_state["subtasks"]), 2)
+            self.assertEqual(final_state["subtasks"][0].type, "backend")
+            self.assertEqual(final_state["subtasks"][1].type, "frontend")
+            self.assertTrue(all(task.status == "completed" for task in final_state["subtasks"]))
+            self.assertEqual(final_state["backend_result"], "Backend schema and mock snapshot updated.")
+            self.assertEqual(final_state["frontend_result"], "Frontend development completed (constitution loaded).")
+            self.assertIn("service.py", final_state["generated_code_diff"])
+            self.assertIn("page.tsx", final_state["generated_code_diff"])
+            self.assertIn("Lint: PASS", final_state["test_results"])
+            self.assertIn("PASS: code style checks completed", final_state["review_report"])
+            self.assertIn("Documented workflow outcome.", final_state["doc_result"])
+            self.assertIn("backend", final_state["dev_results"])
+            self.assertIn("frontend", final_state["dev_results"])
+            self.assertGreater(final_state["dev_results"]["frontend"]["constitution_length"], 0)
+            self.assertTrue(final_state["branch_name"].startswith("agent/parallel-dev-"))
+
+            frontend_content = (
+                repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
+            ).read_text(encoding="utf-8")
+            self.assertIn("// Frontend Dev Agent was here (with Constitution loaded)", frontend_content)
+
+            backend_content = (
+                repo_path / "apps" / "api" / "src" / "domain" / "agent_registry" / "service.py"
+            ).read_text(encoding="utf-8")
+            self.assertIn('Position(symbol="000001.SZ", qty=300, avg_cost=12.45)', backend_content)
+
+            repo = Repo(repo_path)
+            self.assertEqual(repo.active_branch.name, final_state["branch_name"])
+            self.assertIn("synchronize multi-agent", repo.head.commit.message)
+
+    def _create_repo_fixture(self, repo_path: Path) -> None:
+        (repo_path / ".agents").mkdir(parents=True)
+        (repo_path / "apps" / "api" / "src" / "domain" / "agent_registry").mkdir(parents=True)
+        (repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]").mkdir(parents=True)
+
+        (repo_path / "CLAUDE.md").write_text(CLAUDE_MD, encoding="utf-8")
+        (repo_path / ".agents" / "project.yaml").write_text(PROJECT_YAML, encoding="utf-8")
+        (repo_path / ".agents" / "rules.yaml").write_text(RULES_YAML, encoding="utf-8")
+        (repo_path / ".agents" / "commands.yaml").write_text(COMMANDS_YAML, encoding="utf-8")
+        (repo_path / ".agents" / "review_policy.yaml").write_text(REVIEW_POLICY_YAML, encoding="utf-8")
+        (repo_path / ".agents" / "contracts.yaml").write_text(CONTRACTS_YAML, encoding="utf-8")
+        (repo_path / ".agents" / "style_guide.md").write_text(STYLE_GUIDE_MD, encoding="utf-8")
+        (
+            repo_path / "apps" / "api" / "src" / "domain" / "agent_registry" / "service.py"
+        ).write_text(BACKEND_CONTENT, encoding="utf-8")
+        (
+            repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
+        ).write_text(FRONTEND_CONTENT, encoding="utf-8")
+
+        repo = Repo.init(repo_path, initial_branch="main")
+        repo.index.add(["."])
+        with repo.config_writer() as config:
+            config.set_value("user", "name", "Codex")
+            config.set_value("user", "email", "codex@example.com")
+        repo.index.commit("chore: seed fixture")
+
+
+if __name__ == "__main__":
+    unittest.main()

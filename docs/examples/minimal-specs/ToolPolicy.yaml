@@ -1,0 +1,11 @@
+{
+  "allowlist": [
+    "emit_event",
+    "write_artifact"
+  ],
+  "denylist": [
+    "shell_exec",
+    "network_call"
+  ],
+  "permission_scope": "task"
+}

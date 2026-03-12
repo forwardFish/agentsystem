@@ -1,0 +1,11 @@
+{
+  "unit_test": {
+    "command": "python -m unittest discover -s tests -v"
+  },
+  "integration_test": {
+    "command": "python -m unittest discover -s tests -v"
+  },
+  "contract_test": {
+    "command": "python -m agent_system_framework.spec_system.validate"
+  }
+}
