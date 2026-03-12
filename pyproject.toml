@@ -14,6 +14,7 @@ authors = [
 dependencies = [
   "GitPython>=3.1.43",
   "PyYAML>=6.0",
+  "chardet>=5.2.0",
   "python-dotenv>=1.0.1",
   "requests>=2.32.3",
   "pydantic>=2.0",

@@ -1,0 +1,18 @@
+repo:
+  agentsystem: "D:\\lyh\\agent\\agent-frame\\agentsystem"
+  versefina: "D:\\lyh\\agent\\agent-frame\\versefina"
+postgres:
+  url: "${POSTGRES_URL}"
+redis:
+  host: "${REDIS_HOST}"
+  port: 6379
+  db: 0
+github:
+  token: "${GITHUB_TOKEN}"
+  owner: "${GITHUB_OWNER}"
+  repo: "${GITHUB_REPO_B_NAME}"
+agent:
+  permission_profile: "config/permission_profiles.yaml"
+  workspace_root: "agent-workspaces"
+logging:
+  path: "logs/agent_system.log"

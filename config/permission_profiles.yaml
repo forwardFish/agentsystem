@@ -1,0 +1,48 @@
+profiles:
+  dev-rw:
+    allow:
+      - code_write
+      - command_exec
+      - diff_read
+      - pr_create
+    deny:
+      - release_approve
+      - prod_deploy
+  review-ro:
+    allow:
+      - diff_read
+      - test_report_read
+      - risk_classify
+    deny:
+      - code_write
+      - command_exec
+      - pr_create
+  test-rw:
+    allow:
+      - command_exec
+      - test_report_read
+      - risk_classify
+    deny:
+      - code_write
+      - pr_create
+      - prod_deploy
+  requirement-ro:
+    allow:
+      - task_read
+      - risk_classify
+      - change_scope
+    deny:
+      - code_write
+      - command_exec
+      - pr_create
+  release-guarded:
+    allow:
+      - release_approve
+      - risk_classify
+      - test_report_read
+    deny:
+      - code_write
+      - command_exec
+    guards:
+      - low_risk_only
+      - test_passed

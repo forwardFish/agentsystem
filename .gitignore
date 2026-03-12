@@ -1,6 +1,11 @@
 .env
 .runtime/
 runs/
+logs/
+repo-worktree/
+agent-workspaces/*/temp/
+agent-workspaces/*/HEARTBEAT.md.bak
+config/local_*.yaml
 .venv/
 __pycache__/
 .pytest_cache/
