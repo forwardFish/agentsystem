@@ -2,6 +2,11 @@ repo:
   agentsystem: "D:\\lyh\\agent\\agent-frame\\agentsystem"
   versefina: "D:\\lyh\\agent\\agent-frame\\versefina"
 postgres:
+  host: "localhost"
+  port: 5432
+  user: "agent"
+  password: "agent123"
+  dbname: "agent_system"
   url: ""
 redis:
   host: "localhost"

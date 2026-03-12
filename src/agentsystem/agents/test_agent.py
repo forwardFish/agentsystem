@@ -15,10 +15,14 @@ def test_node(state: DevState) -> DevState:
     shell = ShellExecutor(repo_b_path)
 
     results: list[str] = []
+    task_payload = state.get("task_payload") or {}
     install_commands = config.commands.get("install", [])
     lint_commands = config.commands.get("lint", [])
     typecheck_commands = config.commands.get("typecheck", [])
     test_commands = config.commands.get("test", [])
+    state["test_passed"] = True
+    state["test_failure_info"] = None
+    state["error_message"] = None
 
     print("[Test Agent] Preparing environment")
     if install_commands:
@@ -27,6 +31,7 @@ def test_node(state: DevState) -> DevState:
         if not install_success:
             print(f"[Test Agent] Install output: {install_output[:200]}")
             state["error_message"] = f"Install failed: {install_output}"
+            state["test_passed"] = False
     else:
         results.append("Install: SKIP (not configured)")
 
@@ -37,6 +42,7 @@ def test_node(state: DevState) -> DevState:
         if not lint_success:
             print(f"[Test Agent] Lint output: {lint_output[:200]}")
             state["error_message"] = f"Lint failed: {lint_output}"
+            state["test_passed"] = False
     else:
         results.append("Lint: SKIP (not configured)")
 
@@ -52,10 +58,19 @@ def test_node(state: DevState) -> DevState:
     else:
         results.append("Test: SKIP (not configured)")
 
+    simulated_failure = str(task_payload.get("test_failure_info", "")).strip()
+    if simulated_failure and state.get("fix_attempts", 0) == 0:
+        results.append("FixerGate: FAIL (simulated failure injected)")
+        state["error_message"] = simulated_failure
+        state["test_failure_info"] = simulated_failure
+        state["test_passed"] = False
+    elif not state.get("test_passed"):
+        state["test_failure_info"] = state.get("error_message")
+    else:
+        state["test_failure_info"] = None
+
     state["test_results"] = "\n".join(results)
     state["current_step"] = "test_done"
-    if not state.get("error_message"):
-        state["error_message"] = None
 
     print("[Test Agent] Report")
     for line in results:

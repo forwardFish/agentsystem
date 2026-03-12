@@ -20,7 +20,16 @@ class SubTask(BaseModel):
 class DevState(TypedDict, total=False):
     user_requirement: str
     repo_b_path: str
+    task_payload: dict[str, Any] | None
     branch_name: str | None
+    auto_commit: bool | None
+    sync_merge_success: bool | None
+    staged_files: list[str] | None
+    message: str | None
+    pr_prep_success: bool | None
+    pr_prep_dir: str | None
+    pr_desc: str | None
+    commit_msg: str | None
     requirement_spec: str | None
     subtasks: list[SubTask]
     dev_results: Annotated[dict[str, Any], merge_dicts]
@@ -30,10 +39,14 @@ class DevState(TypedDict, total=False):
     devops_result: str | None
     generated_code_diff: str | None
     test_results: str | None
+    test_passed: bool | None
+    test_failure_info: str | None
     security_report: str | None
     review_report: str | None
     doc_result: str | None
     fix_result: str | None
+    fixer_needed: bool | None
+    fixer_success: bool | None
     fix_attempts: int
     current_step: str
     error_message: str | None

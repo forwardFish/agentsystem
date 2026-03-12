@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from langgraph.graph import END, StateGraph
 
+from agentsystem.adapters.git_adapter import GitAdapter
 from agentsystem.agents.backend_dev_agent import backend_dev_node
 from agentsystem.agents.database_agent import database_dev_node
 from agentsystem.agents.devops_agent import devops_dev_node
@@ -16,6 +19,57 @@ from agentsystem.agents.sync_agent import sync_merge_node
 from agentsystem.agents.test_agent import test_node
 from agentsystem.agents.workspace_prep_agent import workspace_prep_node
 from agentsystem.core.state import DevState
+
+
+class DevWorkflow:
+    def __init__(self, config: dict, worktree_path: str, task: dict):
+        self.config = config
+        self.worktree_path = worktree_path
+        self.task = task
+        self.graph = create_dev_graph()
+
+    def run(self) -> dict:
+        initial_state: DevState = {
+            "user_requirement": str(self.task.get("goal", "")),
+            "repo_b_path": str(self.worktree_path),
+            "task_payload": self.task,
+            "branch_name": GitAdapter(self.worktree_path).get_current_branch(),
+            "auto_commit": False,
+            "current_step": "init",
+            "subtasks": [],
+            "dev_results": {},
+            "backend_result": None,
+            "frontend_result": None,
+            "database_result": None,
+            "devops_result": None,
+            "generated_code_diff": None,
+            "test_results": None,
+            "security_report": None,
+            "review_report": None,
+            "doc_result": None,
+            "fix_result": None,
+            "fix_attempts": 0,
+            "error_message": None,
+        }
+        final_state = self.graph.invoke(initial_state)
+        normalized_state = self._normalize(final_state)
+        success = final_state.get("current_step") == "doc_done" and not final_state.get("error_message")
+        return {
+            "success": success,
+            "error": normalized_state.get("error_message"),
+            "state": normalized_state,
+        }
+
+    def _normalize(self, value):
+        if hasattr(value, "model_dump"):
+            return self._normalize(value.model_dump(mode="json"))
+        if isinstance(value, dict):
+            return {key: self._normalize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._normalize(item) for item in value]
+        if isinstance(value, Path):
+            return str(value)
+        return value
 
 
 def create_dev_graph():
