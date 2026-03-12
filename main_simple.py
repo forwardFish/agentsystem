@@ -10,7 +10,6 @@ from typing import Any
 
 import yaml
 from dotenv import load_dotenv
-from langchain_core.prompts import ChatPromptTemplate
 
 ROOT_DIR = Path(__file__).resolve().parent
 SRC_DIR = ROOT_DIR / "src"
@@ -20,8 +19,8 @@ if str(SRC_DIR) not in sys.path:
 from agentsystem.adapters.config_reader import RepoBConfigReader
 from agentsystem.adapters.context_assembler import ContextAssembler
 from agentsystem.adapters.git_adapter import GitAdapter
-from agentsystem.adapters.shell_executor import ShellExecutor
-from agentsystem.llm.client import get_llm
+from agentsystem.adapters.agent_executor import AgentExecutor
+from agentsystem.adapters.skill_manager import SkillManager
 
 
 def _slugify(value: str) -> str:
@@ -40,10 +39,6 @@ def write_run_log(data: dict[str, Any]) -> None:
     print(f"\n[Audit] Log written to {log_file}")
 
 
-def _format_list(values: list[str]) -> str:
-    return "\n".join(f"- {value}" for value in values)
-
-
 def _extract_code_block(llm_output: str) -> str:
     if "```tsx" in llm_output:
         code_start = llm_output.find("```tsx") + len("```tsx")
@@ -54,25 +49,6 @@ def _extract_code_block(llm_output: str) -> str:
         code_end = llm_output.rfind("```")
         return llm_output[code_start:code_end].strip()
     return llm_output.strip()
-
-
-def _select_format_commands(commands: list[str], target_file: Path) -> list[str]:
-    suffix = target_file.suffix.lower()
-    if suffix in {".ts", ".tsx", ".js", ".jsx"}:
-        selected = [
-            command
-            for command in commands
-            if any(token in command.lower() for token in ("pnpm", "prettier", "eslint"))
-        ]
-        return selected or commands
-    if suffix == ".py":
-        selected = [
-            command
-            for command in commands
-            if any(token in command.lower() for token in ("black", "ruff", "python"))
-        ]
-        return selected or commands
-    return commands
 
 
 def main() -> None:
@@ -118,6 +94,9 @@ def main() -> None:
             raise ValueError("Project constitution is too short. Check Repo B AGENTS.md and CLAUDE.md.")
         print(f"[Context] Constitution loaded ({len(constitution)} chars)")
 
+        skill_manager = SkillManager(ROOT_DIR, repo_b_path)
+        executor = AgentExecutor(skill_manager)
+
         print("\n[Git] Preparing repository")
         git = GitAdapter(repo_b_path)
         git.checkout_main_and_pull()
@@ -137,60 +116,8 @@ def main() -> None:
         print(f"[File] Loaded {len(current_code)} chars")
 
         print("\n[Builder] Generating updated code")
-        llm = get_llm()
         print(f"[Builder] Mode: {'openai' if os.getenv('OPENAI_API_KEY') else 'fallback'}")
-
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """
-You are a Builder Agent.
-You must follow the project constitution below.
-
-{constitution}
-
-Rules:
-1. Only modify the single target file.
-2. Keep the code style aligned with the existing file.
-3. Return only the complete updated file inside one ```tsx code block.
-4. Do not include explanation outside the code block.
-""".strip(),
-                ),
-                (
-                    "user",
-                    """
-Task goal:
-{task_goal}
-
-Constraints:
-{constraints}
-
-Explicitly not doing:
-{not_doing}
-
-Current file:
-```tsx
-{current_code}
-```
-
-Return the full updated file.
-""".strip(),
-                ),
-            ]
-        )
-
-        response = (prompt | llm).invoke(
-            {
-                "constitution": constitution,
-                "task_goal": task["goal"],
-                "constraints": _format_list(task.get("constraints", [])),
-                "not_doing": _format_list(task.get("explicitly_not_doing", [])),
-                "current_code": current_code,
-            }
-        )
-
-        llm_output = response.content if hasattr(response, "content") else str(response)
+        llm_output = executor.execute_builder(task_yaml=task, current_code=current_code, constitution=constitution)
         new_code = _extract_code_block(llm_output)
         if not new_code or len(new_code) < len(current_code) * 0.5:
             raise ValueError("Generated code looks invalid. Aborting before write.")
@@ -198,27 +125,22 @@ Return the full updated file.
         target_file.write_text(new_code + "\n", encoding="utf-8")
         print("[Builder] File updated")
 
+        print("\n[Reviewer] Generating review report")
+        review_report = executor.execute_reviewer(task_yaml=task, old_code=current_code, new_code=new_code)
+        run_log["review_report_preview"] = review_report[:500]
+        print("[Reviewer] Report generated")
+
         print("\n[Verifier] Running format commands")
         commands = RepoBConfigReader(repo_b_path).load_commands()
-        shell = ShellExecutor(repo_b_path)
-        format_commands = _select_format_commands(commands.get("format", []), target_file)
-        run_log["format_commands"] = list(format_commands)
-        if not format_commands:
+        verify_result = executor.execute_verifier(task_yaml=task, commands=commands, target_file=target_file)
+        run_log["format_commands"] = [item["command"] for item in verify_result["commands"]]
+        run_log["format_results"] = verify_result["commands"]
+        if not verify_result["commands"]:
             print("[Verifier] No format commands configured")
         else:
-            format_results: list[dict[str, Any]] = []
-            for command in format_commands:
-                success, output = shell.run_command(command)
-                format_results.append(
-                    {
-                        "command": command,
-                        "success": success,
-                        "output_preview": output[:300],
-                    }
-                )
-                status = "PASS" if success else "FAIL"
-                print(f"[Verifier] {status}: {command}")
-            run_log["format_results"] = format_results
+            for item in verify_result["commands"]:
+                status = "PASS" if item["success"] else "FAIL"
+                print(f"[Verifier] {status}: {item['command']}")
 
         print("\n[Git] Creating commit")
         git.add_all()
