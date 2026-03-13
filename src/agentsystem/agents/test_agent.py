@@ -188,6 +188,8 @@ def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, ob
         return _validate_agent_contract_story(repo_b_path, task_payload)
     if story_id == "S0-004":
         return _validate_error_state_spec_story(repo_b_path, task_payload)
+    if story_id == "S0-005":
+        return _validate_core_db_schema_story(repo_b_path, task_payload)
     return True, "No story-specific validation required."
 
 
@@ -325,3 +327,44 @@ def _validate_error_state_spec_story(repo_b_path: Path, task_payload: dict[str, 
         return False, f"Missing state-machine statuses: {', '.join(missing_states)}"
 
     return True, "Error code and state machine documents include the required sections and transitions."
+
+
+def _validate_core_db_schema_story(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
+    related_files = [str(item) for item in task_payload.get("related_files", [])]
+    sql_path = repo_b_path / next((path for path in related_files if path.endswith(".sql")), "scripts/init_schema.sql")
+    if not sql_path.exists():
+        return False, f"Missing required SQL artifact: {sql_path}"
+
+    sql = sql_path.read_text(encoding="utf-8")
+    required_tables = [
+        "agents",
+        "statements",
+        "trade_records",
+        "agent_profiles",
+        "world_snapshots",
+        "orders",
+        "fills",
+        "portfolios",
+        "positions",
+        "equity_points",
+        "audit_logs",
+        "idempotency_keys",
+    ]
+    missing_tables = [table for table in required_tables if f"CREATE TABLE IF NOT EXISTS {table}" not in sql]
+    if missing_tables:
+        return False, f"Missing core tables: {', '.join(missing_tables)}"
+
+    expected_constraints = [
+        "PRIMARY KEY",
+        "REFERENCES statements(statement_id)",
+        "REFERENCES agents(agent_id)",
+        "UNIQUE",
+    ]
+    missing_constraints = [token for token in expected_constraints if token not in sql]
+    if missing_constraints:
+        return False, f"Missing key SQL constraints: {', '.join(missing_constraints)}"
+
+    if "CREATE INDEX IF NOT EXISTS idx_audit_logs_trace_id" not in sql:
+        return False, "Missing audit log trace index."
+
+    return True, "Core DB schema SQL defines the required tables, keys, references, and supporting indexes."

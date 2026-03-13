@@ -34,6 +34,33 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
         updated = requirement_analysis_node(state)
         self.assertTrue(all(subtask.type != "devops" for subtask in updated["subtasks"]))
 
+    def test_requirement_agent_routes_only_primary_files_into_execution_subtasks(self) -> None:
+        state = {
+            "task_id": "task-demo",
+            "user_requirement": "Initialize the core DB schema for the platform.",
+            "task_payload": {
+                "goal": "Initialize the core DB schema for the platform.",
+                "primary_files": ["scripts/init_schema.sql"],
+                "secondary_files": [
+                    "docs/contracts/trading_agent_profile.schema.json",
+                    "docs/contracts/marketworldstate_schema.schema.json",
+                ],
+                "related_files": [
+                    "scripts/init_schema.sql",
+                    "docs/contracts/trading_agent_profile.schema.json",
+                    "docs/contracts/marketworldstate_schema.schema.json",
+                ],
+                "acceptance_criteria": ["scripts/init_schema.sql defines the required core tables."],
+            },
+            "collaboration_trace_id": "trace-demo",
+        }
+
+        updated = requirement_analysis_node(state)
+        subtasks = updated["subtasks"]
+        self.assertEqual(len(subtasks), 1)
+        self.assertEqual(subtasks[0].type, "database")
+        self.assertEqual(subtasks[0].files_to_modify, ["scripts/init_schema.sql"])
+
     def test_code_acceptance_passes_for_clean_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_path = Path(tmp) / "repo"
@@ -462,6 +489,75 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             )
             self.assertTrue(ok)
             self.assertIn("required sections and transitions", message)
+
+    def test_story_specific_validation_for_s0_005_core_db_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            sql_path = repo_path / "scripts" / "init_schema.sql"
+            sql_path.parent.mkdir(parents=True, exist_ok=True)
+            sql_path.write_text(
+                """BEGIN;
+CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS statements (statement_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS trade_records (record_id TEXT PRIMARY KEY, statement_id TEXT REFERENCES statements(statement_id));
+CREATE TABLE IF NOT EXISTS agent_profiles (agent_id TEXT PRIMARY KEY REFERENCES agents(agent_id));
+CREATE TABLE IF NOT EXISTS world_snapshots (world_id TEXT, trading_day DATE, PRIMARY KEY (world_id, trading_day));
+CREATE TABLE IF NOT EXISTS orders (order_id TEXT PRIMARY KEY, agent_id TEXT REFERENCES agents(agent_id), idempotency_key TEXT UNIQUE);
+CREATE TABLE IF NOT EXISTS fills (fill_id TEXT PRIMARY KEY, order_id TEXT REFERENCES orders(order_id));
+CREATE TABLE IF NOT EXISTS portfolios (agent_id TEXT REFERENCES agents(agent_id), trading_day DATE, PRIMARY KEY (agent_id, trading_day));
+CREATE TABLE IF NOT EXISTS positions (agent_id TEXT REFERENCES agents(agent_id), symbol TEXT, PRIMARY KEY (agent_id, symbol));
+CREATE TABLE IF NOT EXISTS equity_points (agent_id TEXT REFERENCES agents(agent_id), trading_day DATE, PRIMARY KEY (agent_id, trading_day));
+CREATE TABLE IF NOT EXISTS audit_logs (audit_id TEXT PRIMARY KEY, trace_id TEXT);
+CREATE TABLE IF NOT EXISTS idempotency_keys (idempotency_key TEXT PRIMARY KEY);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_trace_id ON audit_logs(trace_id);
+COMMIT;
+""",
+                encoding="utf-8",
+            )
+
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-005",
+                    "related_files": ["scripts/init_schema.sql"],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Core DB schema SQL", message)
+
+    def test_fixer_rebuilds_contract_story_artifacts_for_s0_005(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            broken = repo_path / "scripts" / "init_schema.sql"
+            broken.parent.mkdir(parents=True, exist_ok=True)
+            broken.write_text("BEGIN;\nCREATE TABLE demo(id INT);\nCOMMIT;\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-005",
+                    "related_files": ["scripts/init_schema.sql"],
+                },
+                "test_passed": False,
+                "test_failure_info": "Missing core tables in init_schema.sql",
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-005",
+                    "related_files": ["scripts/init_schema.sql"],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Core DB schema SQL", message)
 
 
 if __name__ == "__main__":

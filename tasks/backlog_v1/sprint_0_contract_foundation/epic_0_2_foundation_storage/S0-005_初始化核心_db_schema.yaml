@@ -1,41 +1,61 @@
-task_id: S0-005
-task_name: 初始化核心 DB Schema
-sprint: Sprint 0
-epic: Epic 0.2 基础存储与底座
-story_id: S0-005
-blast_radius: L1
-execution_mode: Safe
-mode: Safe
-goal: 创建 MVP 所需的核心写模型表结构。
-business_value: 让 初始化核心 DB Schema 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S0-005"
+task_name: "初始化核心 DB Schema"
+sprint: "Sprint 0 契约与基础设施"
+epic: "Epic 0.2 基础存储与底座"
+story_id: "S0-005"
+blast_radius: "L1"
+execution_mode: "Safe"
+mode: "Safe"
+
+goal: "创建 MVP 写模型所需的核心数据库初始化脚本，覆盖 agents、statements、trade_records、agent_profiles、world_snapshots、orders、fills、portfolios、positions、equity_points、audit_logs、idempotency_keys。"
+
+business_value: "让后续 statement、agent、ledger、audit 和 idempotency 相关 Story 都有统一、可重复执行的数据库底座。"
+
 entry_criteria:
-- 无前置依赖。
+  - "S0-001、S0-002、S0-003 的契约文件已经定稿，可以作为字段和关系设计参考。"
+
 acceptance_criteria:
-- 初始化核心 DB Schema 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "scripts/init_schema.sql 定义了 agents、statements、trade_records、agent_profiles、world_snapshots、orders、fills、portfolios、positions、equity_points、audit_logs、idempotency_keys 这些核心表。"
+  - "核心主键、唯一约束和外键关系存在，至少覆盖 idempotency_keys 主键唯一、orders.idempotency_key 唯一、trade_records -> statements、orders/fills/portfolios/positions/equity_points -> agents。"
+  - "init_schema.sql 具备本地初始化所需的最小执行结构，包括 BEGIN/COMMIT 包裹和关键索引定义。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: scripts/init_schema.sql'
+  - "本 Story 只产出数据库初始化 SQL，不实现 ORM、Repository 或运行时数据库连接逻辑。"
+  - "只修改 scripts/init_schema.sql。"
+  - "保持 PostgreSQL 风格 SQL，可读、可审计、可被后续 Story 直接复用。"
+
 out_of_scope:
-- 不在本 Story 中实现 初始化核心 DB Schema 之外的后续能力。
-- 不做架构级重构。
+  - "不实现对象存储和 statement 元数据逻辑（S0-006 负责）。"
+  - "不实现 audit helper 和 idempotency helper 代码（S0-007 负责）。"
+  - "不实现 migration framework。"
+
 not_do:
-- 不在本 Story 中实现 初始化核心 DB Schema 之外的后续能力。
-- 不做架构级重构。
+  - "不新增与 MVP 无关的表。"
+  - "不在本 Story 中实现 repository/service 代码。"
+
 dependencies:
-- 无
+  - "S0-001"
+  - "S0-002"
+  - "S0-003"
+
 related_files:
-- scripts/init_schema.sql
-- docs/contracts/trading_agent_profile.schema.json
+  - "scripts/init_schema.sql"
+  - "docs/contracts/trading_agent_profile.schema.json"
+  - "docs/contracts/marketworldstate_schema.schema.json"
+  - "docs/contracts/agent_register.schema.json"
+
 primary_files:
-- scripts/init_schema.sql
+  - "scripts/init_schema.sql"
+
 secondary_files:
-- docs/contracts/trading_agent_profile.schema.json
+  - "docs/contracts/trading_agent_profile.schema.json"
+  - "docs/contracts/marketworldstate_schema.schema.json"
+  - "docs/contracts/agent_register.schema.json"
+
 test_cases:
   normal:
-  - 正常路径：初始化核心 DB Schema 的核心场景可以完成。
+    - "scripts/init_schema.sql 包含全部核心表定义。"
+    - "核心主键、唯一约束、外键和索引都能在脚本文本中定位到。"
   exception:
-  - 异常路径：初始化核心 DB Schema 失败时返回可解释结果。
+    - "缺少任意核心表定义时，Story 专项校验失败。"
+    - "缺少关键约束或事务包裹时，Story 专项校验失败。"

@@ -173,6 +173,10 @@ def _evaluate_criterion(
         evidence = _evaluate_s0_004_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
+    if story_id == "S0-005":
+        evidence = _evaluate_s0_005_criterion(criterion, repo_b_path)
+        if evidence is not None:
+            return evidence
 
     if "subtitle" in lowered or "副标题" in criterion:
         target_text = _infer_target_text(str(task_payload.get("goal", "")), subtitle=True)
@@ -285,6 +289,39 @@ def _evaluate_s0_004_criterion(criterion: str, repo_b_path: Path) -> tuple[bool,
         required_states = ["`pending`", "`active`", "`revoked`", "`expired`"]
         missing = [state for state in required_states if state not in state_machine]
         return (not missing, "Binding states are documented" if not missing else f"Missing binding states: {', '.join(missing)}")
+    return None
+
+
+def _evaluate_s0_005_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
+    lowered = criterion.lower()
+    sql_path = repo_b_path / "scripts/init_schema.sql"
+    sql = sql_path.read_text(encoding="utf-8") if sql_path.exists() else ""
+
+    if ("primary key" in lowered and "foreign key" in lowered) or ("主键" in criterion and "外键" in criterion):
+        required_tokens = ["PRIMARY KEY", "REFERENCES statements(statement_id)", "REFERENCES agents(agent_id)", "UNIQUE"]
+        missing = [token for token in required_tokens if token not in sql]
+        return (not missing, "Primary, unique, and foreign key constraints are present" if not missing else f"Missing constraints: {', '.join(missing)}")
+    if "local initialization" in lowered or "init_schema.sql can be executed" in lowered or "本地初始化" in criterion or "begin/commit" in lowered:
+        required_tokens = ["BEGIN;", "COMMIT;", "CREATE INDEX IF NOT EXISTS idx_audit_logs_trace_id"]
+        missing = [token for token in required_tokens if token not in sql]
+        return (not missing, "SQL script has transaction wrapper and supporting indexes" if not missing else f"Missing execution markers: {', '.join(missing)}")
+    if "agents" in lowered and "idempotency_keys" in lowered:
+        required_tables = [
+            "agents",
+            "statements",
+            "trade_records",
+            "agent_profiles",
+            "world_snapshots",
+            "orders",
+            "fills",
+            "portfolios",
+            "positions",
+            "equity_points",
+            "audit_logs",
+            "idempotency_keys",
+        ]
+        missing = [table for table in required_tables if f"CREATE TABLE IF NOT EXISTS {table}" not in sql]
+        return (not missing, "init_schema.sql defines all required core tables" if not missing else f"Missing tables: {', '.join(missing)}")
     return None
 
 

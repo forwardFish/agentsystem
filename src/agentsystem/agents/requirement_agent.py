@@ -28,8 +28,9 @@ def requirement_analysis_node(state: DevState) -> DevState:
     ]
     subtasks: list[SubTask] = []
 
-    if related_files:
-        for index, file_path in enumerate(related_files, start=1):
+    execution_files = primary_files or related_files
+    if execution_files:
+        for index, file_path in enumerate(execution_files, start=1):
             normalized = PurePosixPath(file_path.replace("\\", "/")).as_posix()
             if normalized.startswith("apps/web/"):
                 subtasks.append(

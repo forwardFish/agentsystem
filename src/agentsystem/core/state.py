@@ -11,6 +11,10 @@ def merge_dicts(left: dict[str, Any] | None, right: dict[str, Any] | None) -> di
     return {**(left or {}), **(right or {})}
 
 
+def merge_lists(left: list[Any] | None, right: list[Any] | None) -> list[Any]:
+    return [*(left or []), *(right or [])]
+
+
 class SubTask(BaseModel):
     id: str
     type: str
@@ -181,11 +185,11 @@ class DevState(TypedDict, total=False):
     current_step: str
     error_message: str | None
     shared_blackboard: dict[str, Any] | None
-    handoff_packets: list[dict[str, Any]] | None
-    issues_to_fix: list[dict[str, Any]] | None
-    resolved_issues: list[dict[str, Any]] | None
-    agent_messages: list[dict[str, Any]] | None
-    all_deliverables: list[dict[str, Any]] | None
+    handoff_packets: Annotated[list[dict[str, Any]] | None, merge_lists]
+    issues_to_fix: Annotated[list[dict[str, Any]] | None, merge_lists]
+    resolved_issues: Annotated[list[dict[str, Any]] | None, merge_lists]
+    agent_messages: Annotated[list[dict[str, Any]] | None, merge_lists]
+    all_deliverables: Annotated[list[dict[str, Any]] | None, merge_lists]
     collaboration_trace_id: str | None
     collaboration_started_at: str | None
     collaboration_ended_at: str | None

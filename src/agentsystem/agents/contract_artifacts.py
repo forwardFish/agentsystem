@@ -426,6 +426,159 @@ def materialize_error_state_spec_artifacts(repo_b_path: Path, related_files: lis
     return updated_files
 
 
+def materialize_core_db_schema_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "scripts/init_schema.sql",
+        ]
+
+    sql_payload = """-- Core write-model schema for Sprint 0 / S0-005
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS agents (
+    agent_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    world_id TEXT NOT NULL,
+    source_runtime TEXT NOT NULL,
+    status TEXT NOT NULL,
+    trust_level TEXT DEFAULT 'standard',
+    dna_version TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_heartbeat_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS statements (
+    statement_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    market TEXT NOT NULL,
+    object_key TEXT,
+    parsed_status TEXT NOT NULL,
+    broker_hint TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS trade_records (
+    record_id TEXT PRIMARY KEY,
+    statement_id TEXT NOT NULL REFERENCES statements(statement_id),
+    ts TIMESTAMPTZ NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    qty NUMERIC(18, 4) NOT NULL,
+    price NUMERIC(18, 6) NOT NULL,
+    fee NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    tax NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    raw_ref TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_profiles (
+    agent_id TEXT PRIMARY KEY REFERENCES agents(agent_id),
+    profile_json JSONB NOT NULL,
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    risk_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    universe_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    version TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS world_snapshots (
+    world_id TEXT NOT NULL,
+    trading_day DATE NOT NULL,
+    snapshot_json JSONB NOT NULL,
+    data_version TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (world_id, trading_day)
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    order_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES agents(agent_id),
+    trading_day DATE NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    actions_json JSONB NOT NULL,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS fills (
+    fill_id TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL REFERENCES orders(order_id),
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    qty NUMERIC(18, 4) NOT NULL,
+    fill_price NUMERIC(18, 6) NOT NULL,
+    fee NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    slippage NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS portfolios (
+    agent_id TEXT NOT NULL REFERENCES agents(agent_id),
+    trading_day DATE NOT NULL,
+    cash NUMERIC(18, 6) NOT NULL,
+    equity NUMERIC(18, 6) NOT NULL,
+    realized_pnl NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    unrealized_pnl NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (agent_id, trading_day)
+);
+
+CREATE TABLE IF NOT EXISTS positions (
+    agent_id TEXT NOT NULL REFERENCES agents(agent_id),
+    symbol TEXT NOT NULL,
+    qty NUMERIC(18, 4) NOT NULL,
+    avg_cost NUMERIC(18, 6) NOT NULL,
+    last_price NUMERIC(18, 6),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (agent_id, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS equity_points (
+    agent_id TEXT NOT NULL REFERENCES agents(agent_id),
+    trading_day DATE NOT NULL,
+    equity NUMERIC(18, 6) NOT NULL,
+    drawdown NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (agent_id, trading_day)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    audit_id TEXT PRIMARY KEY,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    payload_ref TEXT,
+    trace_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    idempotency_key TEXT PRIMARY KEY,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    result_ref TEXT,
+    status TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_trade_records_statement_id ON trade_records(statement_id);
+CREATE INDEX IF NOT EXISTS idx_orders_agent_day ON orders(agent_id, trading_day);
+CREATE INDEX IF NOT EXISTS idx_fills_order_id ON fills(order_id);
+CREATE INDEX IF NOT EXISTS idx_equity_points_agent_day ON equity_points(agent_id, trading_day);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_trace_id ON audit_logs(trace_id);
+
+COMMIT;
+"""
+
+    updated_files: list[str] = []
+    for raw_path in related_files:
+        path = repo_b_path / raw_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.name == "init_schema.sql":
+            path.write_text(sql_payload, encoding="utf-8")
+            updated_files.append(str(path))
+    return updated_files
+
+
 def _write_json_artifacts(repo_b_path: Path, related_files: list[str], payload_map: dict[str, object]) -> list[str]:
     updated_files: list[str] = []
     for raw_path in related_files:
