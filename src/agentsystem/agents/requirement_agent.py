@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import uuid
 from pathlib import PurePosixPath
+from pathlib import Path
 
-from agentsystem.core.state import DevState, SubTask
+from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, SubTask, add_handoff_packet
 
 
 def requirement_analysis_node(state: DevState) -> DevState:
@@ -127,6 +130,87 @@ def requirement_analysis_node(state: DevState) -> DevState:
     state["parsed_constraints"] = constraints
     state["parsed_not_do"] = not_do
     state["error_message"] = None
+    state["shared_blackboard"] = {
+        "current_goal": state["parsed_goal"],
+        "acceptance_checklist": acceptance_checklist,
+        "primary_files": state["primary_files"],
+        "secondary_files": secondary_files,
+        "constraints": constraints,
+        "not_do": not_do,
+    }
+    state.setdefault("handoff_packets", [])
+    state.setdefault("issues_to_fix", [])
+    state.setdefault("resolved_issues", [])
+    state.setdefault("agent_messages", [])
+    state.setdefault("all_deliverables", [])
+
+    task_scope_name = str(state.get("task_id") or "task")
+    if state.get("repo_b_path"):
+        repo_b_path = Path(str(state["repo_b_path"])).resolve()
+        _write_requirement_artifacts(repo_b_path, state)
+        task_scope_name = repo_b_path.name
+    add_handoff_packet(
+        state,
+        HandoffPacket(
+            packet_id=str(uuid.uuid4()),
+            from_agent=AgentRole.REQUIREMENT,
+            to_agent=AgentRole.BUILDER,
+            status=HandoffStatus.COMPLETED,
+            what_i_did="Parsed the story card into executable scope, checklist, constraints, and file targets.",
+            what_i_produced=[
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Parsed Requirement JSON",
+                    type="report",
+                    path=f".meta/{task_scope_name}/requirement/parsed_requirement.json",
+                    description="Structured requirement payload for downstream agents.",
+                    created_by=AgentRole.REQUIREMENT,
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Intent Confirmation Markdown",
+                    type="report",
+                    path=f".meta/{task_scope_name}/requirement/intent_confirmation.md",
+                    description="Human-readable requirement interpretation and boundaries.",
+                    created_by=AgentRole.REQUIREMENT,
+                ),
+            ],
+            what_risks_i_found=["Some target files may need to be created from scratch."] if related_files else [],
+            what_i_require_next="Modify only the declared primary files, satisfy every checklist item, and keep edits within the task boundary.",
+            trace_id=str(state.get("collaboration_trace_id") or ""),
+        ),
+    )
 
     print(f"[Requirement Agent] Produced {len(subtasks)} subtasks")
     return state
+
+
+def _write_requirement_artifacts(repo_b_path: Path, state: DevState) -> None:
+    requirement_dir = repo_b_path.parent / ".meta" / repo_b_path.name / "requirement"
+    requirement_dir.mkdir(parents=True, exist_ok=True)
+    parsed_payload = {
+        "parsed_goal": state.get("parsed_goal"),
+        "acceptance_checklist": state.get("acceptance_checklist") or [],
+        "primary_files": state.get("primary_files") or [],
+        "secondary_files": state.get("secondary_files") or [],
+        "constraints": state.get("parsed_constraints") or [],
+        "not_do": state.get("parsed_not_do") or [],
+    }
+    (requirement_dir / "parsed_requirement.json").write_text(
+        json.dumps(parsed_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    acceptance_lines = [f"- {item}" for item in (state.get("acceptance_checklist") or [])] or ["- None"]
+    file_scope_lines = [f"- {item}" for item in (state.get("primary_files") or [])] or ["- None"]
+    lines = [
+        "# Requirement Intent Confirmation",
+        "",
+        f"- Goal: {state.get('parsed_goal') or 'n/a'}",
+        "",
+        "## Acceptance Checklist",
+        *acceptance_lines,
+        "",
+        "## File Scope",
+        *file_scope_lines,
+    ]
+    (requirement_dir / "intent_confirmation.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

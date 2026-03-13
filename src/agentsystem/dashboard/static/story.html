@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Story Detail</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(34, 197, 94, 0.09), transparent 24%),
+        linear-gradient(160deg, #08111f, #0d1728 42%, #0b1020 100%);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .panel {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(19, 29, 46, 0.96), rgba(10, 17, 31, 0.94));
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(12px);
+    }
+    .section-label {
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      white-space: nowrap;
+    }
+    .pill.done, .pill.success { color: #d1fae5; background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.25); }
+    .pill.failed, .pill.blocking { color: #fecdd3; background: rgba(251, 113, 133, 0.12); border-color: rgba(251, 113, 133, 0.25); }
+    .pill.partial, .pill.running, .pill.important { color: #fde68a; background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.24); }
+    .pill.not_started, .pill.pending, .pill.nice_to_have, .pill.unknown { color: #dbeafe; background: rgba(125, 211, 252, 0.10); border-color: rgba(125, 211, 252, 0.22); }
+    .tab-btn.active {
+      background: #f8fafc;
+      color: #0f172a;
+      border-color: rgba(248, 250, 252, 0.95);
+    }
+    .markdown {
+      color: #dbe4f3;
+      line-height: 1.75;
+      overflow-wrap: anywhere;
+    }
+    .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown strong {
+      color: #fff;
+    }
+    .key-value dt {
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .key-value dd {
+      color: #e2e8f0;
+      font-size: 14px;
+      line-height: 1.7;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-100">
+  <div class="mx-auto max-w-[1600px] px-5 py-6 lg:px-8">
+    <header class="panel mb-6 rounded-[28px] p-6 lg:p-8">
+      <div class="flex flex-wrap items-start justify-between gap-6">
+        <div class="max-w-5xl">
+          <div class="section-label mb-3">Story Detail</div>
+          <h1 id="detail-title" class="text-2xl font-bold tracking-tight text-white lg:text-4xl">加载中...</h1>
+          <p id="detail-meta" class="mt-4 max-w-4xl text-sm leading-7 text-slate-300">正在读取 Story 详情与协作状态。</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <span id="detail-status" class="pill not_started">未加载</span>
+          <a href="/" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-emerald-300/50 hover:bg-white/10">返回列表页</a>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_460px]">
+      <div class="space-y-6">
+        <div class="panel rounded-[28px] p-5">
+          <div class="grid gap-4 md:grid-cols-4">
+            <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
+              <div class="section-label mb-2">Tests</div>
+              <div id="metric-tests" class="text-lg font-semibold text-white">-</div>
+            </div>
+            <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
+              <div class="section-label mb-2">Review</div>
+              <div id="metric-review" class="text-lg font-semibold text-white">-</div>
+            </div>
+            <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
+              <div class="section-label mb-2">Code Acceptance</div>
+              <div id="metric-code-acceptance" class="text-lg font-semibold text-white">-</div>
+            </div>
+            <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
+              <div class="section-label mb-2">Acceptance Gate</div>
+              <div id="metric-acceptance" class="text-lg font-semibold text-white">-</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4 flex flex-wrap gap-2">
+            <button id="tab-summary" class="tab-btn rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:border-emerald-300/50 hover:bg-white/10">基本信息</button>
+            <button id="tab-reports" class="tab-btn rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:border-emerald-300/50 hover:bg-white/10">交付报告</button>
+            <button id="tab-events" class="tab-btn rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:border-emerald-300/50 hover:bg-white/10">实时事件</button>
+            <button id="tab-collab" class="tab-btn rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:border-emerald-300/50 hover:bg-white/10">Agent 协作链</button>
+          </div>
+
+          <div id="panel-summary" class="space-y-6">
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-4 text-lg font-semibold text-white">Story 摘要</div>
+              <div id="story-summary" class="space-y-5"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-4 text-lg font-semibold text-white">验收清单</div>
+              <div id="story-checklist" class="space-y-3"></div>
+            </div>
+          </div>
+
+          <div id="panel-reports" class="hidden space-y-6">
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">PR 描述</div>
+              <div id="artifact-pr" class="markdown"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">审查报告</div>
+              <div id="artifact-review" class="markdown"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">代码验收报告</div>
+              <div id="artifact-code-acceptance" class="markdown"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">最终交付报告</div>
+              <div id="artifact-delivery" class="markdown"></div>
+            </div>
+          </div>
+
+          <div id="panel-events" class="hidden rounded-[22px] border border-white/8 bg-black/20 p-5">
+            <div class="mb-3 text-lg font-semibold text-white">实时事件与日志</div>
+            <div id="live-logs" class="max-h-[680px] overflow-y-auto rounded-[18px] border border-white/6 bg-slate-950/80 p-4 font-mono text-xs leading-6 text-slate-200"></div>
+          </div>
+
+          <div id="panel-collab" class="hidden space-y-6">
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">协作总览</div>
+              <div id="collab-summary" class="grid gap-4 md:grid-cols-2"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">交接包链</div>
+              <div id="collab-handoffs" class="space-y-3"></div>
+            </div>
+            <div class="grid gap-4 xl:grid-cols-2">
+              <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+                <div class="mb-3 text-lg font-semibold text-white">待解决问题</div>
+                <div id="collab-open-issues" class="space-y-3"></div>
+              </div>
+              <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+                <div class="mb-3 text-lg font-semibold text-white">已解决问题</div>
+                <div id="collab-resolved-issues" class="space-y-3"></div>
+              </div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">交付物汇总</div>
+              <div id="collab-deliverables" class="space-y-3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="space-y-6">
+        <div class="panel rounded-[28px] p-5">
+          <div class="section-label mb-3">Latest Run</div>
+          <div id="run-summary" class="space-y-3 text-sm text-slate-200"></div>
+        </div>
+        <div class="panel rounded-[28px] p-5">
+          <div class="section-label mb-3">实时连接</div>
+          <span id="socket-status" class="pill not_started">WebSocket 未连接</span>
+        </div>
+        <div class="panel rounded-[28px] p-5">
+          <div class="section-label mb-3">标准产物</div>
+          <div id="standard-summary" class="space-y-3 text-sm text-slate-200"></div>
+        </div>
+      </aside>
+    </section>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const backlogId = params.get("backlog");
+    const sprintId = params.get("sprint");
+    const storyId = params.get("story");
+    let activeTab = "summary";
+    let socket = null;
+
+    async function fetchJson(path) {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }
+
+    function badgeClass(status) {
+      return (status || "not_started").toLowerCase();
+    }
+
+    function renderList(items, emptyText = "暂无") {
+      const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (!normalized.length) return `<div class="text-sm text-slate-400">${emptyText}</div>`;
+      return `<ul class="list-disc space-y-2 pl-5 text-sm leading-7 text-slate-200">${normalized.map((item) => `<li class="break-words">${item}</li>`).join("")}</ul>`;
+    }
+
+    function renderKeyValues(pairs) {
+      return `
+        <dl class="key-value grid gap-x-6 gap-y-4 md:grid-cols-2">
+          ${pairs.map(([label, value]) => `
+            <div>
+              <dt>${label}</dt>
+              <dd>${value || "-"}</dd>
+            </div>
+          `).join("")}
+        </dl>
+      `;
+    }
+
+    function renderTabs() {
+      ["summary", "reports", "events", "collab"].forEach((name) => {
+        document.getElementById(`tab-${name}`).classList.toggle("active", name === activeTab);
+        document.getElementById(`panel-${name}`).classList.toggle("hidden", name !== activeTab);
+      });
+    }
+
+    function switchTab(name) {
+      activeTab = name;
+      renderTabs();
+    }
+
+    function setSocketStatus(text, connected) {
+      const el = document.getElementById("socket-status");
+      el.textContent = text;
+      el.className = `pill ${connected ? "done" : "not_started"}`;
+    }
+
+    function clearLogs() {
+      document.getElementById("live-logs").innerHTML = "";
+    }
+
+    function appendLog(event) {
+      const container = document.getElementById("live-logs");
+      const line = document.createElement("div");
+      const level = event.payload?.level || event.type || "INFO";
+      const message = event.payload?.message || JSON.stringify(event.payload || {});
+      line.className = `border-b border-white/5 py-1 ${level === "ERROR" ? "text-rose-300" : level === "WARNING" ? "text-amber-300" : "text-slate-200"}`;
+      line.textContent = `[${event.timestamp || ""}] ${event.type || "log"} ${message}`;
+      container.appendChild(line);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function connectSocket(taskId) {
+      if (socket) {
+        socket.close();
+        socket = null;
+      }
+      if (!taskId) {
+        setSocketStatus("WebSocket 未连接", false);
+        return;
+      }
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      socket = new WebSocket(`${protocol}://${window.location.host}/ws/${taskId}`);
+      setSocketStatus("WebSocket 连接中", false);
+      socket.onopen = () => setSocketStatus("WebSocket 已连接", true);
+      socket.onclose = () => setSocketStatus("WebSocket 已断开", false);
+      socket.onerror = () => setSocketStatus("WebSocket 错误", false);
+      socket.onmessage = (event) => appendLog(JSON.parse(event.data));
+    }
+
+    function renderChecklist(acceptanceCriteria, completion) {
+      const items = Array.isArray(acceptanceCriteria) ? acceptanceCriteria : [];
+      if (!items.length) {
+        return `<div class="text-sm text-slate-400">任务卡里没有记录验收标准。</div>`;
+      }
+      const passed = Boolean(completion?.acceptance_passed);
+      return items.map((item) => `
+        <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm leading-7 text-slate-100 break-words">${item}</div>
+            <span class="pill ${passed ? "done" : "partial"}">${passed ? "已通过" : "待确认"}</span>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderCollaboration(taskDetail) {
+      const collab = taskDetail?.collaboration || {};
+      const blackboard = collab.shared_blackboard || {};
+      const handoffs = collab.handoff_packets || [];
+      const openIssues = collab.issues_to_fix || [];
+      const resolvedIssues = collab.resolved_issues || [];
+      const deliverables = collab.all_deliverables || [];
+
+      document.getElementById("collab-summary").innerHTML = renderKeyValues([
+        ["Trace ID", collab.trace_id],
+        ["Started At", collab.started_at],
+        ["Ended At", collab.ended_at],
+        ["Current Goal", blackboard.current_goal],
+        ["Primary Files", (blackboard.primary_files || []).join(", ")],
+        ["Checklist Count", (blackboard.acceptance_checklist || []).length ? `${(blackboard.acceptance_checklist || []).length} items` : "-"],
+      ]);
+
+      document.getElementById("collab-handoffs").innerHTML = handoffs.length ? handoffs.map((packet) => `
+        <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white break-words">${packet.from_agent || "-"} -> ${packet.to_agent || "-"}</div>
+            <span class="pill ${badgeClass(packet.status)}">${packet.status || "pending"}</span>
+          </div>
+          <div class="space-y-3 text-sm text-slate-200">
+            <div>
+              <div class="section-label mb-1">What I Did</div>
+              <div class="break-words">${packet.what_i_did || "-"}</div>
+            </div>
+            <div>
+              <div class="section-label mb-1">What I Require Next</div>
+              <div class="break-words">${packet.what_i_require_next || "-"}</div>
+            </div>
+            <div>
+              <div class="section-label mb-1">Risks</div>
+              ${renderList(packet.what_risks_i_found, "无")}
+            </div>
+          </div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">暂无交接包。</div>`;
+
+      const renderIssue = (issue) => `
+        <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white break-words">${issue.title || "Issue"}</div>
+            <span class="pill ${badgeClass(issue.severity)}">${issue.severity || "important"}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-200 break-words">${issue.description || "-"}</div>
+          <div class="mt-2 text-xs text-slate-500 break-words">${issue.source_agent || "-"} -> ${issue.target_agent || "-"}</div>
+        </div>
+      `;
+      document.getElementById("collab-open-issues").innerHTML = openIssues.length ? openIssues.map(renderIssue).join("") : `<div class="text-sm text-slate-400">当前没有待解决问题。</div>`;
+      document.getElementById("collab-resolved-issues").innerHTML = resolvedIssues.length ? resolvedIssues.map(renderIssue).join("") : `<div class="text-sm text-slate-400">当前没有已解决问题。</div>`;
+      document.getElementById("collab-deliverables").innerHTML = deliverables.length ? deliverables.map((item) => `
+        <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white break-words">${item.name || "-"}</div>
+            <span class="pill not_started">${item.type || "artifact"}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-200 break-words">${item.description || "-"}</div>
+          <div class="mt-2 text-xs text-slate-500 break-words">${item.path || "-"}</div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">暂无交付物。</div>`;
+    }
+
+    async function loadStoryDetail() {
+      if (!backlogId || !sprintId || !storyId) {
+        document.getElementById("detail-title").textContent = "缺少必要参数";
+        document.getElementById("detail-meta").textContent = "请从列表页重新进入 Story 详情。";
+        return;
+      }
+
+      const detail = await fetchJson(`/api/backlogs/${backlogId}/sprints/${sprintId}/stories/${storyId}`);
+      const story = detail.story || {};
+      const latestRun = detail.latest_run || {};
+      const taskDetail = detail.task_detail || {};
+      const completion = taskDetail.completion || {};
+
+      document.getElementById("detail-title").textContent = `${story.story_id || storyId} ${story.task_name || ""}`.trim();
+      document.getElementById("detail-meta").textContent = [story.sprint, story.epic, latestRun.branch ? `branch: ${latestRun.branch}` : null, latestRun.commit ? `commit: ${latestRun.commit}` : null].filter(Boolean).join(" | ");
+      document.getElementById("detail-status").textContent = detail.status || "not_started";
+      document.getElementById("detail-status").className = `pill ${badgeClass(detail.status || "not_started")}`;
+
+      const metric = (value) => value ? "PASS" : "WAIT";
+      document.getElementById("metric-tests").textContent = metric(completion.tests_passed);
+      document.getElementById("metric-review").textContent = metric(completion.review_passed);
+      document.getElementById("metric-code-acceptance").textContent = metric(completion.code_acceptance_passed);
+      document.getElementById("metric-acceptance").textContent = metric(completion.acceptance_passed);
+
+      document.getElementById("story-summary").innerHTML = `
+        ${renderKeyValues([
+          ["Goal", story.goal],
+          ["Business Value", story.business_value],
+          ["Blast Radius", story.blast_radius],
+          ["Execution Mode", story.execution_mode || story.mode],
+          ["Sprint", story.sprint],
+          ["Epic", story.epic],
+          ["Fix Attempts", String(completion.fix_attempts || 0)],
+          ["Open Blocking Issues", (completion.blocking_issues || []).length ? String((completion.blocking_issues || []).length) : "0"],
+        ])}
+        <div><div class="section-label mb-2">Entry Criteria</div>${renderList(story.entry_criteria, "暂无")}</div>
+        <div><div class="section-label mb-2">Dependencies</div>${renderList(story.dependencies, "无")}</div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <div><div class="section-label mb-2">Primary Files</div>${renderList(story.primary_files, "暂无")}</div>
+          <div><div class="section-label mb-2">Secondary Files</div>${renderList(story.secondary_files, "暂无")}</div>
+        </div>
+        <div><div class="section-label mb-2">Out of Scope</div>${renderList(story.out_of_scope || story.not_do, "暂无")}</div>
+      `;
+
+      document.getElementById("story-checklist").innerHTML = renderChecklist(story.acceptance_criteria, completion);
+
+      document.getElementById("artifact-pr").innerHTML = marked.parse(taskDetail.artifacts?.pr_description || "_暂无 PR 描述_");
+      document.getElementById("artifact-review").innerHTML = marked.parse(taskDetail.artifacts?.review_report || "_暂无审查报告_");
+      document.getElementById("artifact-code-acceptance").innerHTML = marked.parse(
+        [
+          taskDetail.artifacts?.code_acceptance_report || "_暂无代码验收报告_",
+          "",
+          "## Story Completion Standard",
+          taskDetail.artifacts?.completion_standard || "_暂无标准文档_",
+        ].join("\n")
+      );
+      document.getElementById("artifact-delivery").innerHTML = marked.parse(taskDetail.artifacts?.delivery_report || "_暂无交付报告_");
+
+      document.getElementById("run-summary").innerHTML = renderKeyValues([
+        ["Task ID", detail.latest_task_id],
+        ["Branch", latestRun.branch],
+        ["Commit", latestRun.commit],
+        ["Success", latestRun.success === true ? "yes" : latestRun.success === false ? "no" : "-"],
+      ]);
+
+      document.getElementById("standard-summary").innerHTML = renderList([
+        "每个 Story 都必须产出 Story Completion Standard",
+        "必须通过 Tests / Review / Code Acceptance / Acceptance Gate",
+        "最终交付报告必须归档并可在面板中查看",
+      ]);
+
+      renderCollaboration(taskDetail);
+      clearLogs();
+      (taskDetail.events || []).forEach((event) => appendLog(event));
+      connectSocket(detail.latest_task_id);
+      renderTabs();
+    }
+
+    document.getElementById("tab-summary").addEventListener("click", () => switchTab("summary"));
+    document.getElementById("tab-reports").addEventListener("click", () => switchTab("reports"));
+    document.getElementById("tab-events").addEventListener("click", () => switchTab("events"));
+    document.getElementById("tab-collab").addEventListener("click", () => switchTab("collab"));
+
+    renderTabs();
+    loadStoryDetail().catch((error) => {
+      console.error(error);
+      document.getElementById("detail-title").textContent = "加载失败";
+      document.getElementById("detail-meta").textContent = String(error);
+    });
+  </script>
+</body>
+</html>

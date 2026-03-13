@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+from enum import Enum
 from typing import Annotated, Any, TypedDict
 
 from pydantic import BaseModel, Field
@@ -15,6 +17,111 @@ class SubTask(BaseModel):
     description: str
     files_to_modify: list[str] = Field(default_factory=list)
     status: str = "pending"
+
+
+class AgentRole(str, Enum):
+    REQUIREMENT = "Requirement"
+    BUILDER = "Builder"
+    SYNC = "Sync"
+    TESTER = "Tester"
+    FIXER = "Fixer"
+    REVIEWER = "Reviewer"
+    CODE_STYLE_REVIEWER = "CodeStyleReviewer"
+    ACCEPTANCE_GATE = "AcceptanceGate"
+    DOC_WRITER = "DocWriter"
+
+
+class HandoffStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+    REJECTED = "rejected"
+
+
+class IssueSeverity(str, Enum):
+    BLOCKING = "blocking"
+    IMPORTANT = "important"
+    NICE_TO_HAVE = "nice_to_have"
+
+
+class Issue(BaseModel):
+    issue_id: str
+    severity: IssueSeverity
+    source_agent: AgentRole
+    target_agent: AgentRole
+    title: str
+    description: str
+    file_path: str | None = None
+    line_number: int | None = None
+    suggestion: str | None = None
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    resolved_at: str | None = None
+    resolved: bool = False
+
+
+class Deliverable(BaseModel):
+    deliverable_id: str
+    name: str
+    type: str
+    path: str
+    description: str
+    created_by: AgentRole
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    version: str = "1.0"
+
+
+class HandoffPacket(BaseModel):
+    packet_id: str
+    from_agent: AgentRole
+    to_agent: AgentRole
+    status: HandoffStatus = HandoffStatus.PENDING
+    what_i_did: str
+    what_i_produced: list[Deliverable] = Field(default_factory=list)
+    what_risks_i_found: list[str] = Field(default_factory=list)
+    what_i_require_next: str
+    issues: list[Issue] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    trace_id: str
+
+
+class AgentMessage(BaseModel):
+    message_id: str
+    from_agent: AgentRole
+    to_agent: AgentRole | None = None
+    content: str
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+
+
+def add_handoff_packet(state: "DevState", packet: HandoffPacket) -> None:
+    handoff_packets = list(state.get("handoff_packets") or [])
+    handoff_packets.append(packet.model_dump(mode="json"))
+    state["handoff_packets"] = handoff_packets
+
+    all_deliverables = list(state.get("all_deliverables") or [])
+    all_deliverables.extend(deliverable.model_dump(mode="json") for deliverable in packet.what_i_produced)
+    state["all_deliverables"] = all_deliverables
+
+
+def add_issue(state: "DevState", issue: Issue) -> None:
+    issues = list(state.get("issues_to_fix") or [])
+    issues.append(issue.model_dump(mode="json"))
+    state["issues_to_fix"] = issues
+
+
+def resolve_issue(state: "DevState", issue_id: str) -> None:
+    remaining: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = list(state.get("resolved_issues") or [])
+    for issue in list(state.get("issues_to_fix") or []):
+        if issue.get("issue_id") == issue_id:
+            issue["resolved"] = True
+            issue["resolved_at"] = datetime.now().isoformat(timespec="seconds")
+            resolved.append(issue)
+        else:
+            remaining.append(issue)
+    state["issues_to_fix"] = remaining
+    state["resolved_issues"] = resolved
 
 
 class DevState(TypedDict, total=False):
@@ -56,13 +163,29 @@ class DevState(TypedDict, total=False):
     important_issues: list[str] | None
     nice_to_haves: list[str] | None
     review_report: str | None
+    code_acceptance_success: bool | None
+    code_acceptance_passed: bool | None
+    code_acceptance_report: str | None
+    code_acceptance_dir: str | None
+    code_acceptance_issues: list[str] | None
     acceptance_success: bool | None
     acceptance_passed: bool | None
     acceptance_report: str | None
+    acceptance_dir: str | None
     doc_result: str | None
+    delivery_dir: str | None
     fix_result: str | None
     fixer_needed: bool | None
     fixer_success: bool | None
     fix_attempts: int
     current_step: str
     error_message: str | None
+    shared_blackboard: dict[str, Any] | None
+    handoff_packets: list[dict[str, Any]] | None
+    issues_to_fix: list[dict[str, Any]] | None
+    resolved_issues: list[dict[str, Any]] | None
+    agent_messages: list[dict[str, Any]] | None
+    all_deliverables: list[dict[str, Any]] | None
+    collaboration_trace_id: str | None
+    collaboration_started_at: str | None
+    collaboration_ended_at: str | None

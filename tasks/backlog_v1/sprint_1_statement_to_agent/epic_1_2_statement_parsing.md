@@ -1,6 +1,6 @@
 # Epic 1_2 交割单解析与标准化
 
-把原始交割单映射为标准 TradeRecord 并输出解析报告。
+把原始交割单映射为标准化 TradeRecord 并输出解析报告。
 
 ## Stories
 | Story ID | Story 名称 |

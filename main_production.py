@@ -157,6 +157,9 @@ def _archive_task_artifacts(task_id: str, state: dict) -> Path | None:
     for source_key, target_name in (
         ("pr_prep_dir", "pr_prep"),
         ("review_dir", "review"),
+        ("code_acceptance_dir", "code_acceptance"),
+        ("acceptance_dir", "acceptance"),
+        ("delivery_dir", "delivery"),
     ):
         source = state.get(source_key)
         if not source:

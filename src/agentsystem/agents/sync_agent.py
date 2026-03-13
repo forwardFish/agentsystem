@@ -1,8 +1,9 @@
 from __future__ import annotations
+import uuid
 from pathlib import Path
 
 from agentsystem.adapters.git_adapter import GitAdapter
-from agentsystem.core.state import DevState, SubTask
+from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, SubTask, add_handoff_packet
 
 
 def sync_merge_node(state: DevState) -> DevState:
@@ -41,6 +42,37 @@ def sync_merge_node(state: DevState) -> DevState:
         state["commit_msg"] = commit_msg
         state["pr_prep_dir"] = str(pr_prep_dir)
         state["pr_prep_success"] = True
+        add_handoff_packet(
+            state,
+            HandoffPacket(
+                packet_id=str(uuid.uuid4()),
+                from_agent=AgentRole.SYNC,
+                to_agent=AgentRole.TESTER,
+                status=HandoffStatus.COMPLETED,
+                what_i_did="Collected changed files, prepared PR materials, and staged the local change set for validation.",
+                what_i_produced=[
+                    Deliverable(
+                        deliverable_id=str(uuid.uuid4()),
+                        name="PR Description",
+                        type="report",
+                        path=str(pr_prep_dir / "pr_description.md"),
+                        description="Local PR preparation summary generated from the current story scope.",
+                        created_by=AgentRole.SYNC,
+                    ),
+                    Deliverable(
+                        deliverable_id=str(uuid.uuid4()),
+                        name="Commit Message",
+                        type="report",
+                        path=str(pr_prep_dir / "commit_message.txt"),
+                        description="Proposed commit message for the story delivery.",
+                        created_by=AgentRole.SYNC,
+                    ),
+                ],
+                what_risks_i_found=[] if staged_files else ["No staged files were detected after sync preparation."],
+                what_i_require_next="Validate the staged change set, run story-specific checks, and return structured issues if anything blocks delivery.",
+                trace_id=str(state.get("collaboration_trace_id") or ""),
+            ),
+        )
 
         if state.get("auto_commit", True) and staged_files:
             git.commit(commit_msg)

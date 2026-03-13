@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 
 from agentsystem.adapters.config_reader import RepoBConfigReader
 from agentsystem.adapters.git_adapter import GitAdapter
-from agentsystem.core.state import DevState
+from agentsystem.core.state import (
+    AgentRole,
+    Deliverable,
+    DevState,
+    HandoffPacket,
+    HandoffStatus,
+    Issue,
+    IssueSeverity,
+    add_handoff_packet,
+    add_issue,
+)
 from agentsystem.llm.client import get_llm
 
 
@@ -188,6 +199,60 @@ def review_node(state: DevState) -> DevState:
     result = reviewer.run(state)
     state.update(result)
     state["current_step"] = "review_done"
+    issues: list[Issue] = []
+    for item in state.get("blocking_issues") or []:
+        issue = Issue(
+            issue_id=str(uuid.uuid4()),
+            severity=IssueSeverity.BLOCKING,
+            source_agent=AgentRole.REVIEWER,
+            target_agent=AgentRole.FIXER,
+            title="Review blocking issue",
+            description=str(item),
+            suggestion="Fix the review finding and return the story for another validation pass.",
+        )
+        add_issue(state, issue)
+        issues.append(issue)
+    for item in state.get("important_issues") or []:
+        issue = Issue(
+            issue_id=str(uuid.uuid4()),
+            severity=IssueSeverity.IMPORTANT,
+            source_agent=AgentRole.REVIEWER,
+            target_agent=AgentRole.FIXER,
+            title="Review important issue",
+            description=str(item),
+            suggestion="Address the maintainability or policy issue before final acceptance.",
+        )
+        add_issue(state, issue)
+        issues.append(issue)
+    if state.get("review_success"):
+        add_handoff_packet(
+            state,
+            HandoffPacket(
+                packet_id=str(uuid.uuid4()),
+                from_agent=AgentRole.REVIEWER,
+                to_agent=AgentRole.CODE_STYLE_REVIEWER if state.get("review_passed") else AgentRole.FIXER,
+                status=HandoffStatus.COMPLETED if state.get("review_passed") else HandoffStatus.BLOCKED,
+                what_i_did="Reviewed the validated change set for requirement fit, rules compliance, and maintainability.",
+                what_i_produced=[
+                    Deliverable(
+                        deliverable_id=str(uuid.uuid4()),
+                        name="Review Report",
+                        type="report",
+                        path=str(state.get("review_dir") or ""),
+                        description="Structured review output for the current story iteration.",
+                        created_by=AgentRole.REVIEWER,
+                    )
+                ],
+                what_risks_i_found=[str(item) for item in (state.get("blocking_issues") or [])],
+                what_i_require_next=(
+                    "Run code style acceptance on the current files."
+                    if state.get("review_passed")
+                    else "Resolve every blocking review issue, then re-run validation and review."
+                ),
+                issues=issues if not state.get("review_passed") else [],
+                trace_id=str(state.get("collaboration_trace_id") or ""),
+            ),
+        )
 
     _safe_print("[Review Agent] Report")
     for line in str(state.get("review_report", "")).splitlines():
@@ -196,6 +261,10 @@ def review_node(state: DevState) -> DevState:
 
     _safe_print("[Review Agent] Review completed")
     return state
+
+
+def route_after_review(state: DevState) -> str:
+    return "code_acceptance" if state.get("review_passed") else "fixer"
 
 
 def _format_bullets(items: list[str], fallback: str) -> str:

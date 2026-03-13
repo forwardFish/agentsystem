@@ -3,127 +3,145 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentSystem Dashboard</title>
+  <title>Agent System Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(125, 211, 252, 0.12), transparent 20%),
+        radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 24%),
+        linear-gradient(160deg, #08101f, #0d1628 42%, #0b1020 100%);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .panel {
+      border: 1px solid rgba(255,255,255,0.08);
+      background: linear-gradient(180deg, rgba(22, 33, 51, 0.94), rgba(13, 22, 40, 0.94));
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+      backdrop-filter: blur(10px);
+    }
+    .section-title {
+      color: #93a1b6;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .list-card {
+      border: 1px solid rgba(255,255,255,0.08);
+      background: linear-gradient(180deg, rgba(13,19,37,0.92), rgba(9,14,27,0.94));
+      transition: 140ms ease;
+    }
+    .list-card:hover { border-color: rgba(125, 211, 252, 0.35); transform: translateY(-1px); }
+    .list-card.active { border-color: rgba(125, 211, 252, 0.6); box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.12); }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .pill.done, .pill.success { color: #d1fae5; background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.3); }
+    .pill.failed, .pill.blocking { color: #fecdd3; background: rgba(251, 113, 133, 0.12); border-color: rgba(251, 113, 133, 0.3); }
+    .pill.partial, .pill.running, .pill.important { color: #fde68a; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.3); }
+    .pill.not_started, .pill.pending, .pill.nice_to_have, .pill.unknown { color: #dbeafe; background: rgba(125, 211, 252, 0.1); border-color: rgba(125, 211, 252, 0.22); }
+    .truncate-two {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+    .markdown { color: #dbe4f3; line-height: 1.75; }
+    .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown strong { color: #fff; }
+  </style>
 </head>
-<body class="min-h-screen bg-slate-950 text-slate-100">
-  <div class="mx-auto max-w-7xl p-6">
-    <div class="mb-6 flex items-start justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-bold">AgentSystem 执行面板</h1>
-        <p class="mt-2 text-sm text-slate-400">查看任务状态、实时日志、产物和质量指标。</p>
+<body class="min-h-screen text-slate-100">
+  <div class="mx-auto max-w-[1500px] px-5 py-6 lg:px-8">
+    <header class="panel mb-6 rounded-[28px] p-6 lg:p-8">
+      <div class="flex flex-wrap items-start justify-between gap-6">
+        <div class="max-w-4xl">
+          <div class="section-title mb-3">Agentic Delivery Console</div>
+          <h1 class="text-2xl font-bold tracking-tight text-white lg:text-4xl">Backlog / Sprint / Story 列表总览</h1>
+          <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
+            这个页面负责看全局状态：有哪些 backlog、每个 sprint 的推进情况、每个 story 的状态。点开 story 后进入详情页查看交付物、协作链与实时事件。
+          </p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="refresh-button" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10">刷新数据</button>
+        </div>
       </div>
-      <div class="flex items-center gap-3">
-        <span id="socket-status" class="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">WebSocket 未连接</span>
-        <button id="refresh-button" class="rounded-md bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700">刷新</button>
-      </div>
-    </div>
+    </header>
 
-    <div class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <div class="text-xs uppercase tracking-wide text-slate-400">总任务数</div>
-        <div id="metric-total" class="mt-2 text-3xl font-semibold">0</div>
-      </div>
-      <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <div class="text-xs uppercase tracking-wide text-slate-400">首次交付通过率</div>
-        <div id="metric-first-pass" class="mt-2 text-3xl font-semibold">0%</div>
-      </div>
-      <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <div class="text-xs uppercase tracking-wide text-slate-400">平均回修轮次</div>
-        <div id="metric-retries" class="mt-2 text-3xl font-semibold">0</div>
-      </div>
-      <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <div class="text-xs uppercase tracking-wide text-slate-400">验收项命中率</div>
-        <div id="metric-acceptance" class="mt-2 text-3xl font-semibold">0%</div>
-      </div>
-    </div>
+    <section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div class="panel rounded-[24px] p-5"><div class="section-title">任务总数</div><div id="metric-total" class="mt-3 text-3xl font-bold text-white">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-title">首次交付通过率</div><div id="metric-first-pass" class="mt-3 text-3xl font-bold text-cyan-300">0%</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-title">平均回修轮次</div><div id="metric-retries" class="mt-3 text-3xl font-bold text-amber-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-title">验收命中率</div><div id="metric-acceptance" class="mt-3 text-3xl font-bold text-emerald-300">0%</div></div>
+    </section>
 
-    <div class="mb-6 grid gap-4 xl:grid-cols-3">
-      <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <div class="mb-3 text-sm font-medium text-slate-300">近 7 天成功率</div>
-        <canvas id="success-chart" height="180"></canvas>
-      </div>
-      <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <div class="mb-3 text-sm font-medium text-slate-300">近 7 天回修轮次</div>
-        <canvas id="retry-chart" height="180"></canvas>
-      </div>
-      <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <div class="mb-3 text-sm font-medium text-slate-300">近 7 天验收命中率</div>
-        <canvas id="acceptance-chart" height="180"></canvas>
-      </div>
-    </div>
+    <section class="mb-6 grid gap-4 xl:grid-cols-3">
+      <div class="panel rounded-[24px] p-5"><div class="mb-3"><div class="section-title">Trend</div><div class="mt-1 text-lg font-semibold text-white">近 7 天成功率</div></div><div class="h-56"><canvas id="success-chart"></canvas></div></div>
+      <div class="panel rounded-[24px] p-5"><div class="mb-3"><div class="section-title">Repair</div><div class="mt-1 text-lg font-semibold text-white">近 7 天回修轮次</div></div><div class="h-56"><canvas id="retry-chart"></canvas></div></div>
+      <div class="panel rounded-[24px] p-5"><div class="mb-3"><div class="section-title">Acceptance</div><div class="mt-1 text-lg font-semibold text-white">近 7 天验收命中率</div></div><div class="h-56"><canvas id="acceptance-chart"></canvas></div></div>
+    </section>
 
-    <div class="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <section class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+    <section class="panel mb-6 rounded-[28px] p-5 lg:p-6">
+      <div class="mb-4 flex items-center justify-between">
+        <div>
+          <div class="section-title">Planning Layer</div>
+          <h2 class="mt-1 text-xl font-semibold text-white">Backlogs</h2>
+        </div>
+        <div id="backlog-count" class="text-sm text-slate-400">0</div>
+      </div>
+      <div id="backlog-list" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
+      <div id="backlog-overview" class="markdown mt-5 rounded-[22px] border border-white/8 bg-black/20 p-5"></div>
+    </section>
+
+    <section class="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div class="panel rounded-[28px] p-5">
         <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-lg font-semibold">任务列表</h2>
-          <span id="task-count" class="text-sm text-slate-400">0 个任务</span>
-        </div>
-        <div id="task-list" class="space-y-3"></div>
-      </section>
-
-      <section class="space-y-6">
-        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <h2 id="detail-title" class="text-xl font-semibold">选择一个任务</h2>
-              <p id="detail-meta" class="mt-2 text-sm text-slate-400">将在这里显示任务详情。</p>
-            </div>
-            <span id="detail-status" class="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">未选择</span>
+          <div>
+            <div class="section-title">Execution Layer</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">Sprints</h2>
           </div>
+          <div id="sprint-count" class="text-sm text-slate-400">0</div>
         </div>
+        <div id="sprint-list" class="space-y-3"></div>
+      </div>
 
-        <div class="grid gap-6 xl:grid-cols-2">
-          <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <h3 class="mb-4 text-lg font-semibold">实时日志</h3>
-            <div id="live-logs" class="max-h-[520px] overflow-y-auto rounded-lg bg-slate-950 p-3 font-mono text-xs leading-6 text-slate-200"></div>
+      <div class="panel rounded-[28px] p-5">
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <div class="section-title">Delivery Units</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">Stories</h2>
           </div>
-
-          <div class="space-y-6">
-            <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <h3 class="mb-4 text-lg font-semibold">PR 描述</h3>
-              <div id="artifact-pr" class="prose prose-invert max-w-none text-sm"></div>
-            </div>
-            <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <h3 class="mb-4 text-lg font-semibold">审查报告</h3>
-              <div id="artifact-review" class="prose prose-invert max-w-none text-sm"></div>
-            </div>
-            <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <h3 class="mb-4 text-lg font-semibold">Commit Message</h3>
-              <pre id="artifact-commit" class="overflow-x-auto rounded-lg bg-slate-950 p-3 text-sm text-slate-200"></pre>
-            </div>
-          </div>
+          <div id="story-count" class="text-sm text-slate-400">0</div>
         </div>
-      </section>
-    </div>
+        <div id="sprint-plan" class="markdown mb-5 rounded-[22px] border border-white/8 bg-black/20 p-5"></div>
+        <div id="story-list" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
+      </div>
+    </section>
   </div>
 
   <script>
-    const apiBase = "";
-    let selectedTaskId = null;
-    let socket = null;
+    let selectedBacklogId = null;
+    let selectedSprintId = null;
     let successChart = null;
     let retryChart = null;
     let acceptanceChart = null;
 
     async function fetchJson(path) {
-      const response = await fetch(`${apiBase}${path}`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     }
 
-    function setSocketStatus(text, isConnected) {
-      const el = document.getElementById("socket-status");
-      el.textContent = text;
-      el.className = `rounded-full border px-3 py-1 text-xs ${
-        isConnected
-          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-          : "border-slate-700 text-slate-300"
-      }`;
+    function badgeClass(status) {
+      return (status || "not_started").toLowerCase();
     }
 
     function updateChart(instance, canvasId, labels, values, label, color) {
@@ -133,82 +151,29 @@
         instance.update();
         return instance;
       }
-
       const ctx = document.getElementById(canvasId).getContext("2d");
       return new Chart(ctx, {
         type: "line",
         data: {
           labels,
-          datasets: [{
-            label,
-            data: values,
-            borderColor: color,
-            backgroundColor: color + "33",
-            tension: 0.25,
-            fill: true,
-          }]
+          datasets: [{ label, data: values, borderColor: color, backgroundColor: `${color}33`, tension: 0.35, fill: true, pointRadius: 3 }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#cbd5e1" } }
-          },
+          plugins: { legend: { labels: { color: "#c7d0e0" } } },
           scales: {
-            x: {
-              ticks: { color: "#94a3b8" },
-              grid: { color: "rgba(148, 163, 184, 0.1)" }
-            },
-            y: {
-              ticks: { color: "#94a3b8" },
-              grid: { color: "rgba(148, 163, 184, 0.1)" }
-            }
+            x: { ticks: { color: "#98a2b7" }, grid: { color: "rgba(255,255,255,0.06)" } },
+            y: { ticks: { color: "#98a2b7" }, grid: { color: "rgba(255,255,255,0.06)" } }
           }
         }
       });
     }
 
-    function appendLiveLog(event) {
-      const container = document.getElementById("live-logs");
-      const line = document.createElement("div");
-      const level = event.payload?.level || event.type;
-      const levelClass = level === "ERROR"
-        ? "text-rose-300"
-        : level === "WARNING"
-          ? "text-amber-300"
-          : "text-slate-200";
-      const message = event.payload?.message || JSON.stringify(event.payload || {});
-      line.className = `${levelClass} border-b border-slate-900 py-1`;
-      line.textContent = `[${event.timestamp}] ${event.type} ${message}`;
-      container.appendChild(line);
-      container.scrollTop = container.scrollHeight;
-    }
-
-    function clearLiveLogs() {
-      document.getElementById("live-logs").innerHTML = "";
-    }
-
-    function connectTaskSocket(taskId) {
-      if (socket) {
-        socket.close();
-        socket = null;
-      }
-      if (!taskId) {
-        setSocketStatus("WebSocket 未连接", false);
-        return;
-      }
-
-      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      socket = new WebSocket(`${protocol}://${window.location.host}/ws/${taskId}`);
-      setSocketStatus("WebSocket 连接中", false);
-
-      socket.onopen = () => setSocketStatus("WebSocket 已连接", true);
-      socket.onclose = () => setSocketStatus("WebSocket 已断开", false);
-      socket.onerror = () => setSocketStatus("WebSocket 错误", false);
-      socket.onmessage = (event) => {
-        const payload = JSON.parse(event.data);
-        appendLiveLog(payload);
-      };
+    function setActiveCard(containerId, activeId, key) {
+      document.querySelectorAll(`#${containerId} [data-${key}]`).forEach((node) => {
+        node.classList.toggle("active", node.dataset[key] === activeId);
+      });
     }
 
     async function loadMetrics() {
@@ -217,64 +182,105 @@
       document.getElementById("metric-first-pass").textContent = `${metrics.first_pass_rate}%`;
       document.getElementById("metric-retries").textContent = metrics.avg_retry_rounds;
       document.getElementById("metric-acceptance").textContent = `${metrics.acceptance_hit_rate}%`;
-
       const labels = metrics.trend?.labels || [];
-      successChart = updateChart(successChart, "success-chart", labels, metrics.trend?.success_rate || [], "成功率", "#38bdf8");
+      successChart = updateChart(successChart, "success-chart", labels, metrics.trend?.success_rate || [], "成功率", "#7dd3fc");
       retryChart = updateChart(retryChart, "retry-chart", labels, metrics.trend?.avg_retry_rounds || [], "回修轮次", "#f59e0b");
       acceptanceChart = updateChart(acceptanceChart, "acceptance-chart", labels, metrics.trend?.acceptance_hit_rate || [], "验收命中率", "#34d399");
     }
 
-    async function loadTasks() {
-      const data = await fetchJson("/api/tasks");
-      const taskList = document.getElementById("task-list");
-      taskList.innerHTML = "";
-      document.getElementById("task-count").textContent = `${data.tasks.length} 个任务`;
-
-      data.tasks.forEach((task) => {
+    async function loadBacklogs() {
+      const payload = await fetchJson("/api/backlogs");
+      const list = document.getElementById("backlog-list");
+      list.innerHTML = "";
+      const backlogs = payload.backlogs || [];
+      document.getElementById("backlog-count").textContent = `${backlogs.length} 个 backlog`;
+      backlogs.forEach((backlog) => {
         const button = document.createElement("button");
-        button.className = "w-full rounded-lg border border-slate-800 bg-slate-950 p-3 text-left hover:border-slate-700 hover:bg-slate-900";
+        button.dataset.backlog = backlog.id;
+        button.className = "list-card rounded-[22px] p-4 text-left";
         button.innerHTML = `
           <div class="flex items-center justify-between gap-3">
-            <div class="font-medium text-slate-100">${task.task_name || task.task_id}</div>
-            <span class="rounded-full border px-2 py-0.5 text-xs ${task.status === "success" ? "border-emerald-500/40 text-emerald-300" : "border-rose-500/40 text-rose-300"}">${task.status}</span>
+            <div class="truncate-two text-base font-semibold leading-7 text-white">${backlog.name}</div>
+            <span class="pill not_started">${backlog.sprint_count} sprints</span>
           </div>
-          <div class="mt-2 text-xs text-slate-400">${task.task_id}</div>
-          <div class="mt-1 text-xs text-slate-500">${task.branch || ""}</div>
+          <div class="mt-3 text-sm text-slate-400">${backlog.story_count} stories</div>
         `;
-        button.onclick = () => loadTaskDetail(task.task_id);
-        taskList.appendChild(button);
+        button.onclick = () => loadBacklogDetail(backlog.id);
+        list.appendChild(button);
       });
-
-      if (!selectedTaskId && data.tasks.length > 0) {
-        await loadTaskDetail(data.tasks[0].task_id);
-      }
+      if (!selectedBacklogId && backlogs.length) await loadBacklogDetail(backlogs[0].id);
     }
 
-    async function loadTaskDetail(taskId) {
-      selectedTaskId = taskId;
-      clearLiveLogs();
-      const detail = await fetchJson(`/api/tasks/${taskId}`);
-      const audit = detail.audit_log || {};
-      document.getElementById("detail-title").textContent = audit.task_name || audit.task_id || taskId;
-      document.getElementById("detail-meta").textContent = `任务ID: ${taskId} | 分支: ${audit.branch || "n/a"} | Commit: ${audit.commit || "n/a"}`;
-      document.getElementById("detail-status").textContent = audit.status || (audit.success ? "success" : "unknown");
-      document.getElementById("artifact-pr").innerHTML = marked.parse(detail.artifacts?.pr_description || "_暂无 PR 描述_");
-      document.getElementById("artifact-review").innerHTML = marked.parse(detail.artifacts?.review_report || "_暂无审查报告_");
-      document.getElementById("artifact-commit").textContent = detail.artifacts?.commit_message || "暂无 commit message";
+    async function loadBacklogDetail(backlogId) {
+      selectedBacklogId = backlogId;
+      setActiveCard("backlog-list", backlogId, "backlog");
+      const detail = await fetchJson(`/api/backlogs/${backlogId}`);
+      document.getElementById("backlog-overview").innerHTML = marked.parse(detail.overview_markdown || "_暂无 backlog 概览_");
+      const list = document.getElementById("sprint-list");
+      list.innerHTML = "";
+      const sprints = detail.sprints || [];
+      document.getElementById("sprint-count").textContent = `${sprints.length} 个 sprint`;
+      sprints.forEach((sprint) => {
+        const button = document.createElement("button");
+        button.dataset.sprint = sprint.id;
+        button.className = "list-card w-full rounded-[22px] p-4 text-left";
+        button.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="truncate-two text-sm font-semibold leading-6 text-white">${sprint.name}</div>
+              <div class="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">${sprint.done_count}/${sprint.story_count} 完成 · ${sprint.failed_count} 失败</div>
+            </div>
+            <span class="pill ${badgeClass(sprint.status)}">${sprint.status}</span>
+          </div>
+        `;
+        button.onclick = () => loadSprintDetail(backlogId, sprint.id);
+        list.appendChild(button);
+      });
+      if (sprints.length) await loadSprintDetail(backlogId, sprints[0].id);
+    }
 
-      (detail.events || []).forEach((event) => appendLiveLog(event));
-      connectTaskSocket(taskId);
+    async function loadSprintDetail(backlogId, sprintId) {
+      selectedSprintId = sprintId;
+      setActiveCard("sprint-list", sprintId, "sprint");
+      const detail = await fetchJson(`/api/backlogs/${backlogId}/sprints/${sprintId}`);
+      document.getElementById("sprint-plan").innerHTML = marked.parse(detail.sprint_plan_markdown || "_暂无 sprint 规划_");
+      const list = document.getElementById("story-list");
+      list.innerHTML = "";
+      const stories = [];
+      (detail.epics || []).forEach((epic) => {
+        (epic.stories || []).forEach((story) => {
+          stories.push(story);
+          const card = document.createElement("div");
+          card.className = "list-card rounded-[22px] p-4";
+          card.innerHTML = `
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="pill not_started">${story.story_id}</span>
+                  <span class="pill ${badgeClass(story.status)}">${story.status}</span>
+                </div>
+                <div class="truncate-two mt-3 text-sm font-semibold leading-6 text-white">${story.task_name}</div>
+                <div class="truncate-two mt-2 text-xs leading-5 text-slate-400">${story.epic || ""}</div>
+              </div>
+            </div>
+            <div class="mt-4 flex items-center justify-between">
+              <span class="text-xs uppercase tracking-[0.16em] text-slate-500">${story.blast_radius || "-"}</span>
+              <a class="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10" href="/story?backlog=${encodeURIComponent(backlogId)}&sprint=${encodeURIComponent(sprintId)}&story=${encodeURIComponent(story.story_id)}">查看详情</a>
+            </div>
+          `;
+          list.appendChild(card);
+        });
+      });
+      document.getElementById("story-count").textContent = `${stories.length} 个 story`;
     }
 
     async function refreshAll() {
-      await Promise.all([loadMetrics(), loadTasks()]);
+      await loadMetrics();
+      await loadBacklogs();
     }
 
-    document.getElementById("refresh-button").addEventListener("click", refreshAll);
-    refreshAll().catch((error) => {
-      console.error(error);
-      setSocketStatus("加载失败", false);
-    });
+    document.getElementById("refresh-button").addEventListener("click", () => refreshAll().catch(console.error));
+    refreshAll().catch(console.error);
   </script>
 </body>
 </html>

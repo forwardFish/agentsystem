@@ -6,13 +6,13 @@ story_id: S0-002
 blast_radius: L1
 execution_mode: Safe
 mode: Safe
-goal: 定义统一的 MarketWorldState schema。
+goal: 定义统一的 MarketWorldState Schema。
 business_value: 让 MarketWorldState Schema 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
 entry_criteria:
 - 前置依赖已完成并可用。
 acceptance_criteria:
 - MarketWorldState Schema 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩大到相邻模块。
+- 只跨一个业务边界，不扩展到相邻模块。
 - 产物能够被后续 Story 直接复用。
 - 正常路径和关键失败路径都有可验证结果。
 constraints:

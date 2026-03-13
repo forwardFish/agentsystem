@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
-import shutil
 
 import yaml
 from click.testing import CliRunner
 
-from cli import cli
-from agentsystem.agents.requirements_analyst_agent import RequirementsAnalystAgent
 from agentsystem.agents.requirement_agent import requirement_analysis_node
+from agentsystem.agents.requirements_analyst_agent import RequirementsAnalystAgent
 from agentsystem.core.task_card import TaskCard
+from cli import cli
 
 
 FINANCE_REQUIREMENT = """
@@ -42,6 +42,7 @@ class RequirementsAnalystAgentTestCase(unittest.TestCase):
             self.assertTrue((sprint_dir / "execution_order.txt").exists())
             self.assertTrue((sprint_dir / "epic_0_1_platform_contract.md").exists())
             self.assertTrue((sprint_dir / "epic_0_1_platform_contract").exists())
+            self.assertTrue((backlog_root / "sprint_4_agent_gallery_population").exists())
 
             story_files = list(backlog_root.rglob("S0-001_*.yaml"))
             self.assertEqual(len(story_files), 1)
@@ -56,7 +57,7 @@ class RequirementsAnalystAgentTestCase(unittest.TestCase):
             self.assertTrue(validated.dependencies)
             self.assertIn("normal", validated.test_cases)
             self.assertIn("exception", validated.test_cases)
-            self.assertGreaterEqual(len(result["story_cards"]), 30)
+            self.assertGreaterEqual(len(result["story_cards"]), 50)
 
     def test_requirement_node_parses_story_card_fields(self) -> None:
         state = {
@@ -94,6 +95,7 @@ class RequirementsAnalystAgentTestCase(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Requirement split completed", result.output)
             self.assertTrue(backlog_root.exists())
+            self.assertTrue((backlog_root / "sprint_4_agent_gallery_population").exists())
         shutil.rmtree(backlog_root, ignore_errors=True)
 
 

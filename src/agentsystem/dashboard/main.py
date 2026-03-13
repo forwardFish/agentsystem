@@ -14,6 +14,7 @@ RUNS_DIR = BASE_DIR / "runs"
 EVENTS_DIR = RUNS_DIR / "events"
 ARTIFACTS_DIR = RUNS_DIR / "artifacts"
 REPO_META_DIR = BASE_DIR / "repo-worktree" / ".meta"
+TASKS_DIR = BASE_DIR / "tasks"
 
 
 class ConnectionManager:
@@ -49,6 +50,11 @@ async def get_dashboard() -> FileResponse:
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
+@app.get("/story")
+async def get_story_dashboard() -> FileResponse:
+    return FileResponse(Path(__file__).parent / "static" / "story.html")
+
+
 @app.get("/api/tasks")
 async def get_tasks() -> JSONResponse:
     return JSONResponse({"tasks": load_tasks()})
@@ -59,9 +65,34 @@ async def get_task_detail(task_id: str) -> JSONResponse:
     return JSONResponse(load_task_detail(task_id))
 
 
+@app.get("/api/tasks/{task_id}/collaboration")
+async def get_task_collaboration(task_id: str) -> JSONResponse:
+    return JSONResponse(load_task_collaboration(task_id))
+
+
 @app.get("/api/metrics")
 async def get_metrics() -> JSONResponse:
     return JSONResponse(compute_metrics())
+
+
+@app.get("/api/backlogs")
+async def get_backlogs() -> JSONResponse:
+    return JSONResponse({"backlogs": load_backlogs()})
+
+
+@app.get("/api/backlogs/{backlog_id}")
+async def get_backlog_detail(backlog_id: str) -> JSONResponse:
+    return JSONResponse(load_backlog_detail(backlog_id))
+
+
+@app.get("/api/backlogs/{backlog_id}/sprints/{sprint_id}")
+async def get_sprint_detail(backlog_id: str, sprint_id: str) -> JSONResponse:
+    return JSONResponse(load_sprint_detail(backlog_id, sprint_id))
+
+
+@app.get("/api/backlogs/{backlog_id}/sprints/{sprint_id}/stories/{story_id}")
+async def get_story_detail(backlog_id: str, sprint_id: str, story_id: str) -> JSONResponse:
+    return JSONResponse(load_story_detail(backlog_id, sprint_id, story_id))
 
 
 @app.websocket("/ws/{task_id}")
@@ -146,13 +177,41 @@ def load_task_detail(task_id: str) -> dict[str, Any]:
             archive_dir / "pr_prep" / "commit_message.txt",
             meta_dir / "pr_prep" / "commit_message.txt",
         ),
+        "code_acceptance_report": _read_first_available_text(
+            archive_dir / "code_acceptance" / "code_acceptance_report.md",
+            meta_dir / "code_acceptance" / "code_acceptance_report.md",
+        ),
+        "acceptance_report": _read_first_available_text(
+            archive_dir / "acceptance" / "acceptance_report.md",
+            meta_dir / "acceptance" / "acceptance_report.md",
+        ),
+        "delivery_report": _read_first_available_text(
+            archive_dir / "delivery" / "story_delivery_report.md",
+            meta_dir / "delivery" / "story_delivery_report.md",
+        ),
+        "completion_standard": _read_first_available_text(
+            archive_dir / "delivery" / "story_completion_standard.md",
+            meta_dir / "delivery" / "story_completion_standard.md",
+        ),
     }
+    completion = _extract_completion(payload)
     return {
         "task_id": task_id,
         "audit_log": payload,
         "artifacts": artifacts,
         "events": load_task_events(task_id),
+        "collaboration": _extract_collaboration(payload),
+        "completion": completion,
     }
+
+
+def load_task_collaboration(task_id: str) -> dict[str, Any]:
+    run_file = RUNS_DIR / f"prod_audit_{task_id}.json"
+    payload: dict[str, Any] = {}
+    if run_file.exists():
+        payload = json.loads(run_file.read_text(encoding="utf-8"))
+    collaboration = _extract_collaboration(payload)
+    return {"task_id": task_id, **collaboration}
 
 
 def compute_metrics() -> dict[str, Any]:
@@ -217,6 +276,111 @@ def compute_metrics() -> dict[str, Any]:
     }
 
 
+def load_backlogs() -> list[dict[str, Any]]:
+    backlogs: list[dict[str, Any]] = []
+    if not TASKS_DIR.exists():
+        return backlogs
+    for backlog_dir in sorted(path for path in TASKS_DIR.iterdir() if path.is_dir()):
+        overview_file = backlog_dir / "sprint_overview.md"
+        if not overview_file.exists():
+            continue
+        sprint_dirs = sorted(path for path in backlog_dir.iterdir() if path.is_dir() and path.name.startswith("sprint_"))
+        story_count = sum(len(list(sprint_dir.rglob("S*.yaml"))) for sprint_dir in sprint_dirs)
+        backlogs.append(
+            {
+                "id": backlog_dir.name,
+                "name": backlog_dir.name,
+                "overview_path": str(overview_file),
+                "sprint_count": len(sprint_dirs),
+                "story_count": story_count,
+            }
+        )
+    return backlogs
+
+
+def load_backlog_detail(backlog_id: str) -> dict[str, Any]:
+    backlog_dir = TASKS_DIR / backlog_id
+    sprint_dirs = sorted(path for path in backlog_dir.iterdir() if path.is_dir() and path.name.startswith("sprint_")) if backlog_dir.exists() else []
+    return {
+        "id": backlog_id,
+        "overview_markdown": _read_optional_text(backlog_dir / "sprint_overview.md"),
+        "sprints": [_build_sprint_summary(backlog_id, sprint_dir) for sprint_dir in sprint_dirs],
+    }
+
+
+def load_sprint_detail(backlog_id: str, sprint_id: str) -> dict[str, Any]:
+    sprint_dir = TASKS_DIR / backlog_id / sprint_id
+    story_index = _load_story_run_index()
+    execution_order = [line.strip() for line in _read_optional_text(sprint_dir / "execution_order.txt").splitlines() if line.strip()]
+    epics: list[dict[str, Any]] = []
+    for epic_doc in sorted(sprint_dir.glob("epic_*.md")):
+        epic_dir = sprint_dir / epic_doc.stem
+        stories: list[dict[str, Any]] = []
+        if epic_dir.exists():
+            for story_file in sorted(epic_dir.glob("S*.yaml")):
+                payload = yaml_safe_load(story_file)
+                story_id = str(payload.get("story_id") or payload.get("task_id") or story_file.stem.split("_", 1)[0])
+                run_info = story_index.get(story_id)
+                stories.append(
+                    {
+                        "story_id": story_id,
+                        "task_name": payload.get("task_name") or story_id,
+                        "epic": payload.get("epic"),
+                        "blast_radius": payload.get("blast_radius"),
+                        "status": _story_status_from_run(run_info),
+                        "latest_task_id": run_info.get("task_id") if run_info else None,
+                    }
+                )
+        epics.append(
+            {
+                "id": epic_doc.stem,
+                "title": epic_doc.stem,
+                "markdown": _read_optional_text(epic_doc),
+                "stories": stories,
+            }
+        )
+    return {
+        "id": sprint_id,
+        "sprint_plan_markdown": _read_optional_text(sprint_dir / "sprint_plan.md"),
+        "execution_order": execution_order,
+        "epics": epics,
+    }
+
+
+def load_story_detail(backlog_id: str, sprint_id: str, story_id: str) -> dict[str, Any]:
+    sprint_dir = TASKS_DIR / backlog_id / sprint_id
+    story_file = next(sprint_dir.rglob(f"{story_id}_*.yaml"), None)
+    payload = yaml_safe_load(story_file) if story_file else {}
+    story_index = _load_story_run_index()
+    run_info = story_index.get(story_id)
+    task_detail = load_task_detail(run_info["task_id"]) if run_info else {"audit_log": {}, "artifacts": {}, "events": []}
+    return {
+        "story_id": story_id,
+        "story": payload,
+        "story_file": str(story_file) if story_file else "",
+        "status": _story_status_from_run(run_info),
+        "latest_task_id": run_info.get("task_id") if run_info else None,
+        "latest_run": run_info,
+        "task_detail": task_detail,
+    }
+
+
+def _extract_completion(payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result", {}) if isinstance(payload, dict) else {}
+    task_payload = result.get("task_payload", {}) if isinstance(result, dict) else {}
+    return {
+        "tests_passed": bool(result.get("test_passed")),
+        "review_passed": bool(result.get("review_passed")),
+        "code_acceptance_passed": bool(result.get("code_acceptance_passed")),
+        "acceptance_passed": bool(result.get("acceptance_passed")),
+        "fix_attempts": int(result.get("fix_attempts") or 0),
+        "blocking_issues": list(result.get("blocking_issues") or []),
+        "acceptance_criteria": list(task_payload.get("acceptance_criteria") or []),
+        "story_id": task_payload.get("story_id") or task_payload.get("task_id"),
+        "task_name": task_payload.get("task_name") or task_payload.get("goal"),
+    }
+
+
 def load_task_events(task_id: str) -> list[dict[str, Any]]:
     event_file = EVENTS_DIR / f"{task_id}.jsonl"
     events: list[dict[str, Any]] = []
@@ -231,6 +395,80 @@ def load_task_events(task_id: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return events
+
+
+def _build_sprint_summary(backlog_id: str, sprint_dir: Path) -> dict[str, Any]:
+    story_index = _load_story_run_index()
+    story_ids: list[str] = []
+    done = failed = 0
+    for story_file in sprint_dir.rglob("S*.yaml"):
+        payload = yaml_safe_load(story_file)
+        story_id = str(payload.get("story_id") or payload.get("task_id") or story_file.stem.split("_", 1)[0])
+        story_ids.append(story_id)
+        status = _story_status_from_run(story_index.get(story_id))
+        if status == "done":
+            done += 1
+        elif status == "failed":
+            failed += 1
+    if failed:
+        overall = "failed"
+    elif done == len(story_ids) and story_ids:
+        overall = "done"
+    elif done:
+        overall = "partial"
+    else:
+        overall = "not_started"
+    return {
+        "id": sprint_dir.name,
+        "name": sprint_dir.name,
+        "backlog_id": backlog_id,
+        "story_count": len(story_ids),
+        "done_count": done,
+        "failed_count": failed,
+        "status": overall,
+    }
+
+
+def _load_story_run_index() -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    if not RUNS_DIR.exists():
+        return index
+    for run_file in sorted(RUNS_DIR.glob("prod_audit_*.json"), key=lambda item: item.stat().st_mtime):
+        try:
+            payload = json.loads(run_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        result = payload.get("result", {}) if isinstance(payload.get("result"), dict) else {}
+        task_payload = result.get("task_payload", {}) if isinstance(result.get("task_payload"), dict) else {}
+        story_id = task_payload.get("story_id") or task_payload.get("task_id")
+        if not story_id:
+            continue
+        index[str(story_id)] = {
+            "task_id": payload.get("task_id"),
+            "success": bool(payload.get("success")),
+            "branch": payload.get("branch"),
+            "commit": payload.get("commit"),
+            "created_at": payload.get("created_at") or run_file.stat().st_mtime,
+        }
+    return index
+
+
+def _story_status_from_run(run_info: dict[str, Any] | None) -> str:
+    if not run_info:
+        return "not_started"
+    return "done" if run_info.get("success") else "failed"
+
+
+def yaml_safe_load(path: Path | None) -> dict[str, Any]:
+    if not path or not path.exists():
+        return {}
+    try:
+        import yaml
+
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _read_optional_text(path: Path) -> str:
@@ -263,3 +501,19 @@ def _normalize_created_at(value: Any) -> str | None:
         return str(value)
     except Exception:
         return None
+
+
+def _extract_collaboration(audit_log: dict[str, Any]) -> dict[str, Any]:
+    result = audit_log.get("result", {}) if isinstance(audit_log, dict) else {}
+    if not isinstance(result, dict):
+        result = {}
+    return {
+        "trace_id": result.get("collaboration_trace_id"),
+        "started_at": result.get("collaboration_started_at"),
+        "ended_at": result.get("collaboration_ended_at"),
+        "shared_blackboard": result.get("shared_blackboard") or {},
+        "handoff_packets": result.get("handoff_packets") or [],
+        "issues_to_fix": result.get("issues_to_fix") or [],
+        "resolved_issues": result.get("resolved_issues") or [],
+        "all_deliverables": result.get("all_deliverables") or [],
+    }

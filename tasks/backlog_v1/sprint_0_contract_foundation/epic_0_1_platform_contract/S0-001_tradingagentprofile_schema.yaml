@@ -1,41 +1,48 @@
-task_id: S0-001
-task_name: TradingAgentProfile Schema
-sprint: Sprint 0
-epic: Epic 0.1 平台契约
-story_id: S0-001
-blast_radius: L1
-execution_mode: Safe
-mode: Safe
-goal: 定义 TradingAgentProfile 的统一 JSON Schema。
-business_value: 让 TradingAgentProfile Schema 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S0-001"
+task_name: "TradingAgentProfile Schema"
+sprint: "Sprint 0"
+epic: "Epic 0.1 平台契约"
+story_id: "S0-001"
+blast_radius: "L1"
+execution_mode: "Safe"
+mode: "Safe"
+goal: "定义 TradingAgentProfile 的统一 JSON Schema，并提供合法示例与非法示例，作为后续 profile 生成、Agent 创建和 OpenClaw context 的统一契约。"
+business_value: "把 TradingAgentProfile 契约一次钉死，避免后续 Agent 创建、上下文构建和 OpenClaw 绑定时反复返工。"
 entry_criteria:
-- 无前置依赖。
+  - "需求文档已确认 TradingAgentProfile 的字段范围。"
+  - "当前 Story 不依赖其他 Sprint 0 任务。"
 acceptance_criteria:
-- TradingAgentProfile Schema 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩大到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "schema 包含 market、styleTags、preferredUniverse、riskControls、cadence、costModel、decisionPolicy、sourceRuntime 这些核心字段。"
+  - "schema 明确必填字段，并限制额外字段写入。"
+  - "提供一份合法示例 trading_agent_profile.example.json，并能通过 schema 校验。"
+  - "提供一份非法示例 trading_agent_profile.invalid.json，并会被 schema 校验拒绝。"
+  - "本 Story 只修改 docs/contracts 和 docs/contracts/examples 下的契约文件。"
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: docs/contracts/tradingagentprofile_schema.schema.json'
+  - "只实现契约定义，不实现数据库表结构。"
+  - "只实现 JSON Schema 和示例，不实现 API 或运行时逻辑。"
+  - "所有产物必须使用 UTF-8 编码，并保持可读格式。"
 out_of_scope:
-- 不在本 Story 中实现 TradingAgentProfile Schema 之外的后续能力。
-- 不做架构级重构。
+  - "不实现 TradingAgentProfile 的数据库映射。"
+  - "不实现 Agent 创建 API。"
+  - "不实现 OpenClaw 绑定逻辑。"
 not_do:
-- 不在本 Story 中实现 TradingAgentProfile Schema 之外的后续能力。
-- 不做架构级重构。
+  - "不修改 apps/api 或 apps/web 业务代码。"
+  - "不引入新的第三方依赖。"
 dependencies:
-- 无
+  - "无"
 related_files:
-- docs/contracts/tradingagentprofile_schema.schema.json
-- docs/contracts/examples/tradingagentprofile_schema.example.json
+  - "docs/contracts/trading_agent_profile.schema.json"
+  - "docs/contracts/examples/trading_agent_profile.example.json"
+  - "docs/contracts/examples/trading_agent_profile.invalid.json"
 primary_files:
-- docs/contracts/tradingagentprofile_schema.schema.json
+  - "docs/contracts/trading_agent_profile.schema.json"
 secondary_files:
-- docs/contracts/examples/tradingagentprofile_schema.example.json
+  - "docs/contracts/examples/trading_agent_profile.example.json"
+  - "docs/contracts/examples/trading_agent_profile.invalid.json"
 test_cases:
   normal:
-  - 正常路径：TradingAgentProfile Schema 的核心场景可以完成。
+    - "合法示例能通过 schema 校验。"
+    - "schema 文件是有效 JSON，且 required 字段与字段类型定义完整。"
   exception:
-  - 异常路径：TradingAgentProfile Schema 失败时返回可解释结果。
+    - "非法示例缺少必填字段或结构错误时，会被 schema 校验拒绝。"
+    - "如果 schema 文件损坏，测试 Agent 会报告 StoryValidation 失败。"

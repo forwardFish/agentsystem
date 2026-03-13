@@ -100,10 +100,17 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 "important_issues": None,
                 "nice_to_haves": None,
                 "review_report": None,
+                "code_acceptance_success": None,
+                "code_acceptance_passed": None,
+                "code_acceptance_report": None,
+                "code_acceptance_dir": None,
+                "code_acceptance_issues": None,
                 "acceptance_success": None,
                 "acceptance_passed": None,
                 "acceptance_report": None,
+                "acceptance_dir": None,
                 "doc_result": None,
+                "delivery_dir": None,
                 "fix_result": None,
                 "fix_attempts": 0,
                 "error_message": None,
@@ -122,7 +129,7 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertIn("page.tsx", final_state["generated_code_diff"])
             self.assertIn("Lint: PASS", final_state["test_results"])
             self.assertIn("# Review Report", final_state["review_report"])
-            self.assertIn("Documented workflow outcome.", final_state["doc_result"])
+            self.assertIn("Story Delivery Report", final_state["doc_result"])
             self.assertIn("backend", final_state["dev_results"])
             self.assertIn("frontend", final_state["dev_results"])
             self.assertGreater(final_state["dev_results"]["frontend"]["constitution_length"], 0)
@@ -136,6 +143,11 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertTrue(final_state["review_success"])
             self.assertTrue(final_state["review_passed"])
             self.assertTrue(final_state["review_dir"].endswith("review"))
+            self.assertTrue(final_state["code_acceptance_success"])
+            self.assertTrue(final_state["code_acceptance_passed"])
+            self.assertTrue(final_state["code_acceptance_dir"].endswith("code_acceptance"))
+            self.assertTrue(final_state["acceptance_dir"].endswith("acceptance"))
+            self.assertTrue(final_state["delivery_dir"].endswith("delivery"))
 
             frontend_content = (
                 repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
@@ -156,6 +168,12 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertTrue((pr_prep_dir / "commit_message.txt").exists())
             review_dir = Path(final_state["review_dir"])
             self.assertTrue((review_dir / "review_report.md").exists())
+            code_acceptance_dir = Path(final_state["code_acceptance_dir"])
+            self.assertTrue((code_acceptance_dir / "code_acceptance_report.md").exists())
+            acceptance_dir = Path(final_state["acceptance_dir"])
+            self.assertTrue((acceptance_dir / "acceptance_report.md").exists())
+            delivery_dir = Path(final_state["delivery_dir"])
+            self.assertTrue((delivery_dir / "story_delivery_report.md").exists())
             self.assertEqual(final_state["blocking_issues"], [])
             self.assertNotIn(".git/", final_state["review_report"])
 
@@ -194,10 +212,17 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 "important_issues": None,
                 "nice_to_haves": None,
                 "review_report": None,
+                "code_acceptance_success": None,
+                "code_acceptance_passed": None,
+                "code_acceptance_report": None,
+                "code_acceptance_dir": None,
+                "code_acceptance_issues": None,
                 "acceptance_success": None,
                 "acceptance_passed": None,
                 "acceptance_report": None,
+                "acceptance_dir": None,
                 "doc_result": None,
+                "delivery_dir": None,
                 "fix_result": None,
                 "fixer_needed": None,
                 "fixer_success": None,
@@ -218,6 +243,7 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertTrue(final_state["pr_prep_success"])
             self.assertTrue(final_state["review_success"])
             self.assertTrue(final_state["review_passed"])
+            self.assertTrue(final_state["code_acceptance_passed"])
 
             frontend_content = (
                 repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
@@ -259,10 +285,17 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 "important_issues": None,
                 "nice_to_haves": None,
                 "review_report": None,
+                "code_acceptance_success": None,
+                "code_acceptance_passed": None,
+                "code_acceptance_report": None,
+                "code_acceptance_dir": None,
+                "code_acceptance_issues": None,
                 "acceptance_success": None,
                 "acceptance_passed": None,
                 "acceptance_report": None,
+                "acceptance_dir": None,
                 "doc_result": None,
+                "delivery_dir": None,
                 "fix_result": None,
                 "fixer_needed": None,
                 "fixer_success": None,

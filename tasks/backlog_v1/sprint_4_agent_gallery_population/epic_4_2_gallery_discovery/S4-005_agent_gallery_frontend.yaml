@@ -1,0 +1,41 @@
+task_id: S4-005
+task_name: agent gallery frontend
+sprint: Sprint 4
+epic: Epic 4.2 广场与发现
+story_id: S4-005
+blast_radius: L2
+execution_mode: Safe
+mode: Safe
+goal: 实现 Agent 广场首页与卡片式浏览。
+business_value: 让 agent gallery frontend 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+entry_criteria:
+- 前置依赖已完成并可用。
+acceptance_criteria:
+- agent gallery frontend 的核心输出可以被独立验收。
+- 只跨一个业务边界，不扩展到相邻模块。
+- 产物能够被后续 Story 直接复用。
+- 正常路径和关键失败路径都有可验证结果。
+constraints:
+- 每个 Story 默认控制在 0.5 天到 1 天完成。
+- 只修改当前 Story 相关文件，不跨多个大模块。
+- '优先修改这些 primary files: apps/api/src/modules/gallery/agent_gallery_frontend.py'
+out_of_scope:
+- 不在本 Story 中实现 agent gallery frontend 之外的后续能力。
+- 不做架构级重构。
+not_do:
+- 不在本 Story 中实现 agent gallery frontend 之外的后续能力。
+- 不做架构级重构。
+dependencies:
+- S4-004
+related_files:
+- apps/api/src/modules/gallery/agent_gallery_frontend.py
+- apps/web/src/app/gallery/page.tsx
+primary_files:
+- apps/api/src/modules/gallery/agent_gallery_frontend.py
+secondary_files:
+- apps/web/src/app/gallery/page.tsx
+test_cases:
+  normal:
+  - 正常路径：agent gallery frontend 的核心场景可以完成。
+  exception:
+  - 异常路径：agent gallery frontend 失败时返回可解释结果。

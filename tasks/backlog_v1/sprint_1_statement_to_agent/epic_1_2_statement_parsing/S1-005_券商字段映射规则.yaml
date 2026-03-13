@@ -6,13 +6,13 @@ story_id: S1-005
 blast_radius: L1
 execution_mode: Fast
 mode: Fast
-goal: 定义原始列名到统一字段的映射。
+goal: 定义原始列名到统一字段的映射规则。
 business_value: 让 券商字段映射规则 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
 entry_criteria:
 - 无前置依赖。
 acceptance_criteria:
 - 券商字段映射规则 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩大到相邻模块。
+- 只跨一个业务边界，不扩展到相邻模块。
 - 产物能够被后续 Story 直接复用。
 - 正常路径和关键失败路径都有可验证结果。
 constraints:

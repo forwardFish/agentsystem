@@ -2,6 +2,7 @@
 .runtime/
 runs/
 logs/
+dashboard_*.log
 repo-worktree/
 agent-workspaces/*/temp/
 agent-workspaces/*/HEARTBEAT.md.bak

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 
 from langgraph.graph import END, StateGraph
 
@@ -8,6 +9,7 @@ from agentsystem.adapters.git_adapter import GitAdapter
 from agentsystem.dashboard.hooks import send_log, send_node_end, send_node_start, send_workflow_state
 from agentsystem.agents.backend_dev_agent import backend_dev_node
 from agentsystem.agents.acceptance_gate_agent import acceptance_gate_node, route_after_acceptance
+from agentsystem.agents.code_acceptance_agent import code_acceptance_node, route_after_code_acceptance
 from agentsystem.agents.database_agent import database_dev_node
 from agentsystem.agents.devops_agent import devops_dev_node
 from agentsystem.agents.doc_agent import doc_node
@@ -15,7 +17,7 @@ from agentsystem.agents.fix_agent import fix_node
 from agentsystem.agents.frontend_dev_agent import frontend_dev_node
 from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.router_agent import route_after_test, task_router
-from agentsystem.agents.review_agent import review_node
+from agentsystem.agents.review_agent import review_node, route_after_review
 from agentsystem.agents.security_agent import security_node
 from agentsystem.agents.sync_agent import sync_merge_node
 from agentsystem.agents.test_agent import test_node
@@ -56,13 +58,29 @@ class DevWorkflow:
             "important_issues": None,
             "nice_to_haves": None,
             "review_report": None,
+            "code_acceptance_success": None,
+            "code_acceptance_passed": None,
+            "code_acceptance_report": None,
+            "code_acceptance_dir": None,
+            "code_acceptance_issues": None,
             "acceptance_success": None,
             "acceptance_passed": None,
             "acceptance_report": None,
+            "acceptance_dir": None,
             "doc_result": None,
+            "delivery_dir": None,
             "fix_result": None,
             "fix_attempts": 0,
             "error_message": None,
+            "shared_blackboard": {},
+            "handoff_packets": [],
+            "issues_to_fix": [],
+            "resolved_issues": [],
+            "agent_messages": [],
+            "all_deliverables": [],
+            "collaboration_trace_id": f"trace_{self.task_id}",
+            "collaboration_started_at": datetime.now().isoformat(timespec="seconds"),
+            "collaboration_ended_at": None,
         }
         final_state = self.graph.invoke(initial_state)
         normalized_state = self._normalize(final_state)
@@ -98,6 +116,7 @@ def create_dev_graph():
     workflow.add_node("fixer", _instrument_node("Fixer", fix_node))
     workflow.add_node("security_scanner", _instrument_node("Security Scanner", security_node))
     workflow.add_node("reviewer", _instrument_node("Reviewer", review_node))
+    workflow.add_node("code_acceptance", _instrument_node("Code Acceptance", code_acceptance_node))
     workflow.add_node("acceptance_gate", _instrument_node("Acceptance Gate", acceptance_gate_node))
     workflow.add_node("doc_writer", _instrument_node("Doc Writer", doc_node))
     workflow.set_entry_point("requirement_analysis")
@@ -128,7 +147,22 @@ def create_dev_graph():
     )
     workflow.add_edge("fixer", "tester")
     workflow.add_edge("security_scanner", "reviewer")
-    workflow.add_edge("reviewer", "acceptance_gate")
+    workflow.add_conditional_edges(
+        "reviewer",
+        route_after_review,
+        {
+            "code_acceptance": "code_acceptance",
+            "fixer": "fixer",
+        },
+    )
+    workflow.add_conditional_edges(
+        "code_acceptance",
+        route_after_code_acceptance,
+        {
+            "acceptance_gate": "acceptance_gate",
+            "fixer": "fixer",
+        },
+    )
     workflow.add_conditional_edges(
         "acceptance_gate",
         route_after_acceptance,

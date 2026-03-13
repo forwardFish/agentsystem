@@ -2,10 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from agentsystem.core.state import DevState
+from agentsystem.core.state import (
+    AgentRole,
+    Deliverable,
+    DevState,
+    HandoffPacket,
+    HandoffStatus,
+    add_handoff_packet,
+    resolve_issue,
+)
 from agentsystem.llm.client import get_llm
 
 FIXER_COMMENT = "{/* Fixed by Fix Agent after validation failure */}"
@@ -49,12 +58,66 @@ def fix_node(state: DevState) -> DevState:
     failure_info = state.get("test_failure_info") or state.get("error_message") or "Unknown validation failure"
     fixed_code = _generate_fix(current_code, str(failure_info))
     target_file.write_text(fixed_code, encoding="utf-8")
+    resolved_issue_ids = [issue.get("issue_id") for issue in list(state.get("issues_to_fix") or []) if issue.get("target_agent") == AgentRole.FIXER]
+    for issue_id in resolved_issue_ids:
+        if issue_id:
+            resolve_issue(state, str(issue_id))
+
+    fix_dir = Path(state["repo_b_path"]).resolve().parent / ".meta" / Path(state["repo_b_path"]).resolve().name / "fixer"
+    fix_dir.mkdir(parents=True, exist_ok=True)
+    fix_report = fix_dir / "fix_report.md"
+    fix_report.write_text(
+        "\n".join(
+            [
+                "# Fix Report",
+                "",
+                f"- Attempt: {attempts}",
+                f"- Failure input: {failure_info}",
+                f"- Target file: {related_files[0]}",
+                f"- Resolved issues: {len(resolved_issue_ids)}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     state["fixer_success"] = True
     state["fix_result"] = f"Applied automated remediation to {related_files[0]}."
     state["error_message"] = None
     state["message"] = "Code fixed and ready for another validation pass."
     state["current_step"] = "fix_done"
+    add_handoff_packet(
+        state,
+        HandoffPacket(
+            packet_id=str(uuid.uuid4()),
+            from_agent=AgentRole.FIXER,
+            to_agent=AgentRole.TESTER,
+            status=HandoffStatus.COMPLETED,
+            what_i_did=f"Applied an automated remediation pass to {related_files[0]} and resolved the currently assigned issues.",
+            what_i_produced=[
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Fixed Source File",
+                    type="code",
+                    path=str(target_file),
+                    description="Updated file after the fixer pass.",
+                    created_by=AgentRole.FIXER,
+                    version=f"{attempts}.0",
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Fix Report",
+                    type="report",
+                    path=str(fix_report),
+                    description="Summary of the remediation pass and resolved issues.",
+                    created_by=AgentRole.FIXER,
+                ),
+            ],
+            what_risks_i_found=[],
+            what_i_require_next="Run the same validations again and confirm that all blocking issues are now resolved.",
+            trace_id=str(state.get("collaboration_trace_id") or ""),
+        ),
+    )
 
     print(f"[Fix Agent] Fix attempt {attempts} recorded")
     return state
@@ -104,6 +167,12 @@ def _extract_code_block(content: str) -> str:
 
 
 def _deterministic_fix(current_code: str, failure_info: str) -> str:
+    lowered_failure = failure_info.lower()
+    stripped = current_code.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        # Do not inject comments into JSON artifacts.
+        return current_code
+
     result = current_code
     if FIXER_COMMENT not in result:
         if "    <div>" in result:
@@ -113,6 +182,9 @@ def _deterministic_fix(current_code: str, failure_info: str) -> str:
 
     subtitle = _extract_quoted_text(failure_info)
     if subtitle and subtitle not in result and "text-slate-500" in result:
+        result = result.replace("text-slate-500", "text-slate-500 font-medium", 1)
+
+    if "subtitle" in lowered_failure and "text-slate-500" in result and "font-medium" not in result:
         result = result.replace("text-slate-500", "text-slate-500 font-medium", 1)
 
     return result

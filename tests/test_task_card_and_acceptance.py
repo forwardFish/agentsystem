@@ -7,9 +7,9 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner
 
-from cli import cli
 from agentsystem.agents.acceptance_gate_agent import acceptance_gate_node
 from agentsystem.core.task_card import TaskCard
+from cli import cli
 
 
 class TaskCardValidationTestCase(unittest.TestCase):
@@ -70,6 +70,7 @@ class AcceptanceGateTestCase(unittest.TestCase):
                     }
                 },
                 "review_passed": True,
+                "code_acceptance_passed": True,
                 "blocking_issues": [],
             }
 
@@ -106,6 +107,7 @@ class AcceptanceGateTestCase(unittest.TestCase):
                     }
                 },
                 "review_passed": True,
+                "code_acceptance_passed": True,
                 "blocking_issues": [],
             }
 

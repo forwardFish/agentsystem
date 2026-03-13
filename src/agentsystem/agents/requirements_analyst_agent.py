@@ -19,7 +19,7 @@ FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
         "number": 0,
         "slug": "contract_foundation",
         "name": "契约与基础设施钉死",
-        "goal": "先把 schema、状态、底层存储和审计基础打稳，防止后面返工。",
+        "goal": "先把 schema、状态机、基础存储和审计底座钉死，避免后续返工。",
         "out_of_scope": ["不实现交割单解析逻辑", "不实现交易撮合", "不实现前端观察台"],
         "epics": [
             {
@@ -29,7 +29,7 @@ FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
                 "description": "先定义核心 schema、payload 契约、错误码和状态机。",
                 "stories": [
                     ("S0-001", "TradingAgentProfile Schema", "定义 TradingAgentProfile 的统一 JSON Schema。"),
-                    ("S0-002", "MarketWorldState Schema", "定义统一的 MarketWorldState schema。"),
+                    ("S0-002", "MarketWorldState Schema", "定义统一的 MarketWorldState Schema。"),
                     ("S0-003", "Agent Contract Schema", "定义 register、heartbeat、submit-actions 三类 payload schema。"),
                     ("S0-004", "错误码与状态流转规范", "定义 statement、agent、order、binding 的状态机与统一错误码。"),
                 ],
@@ -50,7 +50,7 @@ FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
     {
         "number": 1,
         "slug": "statement_to_agent",
-        "name": "交割单 → Agent 建模",
+        "name": "交割单到 Agent 建模",
         "goal": "完成交割单上传、解析、标准化、profile 生成和 Agent 创建。",
         "out_of_scope": ["不实现世界状态与撮合逻辑", "不实现前端观察台"],
         "epics": [
@@ -70,10 +70,10 @@ FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
                 "code": "1_2",
                 "slug": "statement_parsing",
                 "title": "交割单解析与标准化",
-                "description": "把原始交割单映射为标准 TradeRecord 并输出解析报告。",
+                "description": "把原始交割单映射为标准化 TradeRecord 并输出解析报告。",
                 "stories": [
-                    ("S1-005", "券商字段映射规则", "定义原始列名到统一字段的映射。"),
-                    ("S1-006", "TradeRecord 标准化", "把原始记录转为统一 TradeRecord。"),
+                    ("S1-005", "券商字段映射规则", "定义原始列名到统一字段的映射规则。"),
+                    ("S1-006", "TradeRecord 标准化", "把原始记录转换为统一 TradeRecord。"),
                     ("S1-007", "解析校验与错误报告", "输出结构化解析结果与错误报告。"),
                 ],
             },
@@ -113,7 +113,7 @@ FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
                 "code": "2_2",
                 "slug": "action_validation_risk",
                 "title": "动作校验与风控",
-                "description": "完成 schema 校验、风控、现金/仓位/lot size 校验。",
+                "description": "完成 schema 校验、风控、现金 / 仓位 / lot size 校验。",
                 "stories": [
                     ("S2-005", "actions payload 校验", "校验 submit-actions 输入格式。"),
                     ("S2-006", "风控规则校验", "校验 maxPositionPct、maxHoldDays、turnover 等规则。"),
@@ -142,7 +142,7 @@ FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
                 "stories": [
                     ("S2-014", "Context Pack 构建", "为每日决策生成 context。"),
                     ("S2-015", "规则版决策引擎", "MVP 用 rule-based 产生 actions。"),
-                    ("S2-016", "Daily Loop 编排", "串起 context → decide → risk → match → settle。"),
+                    ("S2-016", "Daily Loop 编排", "串起 context -> decide -> risk -> match -> settle。"),
                     ("S2-017", "Run Log 与当日摘要", "生成 daily summary 和审计日志。"),
                 ],
             },
@@ -193,19 +193,70 @@ FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
             },
         ],
     },
+    {
+        "number": 4,
+        "slug": "agent_gallery_population",
+        "name": "Agent 广场与群体运营",
+        "goal": "让平台从单 Agent 演示升级为多 Agent 持续运行与可比较的展示平台。",
+        "out_of_scope": ["不实现社交评论与关注系统", "不实现复杂推荐算法", "不实现多租户商业化治理"],
+        "epics": [
+            {
+                "code": "4_1",
+                "slug": "seed_population",
+                "title": "种子 Agent 与批量供给",
+                "description": "解决平台冷启动，确保一进入平台就能看到一批可运行 Agent。",
+                "stories": [
+                    ("S4-001", "seed agents bootstrap", "初始化一批官方种子 Agent，覆盖不同风格与市场偏好。"),
+                    ("S4-002", "batch agent creation", "支持按模板或 profile 批量创建 Agent。"),
+                ],
+            },
+            {
+                "code": "4_2",
+                "slug": "gallery_discovery",
+                "title": "广场与发现",
+                "description": "为大量 Agent 提供列表、筛选、浏览与只读公共展示能力。",
+                "stories": [
+                    ("S4-003", "agent index read model", "构建 Agent 列表页所需的索引读模型。"),
+                    ("S4-004", "agent list API", "提供 Agent 列表、筛选、排序与分页接口。"),
+                    ("S4-005", "agent gallery frontend", "实现 Agent 广场首页与卡片式浏览。"),
+                    ("S4-008", "public profile and privacy", "完善公开页、私有页与分享策略。"),
+                ],
+            },
+            {
+                "code": "4_3",
+                "slug": "compare_rankings",
+                "title": "比较与榜单",
+                "description": "让围观者能在统一世界里横向比较多个 Agent。",
+                "stories": [
+                    ("S4-006", "agent compare view", "支持多个 Agent 的收益、回撤、风格与活跃度对比。"),
+                    ("S4-007", "leaderboard projection", "生成收益、回撤、活跃度等榜单投影。"),
+                ],
+            },
+            {
+                "code": "4_4",
+                "slug": "lifecycle_operations",
+                "title": "运行调度与生命周期",
+                "description": "让很多 Agent 能持续运行、可暂停、可恢复、可归档。",
+                "stories": [
+                    ("S4-009", "batch daily loop scheduler", "支持按世界或批次调度多个 Agent 的 daily loop。"),
+                    ("S4-010", "agent lifecycle ops", "支持 pause、resume、archive、stale 检测和批量运维。"),
+                ],
+            },
+        ],
+    },
 ]
 
 
 V2_BACKLOG = [
     {"name": "Event Bus", "description": "后续用事件总线解耦 world、orders、fills、projection。"},
-    {"name": "Read Model Projection", "description": "后续拆出 projection/read model 优化 Dashboard。"},
+    {"name": "Read Model Projection", "description": "后续拆出 projection/read model 优化 Dashboard 和 Agent 广场。"},
     {"name": "Shard Manager", "description": "后续支持多 runtime / 多 Agent shard 调度。"},
 ]
 
 
 def _looks_like_finance_world(requirement: str) -> bool:
     lowered = requirement.lower()
-    markers = ["金融", "交割单", "撮合", "账本", "openclaw", "ledger", "portfolio", "statement"]
+    markers = ["金融", "交割单", "撮合", "账本", "openclaw", "ledger", "portfolio", "statement", "agent-native"]
     return any(marker in requirement or marker in lowered for marker in markers)
 
 
@@ -263,6 +314,14 @@ def _infer_paths(story_id: str, title: str, epic_slug: str) -> tuple[list[str], 
         return ([f"{WEB_DIR}/app/(dashboard)/agents/[agentId]/page.tsx"], [f"{WEB_DIR}/features/agent-observation/AgentObservation.tsx"])
     if epic_slug == "openclaw_adapter":
         return ([f"{API_DIR}/routes/openclaw.py"], [f"{CONTRACTS_DIR}/agent_submit_actions.schema.json"])
+    if epic_slug == "seed_population":
+        return ([f"{API_DIR}/modules/agents/bootstrap.py"], [f"{CONTRACTS_DIR}/trading_agent_profile.schema.json"])
+    if epic_slug == "gallery_discovery":
+        return ([f"{API_DIR}/modules/gallery/{_slugify(title)}.py"], [f"{WEB_DIR}/app/gallery/page.tsx"])
+    if epic_slug == "compare_rankings":
+        return ([f"{API_DIR}/modules/leaderboard/{_slugify(title)}.py"], [f"{WEB_DIR}/app/gallery/compare/page.tsx"])
+    if epic_slug == "lifecycle_operations":
+        return ([f"{API_DIR}/modules/runtime/{_slugify(title)}.py"], [f"{API_DIR}/modules/loop/service.py"])
     return ([f"{WEB_DIR}/app/(dashboard)/onboarding/page.tsx"], [])
 
 
@@ -270,7 +329,7 @@ def _infer_blast_radius(story_id: str, title: str) -> tuple[str, str]:
     lowered = title.lower()
     if story_id.startswith("S0-") or "文档" in title or "schema" in lowered or "规范" in title:
         return ("L1", "Safe")
-    if any(keyword in lowered for keyword in ["api", "daily", "matching", "portfolio", "profile", "validation", "engine"]):
+    if any(keyword in lowered for keyword in ["api", "daily", "matching", "portfolio", "profile", "validation", "engine", "scheduler", "gallery", "leaderboard"]):
         return ("L2", "Safe")
     return ("L1", "Fast")
 
@@ -278,7 +337,7 @@ def _infer_blast_radius(story_id: str, title: str) -> tuple[str, str]:
 def _default_acceptance(task_name: str) -> list[str]:
     return [
         f"{task_name} 的核心输出可以被独立验收。",
-        "只跨一个业务边界，不扩大到相邻模块。",
+        "只跨一个业务边界，不扩展到相邻模块。",
         "产物能够被后续 Story 直接复用。",
         "正常路径和关键失败路径都有可验证结果。",
     ]
@@ -304,7 +363,15 @@ def _default_tests(task_name: str) -> dict[str, list[str]]:
     }
 
 
-def _build_story(story_id: str, task_name: str, goal: str, sprint_number: int, epic_title: str, epic_slug: str, previous_story_id: str | None) -> dict[str, Any]:
+def _build_story(
+    story_id: str,
+    task_name: str,
+    goal: str,
+    sprint_number: int,
+    epic_title: str,
+    epic_slug: str,
+    previous_story_id: str | None,
+) -> dict[str, Any]:
     primary_files, secondary_files = _infer_paths(story_id, task_name, epic_slug)
     blast_radius, execution_mode = _infer_blast_radius(story_id, task_name)
     dependencies = ["无"] if previous_story_id is None else [previous_story_id]
@@ -396,7 +463,15 @@ class RequirementsAnalystAgent:
         backlog_root = self.tasks_root / prefix
         sprint_dir = backlog_root / f"sprint_{sprint_number}_general_planning"
         sprint_dir.mkdir(parents=True, exist_ok=True)
-        story = _build_story(f"S{sprint_number}-001", "首个可执行 Story", requirement, int(sprint_number), "Epic 1 通用规划", "general_scope", None)
+        story = _build_story(
+            f"S{sprint_number}-001",
+            "首个可执行 Story",
+            requirement,
+            int(sprint_number),
+            "Epic 1 通用规划",
+            "general_scope",
+            None,
+        )
         epic_dir = sprint_dir / f"epic_{sprint_number}_1_general_scope"
         epic_dir.mkdir(parents=True, exist_ok=True)
         _write_text(backlog_root / "sprint_overview.md", "# Generic backlog\n")
@@ -404,7 +479,12 @@ class RequirementsAnalystAgent:
         _write_text(sprint_dir / "execution_order.txt", f"{story['story_id']}\n")
         _write_text(sprint_dir / f"epic_{sprint_number}_1_general_scope.md", "# Epic 通用规划\n")
         _write_yaml(epic_dir / _story_filename(story), story)
-        return {"backlog_root": str(backlog_root), "overview_path": str(backlog_root / "sprint_overview.md"), "sprint_dirs": [str(sprint_dir)], "story_cards": [story]}
+        return {
+            "backlog_root": str(backlog_root),
+            "overview_path": str(backlog_root / "sprint_overview.md"),
+            "sprint_dirs": [str(sprint_dir)],
+            "story_cards": [story],
+        }
 
     def _materialize_llm_backlog(self, backlog: dict[str, Any], prefix: str) -> dict[str, Any]:
         backlog_root = self.tasks_root / prefix
@@ -547,9 +627,20 @@ Requirement:
             return None
 
 
-def analyze_requirement(repo_b_path: str | Path, tasks_root: str | Path, requirement: str, sprint: str = "1", prefix: str = "backlog_v1") -> dict[str, Any]:
+def analyze_requirement(
+    repo_b_path: str | Path,
+    tasks_root: str | Path,
+    requirement: str,
+    sprint: str = "1",
+    prefix: str = "backlog_v1",
+) -> dict[str, Any]:
     return RequirementsAnalystAgent(repo_b_path, tasks_root).analyze(requirement, sprint=sprint, prefix=prefix)
 
 
-def split_requirement_file(repo_b_path: str | Path, tasks_root: str | Path, requirement_file_path: str | Path, prefix: str = "backlog_v1") -> dict[str, Any]:
+def split_requirement_file(
+    repo_b_path: str | Path,
+    tasks_root: str | Path,
+    requirement_file_path: str | Path,
+    prefix: str = "backlog_v1",
+) -> dict[str, Any]:
     return RequirementsAnalystAgent(repo_b_path, tasks_root).analyze_file(requirement_file_path, prefix=prefix)

@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 
-from agentsystem.core.state import DevState
+from agentsystem.core.state import (
+    AgentRole,
+    Deliverable,
+    DevState,
+    HandoffPacket,
+    HandoffStatus,
+    Issue,
+    IssueSeverity,
+    add_handoff_packet,
+    add_issue,
+)
 
 
 def acceptance_gate_node(state: DevState) -> DevState:
@@ -13,15 +24,16 @@ def acceptance_gate_node(state: DevState) -> DevState:
     acceptance_items = [str(item).strip() for item in task_payload.get("acceptance_criteria", []) if str(item).strip()]
     related_files = [str(item).strip() for item in task_payload.get("related_files", []) if str(item).strip()]
     repo_b_path = Path(state["repo_b_path"]).resolve()
+    report_dir = repo_b_path.parent / ".meta" / repo_b_path.name / "acceptance"
+    report_dir.mkdir(parents=True, exist_ok=True)
 
     changed_files = _collect_changed_files(state)
-    criteria_results: list[str] = []
+    checklist_lines: list[str] = []
     blocking_issues: list[str] = list(state.get("blocking_issues") or [])
 
     for criterion in acceptance_items:
         satisfied, detail = _evaluate_criterion(criterion, task_payload, related_files, changed_files, repo_b_path, state)
-        status = "已满足" if satisfied else "未满足"
-        criteria_results.append(f"- {criterion}: {status} ({detail})")
+        checklist_lines.append(f"- {'[x]' if satisfied else '[ ]'} {criterion} - {detail}")
         if not satisfied:
             blocking_issues.append(f"Acceptance unmet: {criterion}")
 
@@ -31,31 +43,78 @@ def acceptance_gate_node(state: DevState) -> DevState:
         if unexpected:
             blocking_issues.append(f"Changes exceed task scope: {', '.join(unexpected)}")
 
-    review_passed = bool(state.get("review_passed"))
-    if not review_passed:
+    if not state.get("review_passed"):
         blocking_issues.append("Reviewer did not pass the change set.")
+    if not state.get("code_acceptance_passed"):
+        blocking_issues.append("Code acceptance did not pass the change set.")
 
     report_lines = [
         "# Acceptance Gate Report",
         "",
         "## Checklist",
-        "\n".join(criteria_results) if criteria_results else "- No acceptance criteria defined.",
+        *(checklist_lines or ["- No acceptance criteria defined."]),
         "",
         "## Scope Check",
         f"- Changed files: {', '.join(changed_files) if changed_files else 'None recorded'}",
         f"- Related files: {', '.join(related_files) if related_files else 'None recorded'}",
         "",
+        "## Review Gates",
+        f"- Reviewer passed: {'yes' if state.get('review_passed') else 'no'}",
+        f"- Code acceptance passed: {'yes' if state.get('code_acceptance_passed') else 'no'}",
+        "",
         "## Verdict",
         "- [x] Acceptance passed" if not blocking_issues else "- [ ] Acceptance failed",
     ]
 
-    state["acceptance_report"] = "\n".join(report_lines).strip() + "\n"
+    report = "\n".join(report_lines).strip() + "\n"
+    (report_dir / "acceptance_report.md").write_text(report, encoding="utf-8")
+
+    state["acceptance_report"] = report
     state["acceptance_passed"] = not blocking_issues
     state["acceptance_success"] = True
+    state["acceptance_dir"] = str(report_dir)
     state["blocking_issues"] = blocking_issues
     state["current_step"] = "acceptance_done"
+    issues: list[Issue] = []
+    for item in blocking_issues:
+        issue = Issue(
+            issue_id=str(uuid.uuid4()),
+            severity=IssueSeverity.BLOCKING,
+            source_agent=AgentRole.ACCEPTANCE_GATE,
+            target_agent=AgentRole.FIXER,
+            title="Acceptance gate blocking issue",
+            description=str(item),
+            suggestion="Resolve the failed acceptance item or scope violation and return the story for validation.",
+        )
+        if not state.get("acceptance_passed"):
+            add_issue(state, issue)
+        issues.append(issue)
+    add_handoff_packet(
+        state,
+        HandoffPacket(
+            packet_id=str(uuid.uuid4()),
+            from_agent=AgentRole.ACCEPTANCE_GATE,
+            to_agent=AgentRole.DOC_WRITER if state.get("acceptance_passed") else AgentRole.FIXER,
+            status=HandoffStatus.COMPLETED if state.get("acceptance_passed") else HandoffStatus.BLOCKED,
+            what_i_did="Cross-checked acceptance criteria, task scope, reviewer status, and code acceptance status for the story.",
+            what_i_produced=[
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Acceptance Gate Report",
+                    type="report",
+                    path=str(report_dir / "acceptance_report.md"),
+                    description="Final acceptance checklist and scope-verification report.",
+                    created_by=AgentRole.ACCEPTANCE_GATE,
+                )
+            ],
+            what_risks_i_found=[str(item) for item in blocking_issues],
+            what_i_require_next="If accepted, generate the delivery report. If blocked, fix the outstanding acceptance issues before trying again.",
+            issues=issues if not state.get("acceptance_passed") else [],
+            trace_id=str(state.get("collaboration_trace_id") or ""),
+        ),
+    )
 
-    for line in state["acceptance_report"].splitlines():
+    for line in report.splitlines():
         if line.strip():
             _safe_print(f"[Acceptance Gate] {line}")
 
@@ -75,8 +134,11 @@ def _collect_changed_files(state: DevState) -> list[str]:
         for item in payload.get("updated_files", []):
             normalized = str(item).replace("\\", "/")
             if "/apps/" in normalized:
-                normalized = normalized.split("/apps/", 1)[1]
-                normalized = f"apps/{normalized}"
+                normalized = "apps/" + normalized.split("/apps/", 1)[1]
+            elif "/docs/" in normalized:
+                normalized = "docs/" + normalized.split("/docs/", 1)[1]
+            elif "/scripts/" in normalized:
+                normalized = "scripts/" + normalized.split("/scripts/", 1)[1]
             changed.append(normalized)
     if not changed:
         changed.extend(str(item) for item in (state.get("staged_files") or []))
@@ -99,30 +161,36 @@ def _evaluate_criterion(
     state: DevState,
 ) -> tuple[bool, str]:
     lowered = criterion.lower()
-    if "副标题" in criterion or "subtitle" in lowered:
+    if "subtitle" in lowered or "副标题" in criterion:
         target_text = _infer_target_text(str(task_payload.get("goal", "")), subtitle=True)
         for raw_path in related_files:
             candidate = repo_b_path / raw_path
             if candidate.exists():
                 content = candidate.read_text(encoding="utf-8")
-                if target_text:
-                    if target_text in content:
-                        return True, f"Found subtitle '{target_text}' in {raw_path}"
-                elif "text-slate-500" in content or "<p" in content:
+                if target_text and target_text in content:
+                    return True, f"Found subtitle '{target_text}' in {raw_path}"
+                if not target_text and ("text-slate-500" in content or "<p" in content):
                     return True, f"Subtitle markup found in {raw_path}"
         return False, "Subtitle content not found"
-    if "标题" in criterion or re.search(r"\btitle\b", lowered):
+    if "title" in lowered or "标题" in criterion:
         target_text = _infer_target_text(str(task_payload.get("goal", "")), subtitle=False)
         for raw_path in related_files:
             candidate = repo_b_path / raw_path
             if candidate.exists():
                 content = candidate.read_text(encoding="utf-8")
-                if target_text:
-                    if target_text in content:
-                        return True, f"Found title '{target_text}' in {raw_path}"
-                elif "<h1" in content:
+                if target_text and target_text in content:
+                    return True, f"Found title '{target_text}' in {raw_path}"
+                if not target_text and "<h1" in content:
                     return True, f"Heading found in {raw_path}"
         return False, "Heading content not found"
+    if "schema" in lowered:
+        for raw_path in related_files:
+            if not raw_path.endswith(".json"):
+                continue
+            candidate = repo_b_path / raw_path
+            if candidate.exists():
+                return True, f"Schema artifact exists: {raw_path}"
+        return False, "Schema artifact not found"
     if "prettier" in lowered or "格式化" in criterion:
         report = str(state.get("test_results") or "")
         if "FAIL" in report.upper():
@@ -142,26 +210,16 @@ def _infer_target_text(goal: str, *, subtitle: bool) -> str | None:
     if quote_match:
         return quote_match.group(1).strip()
 
-    if subtitle:
-        patterns = [
-            r"加(?:一个|个)?副标题[:：]?\s*(.+)$",
-            r"添加(?:一个|个)?副标题[:：]?\s*(.+)$",
-            r"副标题(?:为|是)?[:：]?\s*(.+)$",
-            r"add\s+(?:a\s+)?subtitle[:：]?\s*(.+)$",
-        ]
-    else:
-        patterns = [
-            r"加(?:一个|个)?标题[:：]?\s*(.+)$",
-            r"添加(?:一个|个)?标题[:：]?\s*(.+)$",
-            r"标题(?:为|是)?[:：]?\s*(.+)$",
-            r"add\s+(?:a\s+)?title[:：]?\s*(.+)$",
-        ]
-
-    cleaned = goal.strip(" ，。：；!?\"'“”‘’「」『』")
+    patterns = (
+        [r"加(?:一个)?副标题[:：]?\s*(.+)$", r"subtitle[:：]?\s*(.+)$"]
+        if subtitle
+        else [r"加(?:一个)?标题[:：]?\s*(.+)$", r"title[:：]?\s*(.+)$"]
+    )
+    cleaned = goal.strip(" ，。：:!?\"'“”‘’「」『』")
     for pattern in patterns:
         match = re.search(pattern, cleaned, re.IGNORECASE)
         if match:
-            return match.group(1).strip(" ，。：；!?\"'“”‘’「」『』")
+            return match.group(1).strip(" ，。：:!?\"'“”‘’「」『』")
     return None
 
 

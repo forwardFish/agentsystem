@@ -6,13 +6,13 @@ story_id: S1-006
 blast_radius: L1
 execution_mode: Fast
 mode: Fast
-goal: 把原始记录转为统一 TradeRecord。
+goal: 把原始记录转换为统一 TradeRecord。
 business_value: 让 TradeRecord 标准化 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
 entry_criteria:
 - 前置依赖已完成并可用。
 acceptance_criteria:
 - TradeRecord 标准化 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩大到相邻模块。
+- 只跨一个业务边界，不扩展到相邻模块。
 - 产物能够被后续 Story 直接复用。
 - 正常路径和关键失败路径都有可验证结果。
 constraints:

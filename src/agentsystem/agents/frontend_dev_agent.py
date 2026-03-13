@@ -3,10 +3,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
+import uuid
 
 from agentsystem.adapters.context_assembler import ContextAssembler
 from agentsystem.agents.llm_editing import llm_rewrite_file
-from agentsystem.core.state import DevState
+from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, add_handoff_packet
 
 FRONTEND_MARKER = "// Frontend Dev Agent was here (with Constitution loaded)"
 
@@ -40,6 +41,30 @@ def frontend_dev_node(state: DevState) -> dict[str, object]:
         print(f"[Frontend Dev Agent] Updated: {file_path}")
 
     print("[Frontend Dev Agent] Frontend work completed")
+    add_handoff_packet(
+        state,
+        HandoffPacket(
+            packet_id=str(uuid.uuid4()),
+            from_agent=AgentRole.BUILDER,
+            to_agent=AgentRole.SYNC,
+            status=HandoffStatus.COMPLETED,
+            what_i_did="Implemented the frontend portion of the story using project constitution and task context.",
+            what_i_produced=[
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name=Path(file_path).name,
+                    type="code",
+                    path=str(file_path),
+                    description="Frontend artifact produced by the builder step.",
+                    created_by=AgentRole.BUILDER,
+                )
+                for file_path in updated_files
+            ],
+            what_risks_i_found=[],
+            what_i_require_next="Consolidate the frontend change set, prepare PR materials, and send it to validation.",
+            trace_id=str(state.get("collaboration_trace_id") or ""),
+        ),
+    )
     return {
         "frontend_result": "Frontend development completed (constitution loaded).",
         "dev_results": {
@@ -50,6 +75,8 @@ def frontend_dev_node(state: DevState) -> dict[str, object]:
                 "task_context_length": len(task_context),
             }
         },
+        "handoff_packets": state.get("handoff_packets"),
+        "all_deliverables": state.get("all_deliverables"),
     }
 
 
