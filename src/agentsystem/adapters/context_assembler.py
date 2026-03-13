@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 
 class ContextAssembler:
@@ -44,3 +46,57 @@ class ContextAssembler:
             constitution_parts.append(project_file.read_text(encoding="utf-8"))
 
         return "\n".join(constitution_parts)
+
+    def build_task_context(self, task_payload: dict[str, Any] | None) -> str:
+        if not task_payload:
+            return ""
+
+        context_parts: list[str] = []
+        goal = str(task_payload.get("goal", "")).strip()
+        acceptance = task_payload.get("acceptance_criteria", [])
+        constraints = task_payload.get("constraints", [])
+        related_files = [str(path) for path in task_payload.get("related_files", [])]
+
+        context_parts.append("# Task Card")
+        context_parts.append(f"Goal: {goal or 'n/a'}")
+        context_parts.append(f"Acceptance Criteria: {json.dumps(acceptance, ensure_ascii=False)}")
+        context_parts.append(f"Constraints: {json.dumps(constraints, ensure_ascii=False)}")
+        context_parts.append("")
+
+        if related_files:
+            context_parts.append("# Related Files")
+            for raw_path in related_files:
+                candidate = self.repo_b_root / raw_path
+                context_parts.append(f"## {raw_path}")
+                if candidate.exists():
+                    context_parts.append("```")
+                    context_parts.append(candidate.read_text(encoding="utf-8"))
+                    context_parts.append("```")
+                else:
+                    context_parts.append("(missing)")
+            context_parts.append("")
+
+        focused_tree = self._build_focused_tree(related_files)
+        if focused_tree:
+            context_parts.append("# Focused Project Tree")
+            context_parts.extend(focused_tree)
+
+        return "\n".join(context_parts).strip()
+
+    def _build_focused_tree(self, related_files: list[str]) -> list[str]:
+        roots: set[Path] = set()
+        for raw_path in related_files:
+            normalized = Path(raw_path)
+            if normalized.parts[:2] == ("apps", "web"):
+                roots.add(self.repo_b_root / "apps" / "web" / "src")
+            elif normalized.parts[:2] == ("apps", "api"):
+                roots.add(self.repo_b_root / "apps" / "api" / "src")
+
+        lines: list[str] = []
+        for root in sorted(roots):
+            if not root.exists():
+                continue
+            lines.append(str(root.relative_to(self.repo_b_root)))
+            for child in sorted(root.iterdir()):
+                lines.append(f"- {child.relative_to(self.repo_b_root)}")
+        return lines

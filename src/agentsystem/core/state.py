@@ -18,6 +18,7 @@ class SubTask(BaseModel):
 
 
 class DevState(TypedDict, total=False):
+    task_id: str
     user_requirement: str
     repo_b_path: str
     task_payload: dict[str, Any] | None
@@ -31,6 +32,12 @@ class DevState(TypedDict, total=False):
     pr_desc: str | None
     commit_msg: str | None
     requirement_spec: str | None
+    parsed_goal: str | None
+    acceptance_checklist: list[str] | None
+    primary_files: list[str] | None
+    secondary_files: list[str] | None
+    parsed_constraints: list[str] | None
+    parsed_not_do: list[str] | None
     subtasks: list[SubTask]
     dev_results: Annotated[dict[str, Any], merge_dicts]
     backend_result: str | None
@@ -49,6 +56,9 @@ class DevState(TypedDict, total=False):
     important_issues: list[str] | None
     nice_to_haves: list[str] | None
     review_report: str | None
+    acceptance_success: bool | None
+    acceptance_passed: bool | None
+    acceptance_report: str | None
     doc_result: str | None
     fix_result: str | None
     fixer_needed: bool | None

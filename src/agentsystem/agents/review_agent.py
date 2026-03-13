@@ -182,19 +182,19 @@ Diff:
 
 
 def review_node(state: DevState) -> DevState:
-    print("[Review Agent] Starting review")
+    _safe_print("[Review Agent] Starting review")
 
     reviewer = ReviewerAgent(state["repo_b_path"], state.get("task_payload"))
     result = reviewer.run(state)
     state.update(result)
     state["current_step"] = "review_done"
 
-    print("[Review Agent] Report")
+    _safe_print("[Review Agent] Report")
     for line in str(state.get("review_report", "")).splitlines():
         if line.strip():
-            print(f"[Review Agent] {line}")
+            _safe_print(f"[Review Agent] {line}")
 
-    print("[Review Agent] Review completed")
+    _safe_print("[Review Agent] Review completed")
     return state
 
 
@@ -242,3 +242,10 @@ def _filter_review_paths(paths: list[str]) -> list[str]:
             continue
         filtered.append(path)
     return filtered
+
+
+def _safe_print(message: str) -> None:
+    try:
+        print(message)
+    except OSError:
+        pass

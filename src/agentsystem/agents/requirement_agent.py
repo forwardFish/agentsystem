@@ -10,7 +10,18 @@ def requirement_analysis_node(state: DevState) -> DevState:
 
     requirement = state.get("user_requirement", "").lower()
     task_payload = state.get("task_payload") or {}
+    primary_files = [str(path) for path in task_payload.get("primary_files", [])]
     related_files = [str(path) for path in task_payload.get("related_files", [])]
+    if not related_files:
+        related_files = list(primary_files)
+    secondary_files = [str(path) for path in task_payload.get("secondary_files", [])]
+    acceptance_checklist = [str(item).strip() for item in task_payload.get("acceptance_criteria", []) if str(item).strip()]
+    constraints = [str(item).strip() for item in task_payload.get("constraints", []) if str(item).strip()]
+    not_do = [
+        str(item).strip()
+        for item in (task_payload.get("explicitly_not_doing") or task_payload.get("not_do") or [])
+        if str(item).strip()
+    ]
     subtasks: list[SubTask] = []
 
     if related_files:
@@ -91,6 +102,12 @@ def requirement_analysis_node(state: DevState) -> DevState:
     state["subtasks"] = subtasks
     state["current_step"] = "requirement_done"
     state["requirement_spec"] = f"Decomposed the request into {len(subtasks)} implementation subtasks."
+    state["parsed_goal"] = str(task_payload.get("goal", "")).strip() or str(state.get("user_requirement", "")).strip()
+    state["acceptance_checklist"] = acceptance_checklist
+    state["primary_files"] = primary_files or related_files
+    state["secondary_files"] = secondary_files
+    state["parsed_constraints"] = constraints
+    state["parsed_not_do"] = not_do
     state["error_message"] = None
 
     print(f"[Requirement Agent] Produced {len(subtasks)} subtasks")

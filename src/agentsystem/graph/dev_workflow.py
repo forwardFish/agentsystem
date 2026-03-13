@@ -5,7 +5,9 @@ from pathlib import Path
 from langgraph.graph import END, StateGraph
 
 from agentsystem.adapters.git_adapter import GitAdapter
+from agentsystem.dashboard.hooks import send_log, send_node_end, send_node_start, send_workflow_state
 from agentsystem.agents.backend_dev_agent import backend_dev_node
+from agentsystem.agents.acceptance_gate_agent import acceptance_gate_node, route_after_acceptance
 from agentsystem.agents.database_agent import database_dev_node
 from agentsystem.agents.devops_agent import devops_dev_node
 from agentsystem.agents.doc_agent import doc_node
@@ -22,14 +24,16 @@ from agentsystem.core.state import DevState
 
 
 class DevWorkflow:
-    def __init__(self, config: dict, worktree_path: str, task: dict):
+    def __init__(self, config: dict, worktree_path: str, task: dict, task_id: str | None = None):
         self.config = config
         self.worktree_path = worktree_path
         self.task = task
+        self.task_id = task_id or Path(worktree_path).name
         self.graph = create_dev_graph()
 
     def run(self) -> dict:
         initial_state: DevState = {
+            "task_id": self.task_id,
             "user_requirement": str(self.task.get("goal", "")),
             "repo_b_path": str(self.worktree_path),
             "task_payload": self.task,
@@ -52,6 +56,9 @@ class DevWorkflow:
             "important_issues": None,
             "nice_to_haves": None,
             "review_report": None,
+            "acceptance_success": None,
+            "acceptance_passed": None,
+            "acceptance_report": None,
             "doc_result": None,
             "fix_result": None,
             "fix_attempts": 0,
@@ -80,18 +87,19 @@ class DevWorkflow:
 
 def create_dev_graph():
     workflow = StateGraph(DevState)
-    workflow.add_node("requirement_analysis", requirement_analysis_node)
-    workflow.add_node("workspace_prep", workspace_prep_node)
-    workflow.add_node("backend_dev", backend_dev_node)
-    workflow.add_node("frontend_dev", frontend_dev_node)
-    workflow.add_node("database_dev", database_dev_node)
-    workflow.add_node("devops_dev", devops_dev_node)
-    workflow.add_node("sync_merge", sync_merge_node)
-    workflow.add_node("tester", test_node)
-    workflow.add_node("fixer", fix_node)
-    workflow.add_node("security_scanner", security_node)
-    workflow.add_node("reviewer", review_node)
-    workflow.add_node("doc_writer", doc_node)
+    workflow.add_node("requirement_analysis", _instrument_node("Requirement", requirement_analysis_node))
+    workflow.add_node("workspace_prep", _instrument_node("Workspace Prep", workspace_prep_node))
+    workflow.add_node("backend_dev", _instrument_node("Backend Dev", backend_dev_node))
+    workflow.add_node("frontend_dev", _instrument_node("Frontend Dev", frontend_dev_node))
+    workflow.add_node("database_dev", _instrument_node("Database Dev", database_dev_node))
+    workflow.add_node("devops_dev", _instrument_node("DevOps Dev", devops_dev_node))
+    workflow.add_node("sync_merge", _instrument_node("Sync Merge", sync_merge_node))
+    workflow.add_node("tester", _instrument_node("Tester", test_node))
+    workflow.add_node("fixer", _instrument_node("Fixer", fix_node))
+    workflow.add_node("security_scanner", _instrument_node("Security Scanner", security_node))
+    workflow.add_node("reviewer", _instrument_node("Reviewer", review_node))
+    workflow.add_node("acceptance_gate", _instrument_node("Acceptance Gate", acceptance_gate_node))
+    workflow.add_node("doc_writer", _instrument_node("Doc Writer", doc_node))
     workflow.set_entry_point("requirement_analysis")
     workflow.add_edge("requirement_analysis", "workspace_prep")
     workflow.add_conditional_edges(
@@ -120,6 +128,54 @@ def create_dev_graph():
     )
     workflow.add_edge("fixer", "tester")
     workflow.add_edge("security_scanner", "reviewer")
-    workflow.add_edge("reviewer", "doc_writer")
+    workflow.add_edge("reviewer", "acceptance_gate")
+    workflow.add_conditional_edges(
+        "acceptance_gate",
+        route_after_acceptance,
+        {
+            "doc_writer": "doc_writer",
+            "fixer": "fixer",
+        },
+    )
     workflow.add_edge("doc_writer", END)
     return workflow.compile()
+
+
+def _instrument_node(node_name: str, node_func):
+    def wrapped(state: DevState):
+        task_id = str(state.get("task_id") or Path(str(state.get("repo_b_path", "workspace"))).name)
+        node_input = _compact_payload(state)
+        send_node_start(task_id, node_name, node_input)
+        send_log(task_id, "INFO", f"开始执行 {node_name} 节点")
+        send_workflow_state(task_id, node_name, node_input)
+        try:
+            result = node_func(state)
+            node_output = _compact_payload(result)
+            status = "failed" if result.get("error_message") else "success"
+            send_node_end(task_id, node_name, node_output, status)
+            send_log(task_id, "INFO" if status == "success" else "ERROR", f"{node_name} 节点执行完成")
+            send_workflow_state(task_id, node_name, node_output)
+            return result
+        except Exception as exc:
+            send_log(task_id, "ERROR", f"{node_name} 节点执行失败: {exc}")
+            send_node_end(task_id, node_name, {"error": str(exc)}, "failed")
+            raise
+
+    return wrapped
+
+
+def _compact_payload(state: DevState) -> dict[str, object]:
+    subtasks = state.get("subtasks") or []
+    payload = {
+        "task_id": state.get("task_id"),
+        "current_step": state.get("current_step"),
+        "branch_name": state.get("branch_name"),
+        "repo_b_path": state.get("repo_b_path"),
+        "subtask_count": len(subtasks),
+        "fix_attempts": state.get("fix_attempts"),
+        "test_passed": state.get("test_passed"),
+        "review_passed": state.get("review_passed"),
+        "acceptance_passed": state.get("acceptance_passed"),
+        "error_message": state.get("error_message"),
+    }
+    return {key: value for key, value in payload.items() if value is not None}

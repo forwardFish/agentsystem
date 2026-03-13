@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
+from typing import Any
 
 from agentsystem.adapters.context_assembler import ContextAssembler
 from agentsystem.core.state import DevState
@@ -29,6 +30,7 @@ def frontend_dev_node(state: DevState) -> dict[str, object]:
 
     assembler = ContextAssembler(repo_b_path)
     constitution = assembler.build_constitution()
+    task_context = assembler.build_task_context(state.get("task_payload"))
     print("[Frontend Dev Agent] Loading project constitution")
     print(f"[Frontend Dev Agent] Constitution loaded ({len(constitution)} chars)")
 
@@ -42,8 +44,9 @@ def frontend_dev_node(state: DevState) -> dict[str, object]:
         "dev_results": {
             "frontend": {
                 "updated_files": updated_files,
-                "summary": "Updated frontend observation page scaffold.",
+                "summary": "Updated frontend page scaffold.",
                 "constitution_length": len(constitution),
+                "task_context_length": len(task_context),
             }
         },
     }
@@ -66,7 +69,8 @@ def _apply_frontend_changes(repo_b_path: Path, task_payload: dict[str, object] |
 
 def _resolve_frontend_target(repo_b_path: Path, task_payload: dict[str, object] | None) -> Path:
     if task_payload:
-        for raw_path in task_payload.get("related_files", []):
+        candidate_paths = list(task_payload.get("primary_files", []) or []) + list(task_payload.get("related_files", []) or [])
+        for raw_path in candidate_paths:
             candidate = repo_b_path / str(raw_path)
             if candidate.suffix in {".tsx", ".ts", ".jsx", ".js"}:
                 return candidate
@@ -79,26 +83,48 @@ def _apply_task_specific_change(content: str, task_payload: dict[str, object] | 
             return content
         return f"{content.rstrip()}\n{FRONTEND_MARKER}\n"
 
-    goal = str(task_payload.get("goal", ""))
-    subtitle = _extract_quoted_text(goal)
-    if not subtitle:
-        if FRONTEND_MARKER in content:
-            return content
-        return f"{content.rstrip()}\n{FRONTEND_MARKER}\n"
+    updated = content
+    requested_title = _infer_requested_text(task_payload, "title")
+    requested_subtitle = _infer_requested_text(task_payload, "subtitle")
+
+    if requested_title:
+        updated = _ensure_heading(updated, requested_title)
+    if requested_subtitle:
+        updated = _ensure_subtitle(updated, requested_subtitle)
+    if updated == content and FRONTEND_MARKER not in updated:
+        updated = f"{updated.rstrip()}\n{FRONTEND_MARKER}\n"
+    return updated
+
+
+def _ensure_heading(content: str, title: str) -> str:
+    if not title or title in content:
+        return content
+
+    match = re.search(r'(?P<indent>\s*)<h1[^>]*>.*?</h1>', content)
+    if match:
+        indent = match.group("indent")
+        replacement = f'{indent}<h1 className="mb-6 text-3xl font-bold">{title}</h1>'
+        return content[: match.start()] + replacement + content[match.end() :]
+    if "    <div>" in content:
+        return content.replace("    <div>", f'    <div>\n      <h1 className="mb-6 text-3xl font-bold">{title}</h1>', 1)
+    return f'<h1 className="mb-6 text-3xl font-bold">{title}</h1>\n{content}'
+
+
+def _ensure_subtitle(content: str, subtitle: str) -> str:
+    if not subtitle or subtitle in content:
+        return content
 
     subtitle_line = f'      <p className="mb-2 text-sm text-slate-500">{subtitle}</p>'
-    if subtitle in content:
-        return content
     if '      <h1 className="mb-6 text-3xl font-bold">' in content:
         return content.replace(
             '      <h1 className="mb-6 text-3xl font-bold">',
-            f"{subtitle_line}\n      <h1 className=\"mb-6 text-3xl font-bold\">",
+            f'{subtitle_line}\n      <h1 className="mb-6 text-3xl font-bold">',
             1,
         )
     if '      <h1 className="mb-4 text-2xl font-bold">' in content:
         return content.replace(
             '      <h1 className="mb-4 text-2xl font-bold">',
-            f"{subtitle_line}\n      <h1 className=\"mb-4 text-2xl font-bold\">",
+            f'{subtitle_line}\n      <h1 className="mb-4 text-2xl font-bold">',
             1,
         )
     if "    <div>" in content:
@@ -106,8 +132,51 @@ def _apply_task_specific_change(content: str, task_payload: dict[str, object] | 
     return f"{content.rstrip()}\n{subtitle_line}\n"
 
 
-def _extract_quoted_text(goal: str) -> str | None:
-    match = re.search(r"[\"'“”‘’]([^\"'“”‘’]+)[\"'“”‘’]", goal)
+def _infer_requested_text(task_payload: dict[str, Any], target_kind: str) -> str | None:
+    candidates: list[str] = []
+    goal = str(task_payload.get("goal", "")).strip()
+    if goal:
+        candidates.append(goal)
+
+    for item in task_payload.get("acceptance_criteria", []):
+        candidate = str(item).strip()
+        if candidate:
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        quoted = _extract_quoted_text(candidate)
+        if quoted:
+            return quoted
+
+    if target_kind == "subtitle":
+        patterns = [
+            r"加(?:一个|个)?副标题[:：]?\s*(.+)$",
+            r"添加(?:一个|个)?副标题[:：]?\s*(.+)$",
+            r"副标题(?:为|是)?[:：]?\s*(.+)$",
+            r"add\s+(?:a\s+)?subtitle[:：]?\s*(.+)$",
+        ]
+    else:
+        patterns = [
+            r"加(?:一个|个)?标题[:：]?\s*(.+)$",
+            r"添加(?:一个|个)?标题[:：]?\s*(.+)$",
+            r"标题(?:为|是)?[:：]?\s*(.+)$",
+            r"add\s+(?:a\s+)?title[:：]?\s*(.+)$",
+        ]
+
+    for candidate in candidates:
+        cleaned = candidate.strip(" ，。：；!?\"'“”‘’「」『』")
+        for pattern in patterns:
+            match = re.search(pattern, cleaned, re.IGNORECASE)
+            if not match:
+                continue
+            value = match.group(1).strip(" ，。：；!?\"'“”‘’「」『』")
+            if value:
+                return value
+    return None
+
+
+def _extract_quoted_text(text: str) -> str | None:
+    match = re.search(r"[\"'“”‘’「」『』](.*?)[\"'“”‘’「」『』]", text)
     if match:
         return match.group(1).strip()
     return None

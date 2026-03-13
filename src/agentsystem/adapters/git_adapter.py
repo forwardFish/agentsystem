@@ -39,6 +39,10 @@ class GitAdapter:
     def get_branches(self) -> list[str]:
         return [head.name for head in self.repo.branches]
 
+    def delete_branch(self, branch_name: str, *, force: bool = False) -> None:
+        args = ["-D" if force else "-d", branch_name]
+        self.repo.git.branch(*args)
+
     def get_staged_files(self) -> list[str]:
         output = self.repo.git.diff("--cached", "--name-only")
         return [line.strip() for line in output.splitlines() if line.strip()]

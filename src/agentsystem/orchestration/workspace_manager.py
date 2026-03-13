@@ -4,7 +4,7 @@ import hashlib
 import json
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -138,17 +138,78 @@ class WorkspaceManager:
             archive_path.mkdir(parents=True, exist_ok=True)
             shutil.copytree(self._task_meta_dir(task_id), archive_path / "meta", dirs_exist_ok=True)
         if self._is_git_repo():
+            self._remove_git_worktree(worktree_path)
+        else:
+            shutil.rmtree(worktree_path, ignore_errors=True)
+        shutil.rmtree(self._task_meta_dir(task_id), ignore_errors=True)
+        self._release_lock(self._branch_lock_path(branch))
+        self._release_lock(self._task_lock_path(task_id))
+
+    def _remove_git_worktree(self, worktree_path: Path) -> None:
+        try:
             subprocess.run(
                 ["git", "-C", str(self.repo_root), "worktree", "remove", str(worktree_path), "--force"],
                 check=True,
                 capture_output=True,
                 text=True,
             )
-        else:
+            return
+        except subprocess.CalledProcessError:
+            subprocess.run(
+                ["git", "-C", str(self.repo_root), "worktree", "prune"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
             shutil.rmtree(worktree_path, ignore_errors=True)
+
+    def cleanup_task_worktree(self, task_id: str) -> None:
+        self.clean_worktree(task_id, archive=False)
+
+    def cleanup_task_meta(self, task_id: str) -> None:
         shutil.rmtree(self._task_meta_dir(task_id), ignore_errors=True)
-        self._release_lock(self._branch_lock_path(branch))
         self._release_lock(self._task_lock_path(task_id))
+
+    def cleanup_task_temp_files(self, task_id: str) -> None:
+        temp_dir = self._task_meta_dir(task_id) / "temp"
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def cleanup_task_resources(self, task_id: str) -> None:
+        worktree_path = self.worktree_root / task_id
+        if worktree_path.exists():
+            self.cleanup_task_worktree(task_id)
+        else:
+            self.cleanup_task_meta(task_id)
+        self.cleanup_task_temp_files(task_id)
+
+    def cleanup_orphaned_state(self) -> None:
+        for meta_dir in self.meta_dir.iterdir():
+            if not meta_dir.is_dir():
+                continue
+            task_id = meta_dir.name
+            worktree_path = self.worktree_root / task_id
+            if worktree_path.exists():
+                continue
+            shutil.rmtree(meta_dir, ignore_errors=True)
+            self._release_lock(self._task_lock_path(task_id))
+
+    def list_expired_tasks(self, older_than_days: int = 7) -> list[str]:
+        cutoff = datetime.now() - timedelta(days=older_than_days)
+        expired: list[str] = []
+        for meta_dir in self.meta_dir.iterdir():
+            if not meta_dir.is_dir():
+                continue
+            task_yaml = meta_dir / "task.yaml"
+            if not task_yaml.exists():
+                continue
+            try:
+                payload = yaml.safe_load(task_yaml.read_text(encoding="utf-8")) or {}
+                created_at = datetime.fromisoformat(str(payload.get("created_at")))
+            except Exception:
+                continue
+            if created_at <= cutoff:
+                expired.append(meta_dir.name)
+        return sorted(expired)
 
     def get_task_state(self, task_id: str) -> dict[str, object]:
         return json.loads(self._state_json_path(task_id).read_text(encoding="utf-8"))

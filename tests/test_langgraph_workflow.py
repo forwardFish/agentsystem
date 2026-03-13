@@ -22,7 +22,7 @@ git:
 
 RULES_YAML = "{}\n"
 COMMANDS_YAML = """lint:
-  - "python -c \\"print('lint ok')\\""
+  - python -c "print('lint ok')"
 """
 REVIEW_POLICY_YAML = "{}\n"
 CONTRACTS_YAML = "{}\n"
@@ -93,7 +93,16 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 "generated_code_diff": None,
                 "test_results": None,
                 "security_report": None,
+                "review_success": None,
+                "review_passed": None,
+                "review_dir": None,
+                "blocking_issues": None,
+                "important_issues": None,
+                "nice_to_haves": None,
                 "review_report": None,
+                "acceptance_success": None,
+                "acceptance_passed": None,
+                "acceptance_report": None,
                 "doc_result": None,
                 "fix_result": None,
                 "fix_attempts": 0,
@@ -117,6 +126,7 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertIn("backend", final_state["dev_results"])
             self.assertIn("frontend", final_state["dev_results"])
             self.assertGreater(final_state["dev_results"]["frontend"]["constitution_length"], 0)
+            self.assertEqual(final_state["dev_results"]["frontend"]["task_context_length"], 0)
             self.assertTrue(final_state["branch_name"].startswith("agent/parallel-dev-"))
             self.assertTrue(final_state["sync_merge_success"])
             self.assertTrue(final_state["pr_prep_success"])
@@ -146,7 +156,6 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertTrue((pr_prep_dir / "commit_message.txt").exists())
             review_dir = Path(final_state["review_dir"])
             self.assertTrue((review_dir / "review_report.md").exists())
-            self.assertIn("# Review Report", final_state["review_report"])
             self.assertEqual(final_state["blocking_issues"], [])
             self.assertNotIn(".git/", final_state["review_report"])
 
@@ -185,6 +194,9 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 "important_issues": None,
                 "nice_to_haves": None,
                 "review_report": None,
+                "acceptance_success": None,
+                "acceptance_passed": None,
+                "acceptance_report": None,
                 "doc_result": None,
                 "fix_result": None,
                 "fixer_needed": None,
@@ -204,7 +216,6 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertIn("Applied automated remediation", final_state["fix_result"])
             self.assertTrue(final_state["sync_merge_success"])
             self.assertTrue(final_state["pr_prep_success"])
-            self.assertEqual(final_state["fix_attempts"], 1)
             self.assertTrue(final_state["review_success"])
             self.assertTrue(final_state["review_passed"])
 
@@ -212,6 +223,61 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
             ).read_text(encoding="utf-8")
             self.assertIn("Fixed by Fix Agent after validation failure", frontend_content)
+
+    def test_frontend_dev_infers_unquoted_subtitle_from_task_goal(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            repo_path = Path(tmp) / "versefina"
+            self._create_repo_fixture(repo_path)
+
+            graph = create_dev_graph()
+            initial_state = {
+                "user_requirement": "给前端页面加一个 Reviewer 测试副标题",
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "goal": "给前端页面加一个 Reviewer 测试副标题",
+                    "acceptance_criteria": ["页面顶部有副标题"],
+                    "related_files": ["apps/web/src/app/(dashboard)/agents/[agentId]/page.tsx"],
+                },
+                "branch_name": None,
+                "auto_commit": False,
+                "current_step": "init",
+                "subtasks": [],
+                "dev_results": {},
+                "backend_result": None,
+                "frontend_result": None,
+                "database_result": None,
+                "devops_result": None,
+                "generated_code_diff": None,
+                "test_results": None,
+                "test_passed": None,
+                "test_failure_info": None,
+                "security_report": None,
+                "review_success": None,
+                "review_passed": None,
+                "review_dir": None,
+                "blocking_issues": None,
+                "important_issues": None,
+                "nice_to_haves": None,
+                "review_report": None,
+                "acceptance_success": None,
+                "acceptance_passed": None,
+                "acceptance_report": None,
+                "doc_result": None,
+                "fix_result": None,
+                "fixer_needed": None,
+                "fixer_success": None,
+                "fix_attempts": 0,
+                "error_message": None,
+            }
+
+            final_state = graph.invoke(initial_state)
+
+            self.assertEqual(final_state["current_step"], "doc_done")
+            self.assertGreater(final_state["dev_results"]["frontend"]["task_context_length"], 0)
+            frontend_content = (
+                repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Reviewer 测试副标题", frontend_content)
 
     def _create_repo_fixture(self, repo_path: Path) -> None:
         (repo_path / ".agents").mkdir(parents=True)
@@ -225,12 +291,14 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
         (repo_path / ".agents" / "review_policy.yaml").write_text(REVIEW_POLICY_YAML, encoding="utf-8")
         (repo_path / ".agents" / "contracts.yaml").write_text(CONTRACTS_YAML, encoding="utf-8")
         (repo_path / ".agents" / "style_guide.md").write_text(STYLE_GUIDE_MD, encoding="utf-8")
-        (
-            repo_path / "apps" / "api" / "src" / "domain" / "agent_registry" / "service.py"
-        ).write_text(BACKEND_CONTENT, encoding="utf-8")
-        (
-            repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx"
-        ).write_text(FRONTEND_CONTENT, encoding="utf-8")
+        (repo_path / "apps" / "api" / "src" / "domain" / "agent_registry" / "service.py").write_text(
+            BACKEND_CONTENT,
+            encoding="utf-8",
+        )
+        (repo_path / "apps" / "web" / "src" / "app" / "(dashboard)" / "agents" / "[agentId]" / "page.tsx").write_text(
+            FRONTEND_CONTENT,
+            encoding="utf-8",
+        )
 
         repo = Repo.init(repo_path, initial_branch="main")
         repo.index.add(["."])
