@@ -1,0 +1,41 @@
+task_id: S3-003
+task_name: 公开页与权限控制
+sprint: Sprint 3
+epic: Epic 3.1 Dashboard 读接口
+story_id: S3-003
+blast_radius: L1
+execution_mode: Fast
+mode: Fast
+goal: 支持 private/public 只读页。
+business_value: 让 公开页与权限控制 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+entry_criteria:
+- 前置依赖已完成并可用。
+acceptance_criteria:
+- 公开页与权限控制 的核心输出可以被独立验收。
+- 只跨一个业务边界，不扩大到相邻模块。
+- 产物能够被后续 Story 直接复用。
+- 正常路径和关键失败路径都有可验证结果。
+constraints:
+- 每个 Story 默认控制在 0.5 天到 1 天完成。
+- 只修改当前 Story 相关文件，不跨多个大模块。
+- '优先修改这些 primary files: apps/api/src/routes/公开页与权限控制.py'
+out_of_scope:
+- 不在本 Story 中实现 公开页与权限控制 之外的后续能力。
+- 不做架构级重构。
+not_do:
+- 不在本 Story 中实现 公开页与权限控制 之外的后续能力。
+- 不做架构级重构。
+dependencies:
+- S3-002
+related_files:
+- apps/api/src/routes/公开页与权限控制.py
+- apps/api/src/modules/dashboard/service.py
+primary_files:
+- apps/api/src/routes/公开页与权限控制.py
+secondary_files:
+- apps/api/src/modules/dashboard/service.py
+test_cases:
+  normal:
+  - 正常路径：公开页与权限控制 的核心场景可以完成。
+  exception:
+  - 异常路径：公开页与权限控制 失败时返回可解释结果。

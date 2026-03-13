@@ -3,37 +3,60 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+import shutil
 
+import yaml
+from click.testing import CliRunner
+
+from cli import cli
 from agentsystem.agents.requirements_analyst_agent import RequirementsAnalystAgent
 from agentsystem.agents.requirement_agent import requirement_analysis_node
+from agentsystem.core.task_card import TaskCard
+
+
+FINANCE_REQUIREMENT = """
+给 versefina 做一个 Agent-native 金融世界 MVP：
+1. 先完成契约、状态机和基础存储
+2. 支持交割单上传、解析、生成 Agent profile
+3. 支持世界状态、撮合、账本、daily loop
+4. 支持 dashboard 只读观察台和 OpenClaw-first 接入
+""".strip()
 
 
 class RequirementsAnalystAgentTestCase(unittest.TestCase):
-    def test_analyze_generates_sprint_plan_and_story_cards(self) -> None:
+    def test_analyze_generates_backlog_v1_structure(self) -> None:
         repo_b_path = Path("D:/lyh/agent/agent-frame/versefina").resolve()
-        requirement = (
-            "给versefina的web前端做一个用户个人中心，包括页面标题和骨架、"
-            "用户头像昵称展示、我的订单入口卡片、设置入口按钮。"
-            "只做前端，不动后端API，必须复用现有组件。"
-        )
 
         with tempfile.TemporaryDirectory() as tmp:
             tasks_root = Path(tmp) / "tasks"
             agent = RequirementsAnalystAgent(repo_b_path, tasks_root)
-            result = agent.analyze(requirement, "1")
+            result = agent.analyze(FINANCE_REQUIREMENT, prefix="backlog_v1")
 
-            sprint_dir = tasks_root / "sprint_1"
-            self.assertTrue(sprint_dir.exists())
+            backlog_root = tasks_root / "backlog_v1"
+            self.assertTrue(backlog_root.exists())
+            self.assertTrue((backlog_root / "sprint_overview.md").exists())
+            self.assertTrue((backlog_root / "backlog_v2.md").exists())
+
+            sprint_dir = backlog_root / "sprint_0_contract_foundation"
             self.assertTrue((sprint_dir / "sprint_plan.md").exists())
             self.assertTrue((sprint_dir / "execution_order.txt").exists())
-            self.assertEqual(len(result["story_cards"]), 4)
+            self.assertTrue((sprint_dir / "epic_0_1_platform_contract.md").exists())
+            self.assertTrue((sprint_dir / "epic_0_1_platform_contract").exists())
 
-            for card in result["story_cards"]:
-                self.assertIn(card["blast_radius"], {"L1", "L2"})
-                self.assertTrue(card["primary_files"])
-                self.assertTrue(card["related_files"])
-                self.assertNotIn("不动后端API", card["goal"])
-                self.assertNotIn("必须复用现有组件", card["goal"])
+            story_files = list(backlog_root.rglob("S0-001_*.yaml"))
+            self.assertEqual(len(story_files), 1)
+            payload = yaml.safe_load(story_files[0].read_text(encoding="utf-8"))
+            validated = TaskCard.model_validate(payload)
+
+            self.assertEqual(validated.story_id, "S0-001")
+            self.assertEqual(validated.epic, "Epic 0.1 平台契约")
+            self.assertTrue(validated.business_value)
+            self.assertTrue(validated.entry_criteria)
+            self.assertTrue(validated.out_of_scope)
+            self.assertTrue(validated.dependencies)
+            self.assertIn("normal", validated.test_cases)
+            self.assertIn("exception", validated.test_cases)
+            self.assertGreaterEqual(len(result["story_cards"]), 30)
 
     def test_requirement_node_parses_story_card_fields(self) -> None:
         state = {
@@ -55,6 +78,23 @@ class RequirementsAnalystAgentTestCase(unittest.TestCase):
         self.assertEqual(updated["secondary_files"], ["apps/web/src/app/(dashboard)/layout.tsx"])
         self.assertEqual(updated["parsed_not_do"], ["不新增后端 API"])
         self.assertTrue(updated["subtasks"])
+
+    def test_split_requirement_cli_creates_backlog_v1(self) -> None:
+        runner = CliRunner()
+        backlog_root = Path("D:/lyh/agent/agent-frame/agentsystem/tasks") / "backlog_test"
+        shutil.rmtree(backlog_root, ignore_errors=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            requirement_file = Path(tmp) / "requirement.md"
+            requirement_file.write_text(FINANCE_REQUIREMENT, encoding="utf-8")
+            result = runner.invoke(
+                cli,
+                ["split_requirement", "--requirement-file", str(requirement_file), "--env", "test", "--prefix", "backlog_test"],
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Requirement split completed", result.output)
+            self.assertTrue(backlog_root.exists())
+        shutil.rmtree(backlog_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

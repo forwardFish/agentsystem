@@ -1,0 +1,41 @@
+task_id: S1-005
+task_name: 券商字段映射规则
+sprint: Sprint 1
+epic: Epic 1.2 交割单解析与标准化
+story_id: S1-005
+blast_radius: L1
+execution_mode: Fast
+mode: Fast
+goal: 定义原始列名到统一字段的映射。
+business_value: 让 券商字段映射规则 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+entry_criteria:
+- 无前置依赖。
+acceptance_criteria:
+- 券商字段映射规则 的核心输出可以被独立验收。
+- 只跨一个业务边界，不扩大到相邻模块。
+- 产物能够被后续 Story 直接复用。
+- 正常路径和关键失败路径都有可验证结果。
+constraints:
+- 每个 Story 默认控制在 0.5 天到 1 天完成。
+- 只修改当前 Story 相关文件，不跨多个大模块。
+- '优先修改这些 primary files: apps/api/src/modules/statements/券商字段映射规则.py'
+out_of_scope:
+- 不在本 Story 中实现 券商字段映射规则 之外的后续能力。
+- 不做架构级重构。
+not_do:
+- 不在本 Story 中实现 券商字段映射规则 之外的后续能力。
+- 不做架构级重构。
+dependencies:
+- 无
+related_files:
+- apps/api/src/modules/statements/券商字段映射规则.py
+- apps/api/src/modules/statements/mappers/__init__.py
+primary_files:
+- apps/api/src/modules/statements/券商字段映射规则.py
+secondary_files:
+- apps/api/src/modules/statements/mappers/__init__.py
+test_cases:
+  normal:
+  - 正常路径：券商字段映射规则 的核心场景可以完成。
+  exception:
+  - 异常路径：券商字段映射规则 失败时返回可解释结果。

@@ -1,0 +1,41 @@
+task_id: S0-005
+task_name: 初始化核心 DB Schema
+sprint: Sprint 0
+epic: Epic 0.2 基础存储与底座
+story_id: S0-005
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: 创建 MVP 所需的核心写模型表结构。
+business_value: 让 初始化核心 DB Schema 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+entry_criteria:
+- 无前置依赖。
+acceptance_criteria:
+- 初始化核心 DB Schema 的核心输出可以被独立验收。
+- 只跨一个业务边界，不扩大到相邻模块。
+- 产物能够被后续 Story 直接复用。
+- 正常路径和关键失败路径都有可验证结果。
+constraints:
+- 每个 Story 默认控制在 0.5 天到 1 天完成。
+- 只修改当前 Story 相关文件，不跨多个大模块。
+- '优先修改这些 primary files: scripts/init_schema.sql'
+out_of_scope:
+- 不在本 Story 中实现 初始化核心 DB Schema 之外的后续能力。
+- 不做架构级重构。
+not_do:
+- 不在本 Story 中实现 初始化核心 DB Schema 之外的后续能力。
+- 不做架构级重构。
+dependencies:
+- 无
+related_files:
+- scripts/init_schema.sql
+- docs/contracts/trading_agent_profile.schema.json
+primary_files:
+- scripts/init_schema.sql
+secondary_files:
+- docs/contracts/trading_agent_profile.schema.json
+test_cases:
+  normal:
+  - 正常路径：初始化核心 DB Schema 的核心场景可以完成。
+  exception:
+  - 异常路径：初始化核心 DB Schema 失败时返回可解释结果。

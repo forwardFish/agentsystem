@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from agentsystem.adapters.context_assembler import ContextAssembler
+from agentsystem.agents.llm_editing import llm_rewrite_file
 from agentsystem.core.state import DevState
 
 FRONTEND_MARKER = "// Frontend Dev Agent was here (with Constitution loaded)"
@@ -59,7 +60,9 @@ def _apply_frontend_changes(repo_b_path: Path, task_payload: dict[str, object] |
         return updated_files
 
     content = frontend_file.read_text(encoding="utf-8")
-    updated_content = _apply_task_specific_change(content, task_payload)
+    updated_content = llm_rewrite_file(repo_b_path, task_payload, frontend_file, system_role="Frontend Builder Agent")
+    if not updated_content:
+        updated_content = _apply_task_specific_change(content, task_payload)
     if updated_content != content:
         frontend_file.write_text(updated_content, encoding="utf-8")
         updated_files.append(str(frontend_file))

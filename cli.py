@@ -19,9 +19,14 @@ from agentsystem.adapters.git_adapter import GitAdapter
 from agentsystem.core.task_card import TaskCard
 from agentsystem.dashboard.main import app as dashboard_app
 from agentsystem.orchestration.workspace_manager import WorkspaceManager
-from agentsystem.agents.requirements_analyst_agent import analyze_requirement
+from agentsystem.agents.requirements_analyst_agent import analyze_requirement, split_requirement_file
 from scripts.fix_encoding import fix_tree_encoding
 from scripts.validate_skill import validate_all_skills, validate_skill_file
+
+
+def _load_env_config(env: str) -> dict:
+    config_name = "test.yaml" if env == "test" else "production.yaml"
+    return SystemConfigReader().load(ROOT_DIR / "config" / config_name)
 
 
 @click.group()
@@ -36,127 +41,152 @@ def cli() -> None:
 def run_task(task_file: str, env: str, resume: bool) -> None:
     task_path = Path(task_file)
     if not task_path.exists():
-        click.echo(f"任务卡文件不存在: {task_file}", err=True)
+        click.echo(f"Task card file does not exist: {task_file}", err=True)
         raise SystemExit(1)
 
     try:
         payload = yaml.safe_load(task_path.read_text(encoding="utf-8"))
         TaskCard.model_validate(payload)
     except Exception as exc:
-        click.echo(f"任务卡校验失败: {exc}", err=True)
+        click.echo(f"Task card validation failed: {exc}", err=True)
         raise SystemExit(1) from exc
 
-    click.echo(f"开始执行任务: {task_file}")
-    click.echo(f"环境: {env}")
+    click.echo(f"Running task: {task_file}")
+    click.echo(f"Environment: {env}")
     if resume:
-        click.echo("resume 参数已保留，当前主流程默认按本地闭环执行")
+        click.echo("resume is reserved; the current local workflow always starts from the task card.")
 
     try:
         output = run_prod_task(task_path, env)
     except Exception as exc:
-        click.echo(f"任务执行失败: {exc}", err=True)
+        click.echo(f"Task execution failed: {exc}", err=True)
         raise SystemExit(1) from exc
 
-    click.echo("任务执行完成")
-    click.echo(f"   分支: {output['branch']}")
-    click.echo(f"   Commit: {output['commit']}")
-    click.echo(f"   审计日志: {output['audit_path']}")
+    click.echo("Task completed")
+    click.echo(f"  Branch: {output['branch']}")
+    click.echo(f"  Commit: {output['commit']}")
+    click.echo(f"  Audit log: {output['audit_path']}")
 
 
 @cli.command("analyze")
 @click.option("--requirement", "-r", required=True, help="Large natural-language requirement")
-@click.option("--sprint", "-s", default="1", show_default=True, help="Sprint number")
+@click.option("--sprint", "-s", default="1", show_default=True, help="Fallback sprint number for generic requirements")
 @click.option("--env", default="test", show_default=True, help="Runtime environment")
-def analyze(requirement: str, sprint: str, env: str) -> None:
-    """Analyze a large requirement and generate sprint planning artifacts."""
-    config_name = "test.yaml" if env == "test" else "production.yaml"
-    config = SystemConfigReader().load(ROOT_DIR / "config" / config_name)
+@click.option("--prefix", "-p", default="backlog_v1", show_default=True, help="Output backlog directory name")
+def analyze(requirement: str, sprint: str, env: str, prefix: str) -> None:
+    """Analyze a large requirement and generate backlog artifacts."""
+    config = _load_env_config(env)
     repo_b_path = Path(config["repo"]["versefina"]).resolve()
+    result = analyze_requirement(repo_b_path, ROOT_DIR / "tasks", requirement, sprint=sprint, prefix=prefix)
+    click.echo("Requirement analysis completed")
+    click.echo(f"  Backlog root: {result['backlog_root']}")
+    click.echo(f"  Overview: {result['overview_path']}")
+    click.echo(f"  Story count: {len(result['story_cards'])}")
 
-    result = analyze_requirement(repo_b_path, ROOT_DIR / "tasks", requirement, sprint)
-    click.echo(f"需求分析完成，Sprint {sprint} 已生成")
-    click.echo(f"   Sprint 目录: {result['sprint_dir']}")
-    click.echo(f"   规划文档: {result['sprint_plan_path']}")
-    click.echo(f"   执行顺序: {result['execution_order_path']}")
-    click.echo(f"   Story 数量: {len(result['story_cards'])}")
+
+@cli.command("split_requirement")
+@click.option(
+    "--requirement-file",
+    "-f",
+    default=r"D:\lyh\agent\agent-frame\versefina\docs\需求文档\需求分析.md",
+    show_default=True,
+    help="Requirement markdown file path",
+)
+@click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--prefix", "-p", default="backlog_v1", show_default=True, help="Output backlog directory name")
+def split_requirement(requirement_file: str, env: str, prefix: str) -> None:
+    """Split a requirement markdown file into formal backlog_v1 sprint artifacts."""
+    config = _load_env_config(env)
+    repo_b_path = Path(config["repo"]["versefina"]).resolve()
+    result = split_requirement_file(repo_b_path, ROOT_DIR / "tasks", requirement_file, prefix=prefix)
+    click.echo("Requirement split completed")
+    click.echo(f"  Backlog root: {result['backlog_root']}")
+    click.echo(f"  Overview: {result['overview_path']}")
+    click.echo(f"  Story count: {len(result['story_cards'])}")
 
 
 @cli.command("run-sprint")
-@click.option("--sprint", "-s", required=True, help="Sprint number")
+@click.option("--sprint-dir", help="Sprint directory path, for example tasks/backlog_v1/sprint_0_contract_foundation")
+@click.option("--sprint", help="Legacy sprint number, for example 1")
 @click.option("--start-from", default=0, show_default=True, help="Story index to start from")
 @click.option("--env", default="test", show_default=True, help="Runtime environment")
-def run_sprint(sprint: str, start_from: int, env: str) -> None:
+def run_sprint(sprint_dir: str | None, sprint: str | None, start_from: int, env: str) -> None:
     """Run all story cards in a generated sprint directory."""
-    sprint_dir = ROOT_DIR / "tasks" / f"sprint_{sprint}"
-    execution_file = sprint_dir / "execution_order.txt"
-    if not sprint_dir.exists() or not execution_file.exists():
-        click.echo(f"Sprint 目录不存在或缺少 execution_order.txt: {sprint_dir}", err=True)
+    if not sprint_dir and not sprint:
+        click.echo("Either --sprint-dir or --sprint is required.", err=True)
         raise SystemExit(1)
 
-    order = [line.strip() for line in execution_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if start_from < 0 or start_from >= len(order):
-        click.echo(f"start-from 超出范围: {start_from}", err=True)
+    if sprint_dir:
+        target_dir = Path(sprint_dir).resolve()
+    else:
+        target_dir = ROOT_DIR / "tasks" / f"sprint_{sprint}"
+
+    execution_file = target_dir / "execution_order.txt"
+    if not target_dir.exists() or not execution_file.exists():
+        click.echo(f"Sprint directory or execution_order.txt is missing: {target_dir}", err=True)
         raise SystemExit(1)
 
-    for index, story_id in enumerate(order[start_from:], start=start_from + 1):
-        candidates = sorted(sprint_dir.glob(f"{story_id}_*.yaml"))
-        if not candidates:
-            click.echo(f"未找到 Story 任务卡: {story_id}", err=True)
+    story_ids = [line.strip() for line in execution_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if start_from < 0 or start_from >= len(story_ids):
+        click.echo(f"start-from is out of range: {start_from}", err=True)
+        raise SystemExit(1)
+
+    for index, story_id in enumerate(story_ids[start_from:], start=start_from + 1):
+        story_file = next(target_dir.rglob(f"{story_id}_*.yaml"), None)
+        if story_file is None:
+            click.echo(f"Story card not found for {story_id}", err=True)
             raise SystemExit(1)
-        story_file = candidates[0]
-        click.echo(f"[{index}/{len(order)}] 执行 Story: {story_id}")
+        click.echo(f"[{index}/{len(story_ids)}] Running {story_id}")
         output = run_prod_task(story_file, env)
-        click.echo(f"   完成，分支: {output['branch']}")
-        click.echo(f"   Commit: {output['commit']}")
+        click.echo(f"  Branch: {output['branch']}")
+        click.echo(f"  Commit: {output['commit']}")
 
-    click.echo(f"Sprint {sprint} 执行完成")
+    click.echo(f"Sprint completed: {target_dir}")
 
 
 @cli.command("list-tasks")
 @click.option("--env", default="test", show_default=True, help="Runtime environment")
 def list_tasks(env: str) -> None:
-    config_name = "test.yaml" if env == "test" else "production.yaml"
-    config = SystemConfigReader().load(ROOT_DIR / "config" / config_name)
+    config = _load_env_config(env)
     repo_b_path = config["repo"]["versefina"]
     git = GitAdapter(repo_b_path)
-
-    click.echo("本地 Agent 任务分支:")
-    agent_branches = [branch for branch in git.get_branches() if branch.startswith("agent/")]
-    if not agent_branches:
-        click.echo("   暂无 Agent 任务分支")
+    branches = [branch for branch in git.get_branches() if branch.startswith("agent/")]
+    click.echo("Local agent branches:")
+    if not branches:
+        click.echo("  (none)")
         return
-    for branch in agent_branches:
-        click.echo(f"   - {branch}")
+    for branch in branches:
+        click.echo(f"  - {branch}")
 
 
 @cli.command("validate-skill")
 @click.option("--file", "skill_file", help="Validate a single skill file")
 def validate_skill(skill_file: str | None) -> None:
-    click.echo("验证 Skill 文件...")
+    click.echo("Validating skill files...")
     if skill_file:
         if validate_skill_file(skill_file):
-            click.echo("Skill 文件验证通过")
+            click.echo("Skill file is valid.")
             return
-        click.echo("Skill 文件验证失败", err=True)
+        click.echo("Skill file validation failed.", err=True)
         raise SystemExit(1)
 
     results = validate_all_skills(ROOT_DIR / "skills")
     if results and all(results.values()):
-        click.echo("所有 Skill 文件验证通过")
+        click.echo("All skill files are valid.")
         return
     if not results:
-        click.echo("当前没有可验证的 .skill.md 文件")
+        click.echo("No .skill.md files found.")
         return
-    click.echo("部分 Skill 文件验证失败", err=True)
+    click.echo("Some skill files failed validation.", err=True)
     raise SystemExit(1)
 
 
 @cli.command("fix-encoding")
 @click.option("--root", default=str(ROOT_DIR), show_default=True, help="Root directory to normalize")
 def fix_encoding(root: str) -> None:
-    click.echo("修复中文编码...")
+    click.echo("Fixing text encoding...")
     fix_tree_encoding(root)
-    click.echo("编码修复完成")
+    click.echo("Encoding normalization completed.")
 
 
 @cli.command("cleanup")
@@ -165,13 +195,10 @@ def fix_encoding(root: str) -> None:
 @click.option("--branches", is_flag=True, help="Remove local agent task branches")
 @click.option("--full", "full_cleanup", is_flag=True, help="Remove task worktrees, meta, and branches")
 def cleanup(env: str, task_id: str | None, branches: bool, full_cleanup: bool) -> None:
-    config_name = "test.yaml" if env == "test" else "production.yaml"
-    config = SystemConfigReader().load(ROOT_DIR / "config" / config_name)
+    config = _load_env_config(env)
     repo_b_path = Path(config["repo"]["versefina"]).resolve()
-    worktree_root = ROOT_DIR / "repo-worktree"
-    workspace_manager = WorkspaceManager(repo_b_path, worktree_root)
+    workspace_manager = WorkspaceManager(repo_b_path, ROOT_DIR / "repo-worktree")
     git = GitAdapter(repo_b_path)
-
     cleaned: list[str] = []
 
     if task_id:
@@ -194,11 +221,11 @@ def cleanup(env: str, task_id: str | None, branches: bool, full_cleanup: bool) -
         workspace_manager.cleanup_orphaned_state()
 
     if cleaned:
-        click.echo("已清理以下分支/任务资源:")
+        click.echo("Removed resources:")
         for item in cleaned:
-            click.echo(f"   - {item}")
+            click.echo(f"  - {item}")
     else:
-        click.echo("没有需要清理的任务资源")
+        click.echo("No matching resources to clean.")
 
 
 @cli.command("dashboard")
@@ -209,7 +236,7 @@ def dashboard(host: str, port: int, open_browser: bool) -> None:
     url = f"http://{host}:{port}"
     if open_browser:
         webbrowser.open(url)
-    click.echo(f"Dashboard 已启动: {url}")
+    click.echo(f"Dashboard started at {url}")
     uvicorn.run(dashboard_app, host=host, port=port, log_level="info")
 
 

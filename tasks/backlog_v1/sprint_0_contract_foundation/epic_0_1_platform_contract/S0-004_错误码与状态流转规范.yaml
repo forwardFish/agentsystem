@@ -1,0 +1,39 @@
+task_id: S0-004
+task_name: 错误码与状态流转规范
+sprint: Sprint 0
+epic: Epic 0.1 平台契约
+story_id: S0-004
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: 定义 statement、agent、order、binding 的状态机与统一错误码。
+business_value: 让 错误码与状态流转规范 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+entry_criteria:
+- 前置依赖已完成并可用。
+acceptance_criteria:
+- 错误码与状态流转规范 的核心输出可以被独立验收。
+- 只跨一个业务边界，不扩大到相邻模块。
+- 产物能够被后续 Story 直接复用。
+- 正常路径和关键失败路径都有可验证结果。
+constraints:
+- 每个 Story 默认控制在 0.5 天到 1 天完成。
+- 只修改当前 Story 相关文件，不跨多个大模块。
+- '优先修改这些 primary files: docs/contracts/错误码与状态流转规范.md'
+out_of_scope:
+- 不在本 Story 中实现 错误码与状态流转规范 之外的后续能力。
+- 不做架构级重构。
+not_do:
+- 不在本 Story 中实现 错误码与状态流转规范 之外的后续能力。
+- 不做架构级重构。
+dependencies:
+- S0-003
+related_files:
+- docs/contracts/错误码与状态流转规范.md
+primary_files:
+- docs/contracts/错误码与状态流转规范.md
+secondary_files: []
+test_cases:
+  normal:
+  - 正常路径：错误码与状态流转规范 的核心场景可以完成。
+  exception:
+  - 异常路径：错误码与状态流转规范 失败时返回可解释结果。

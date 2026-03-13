@@ -1,0 +1,41 @@
+task_id: S2-014
+task_name: Context Pack 构建
+sprint: Sprint 2
+epic: Epic 2.4 Daily Loop
+story_id: S2-014
+blast_radius: L1
+execution_mode: Fast
+mode: Fast
+goal: 为每日决策生成 context。
+business_value: 让 Context Pack 构建 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+entry_criteria:
+- 无前置依赖。
+acceptance_criteria:
+- Context Pack 构建 的核心输出可以被独立验收。
+- 只跨一个业务边界，不扩大到相邻模块。
+- 产物能够被后续 Story 直接复用。
+- 正常路径和关键失败路径都有可验证结果。
+constraints:
+- 每个 Story 默认控制在 0.5 天到 1 天完成。
+- 只修改当前 Story 相关文件，不跨多个大模块。
+- '优先修改这些 primary files: apps/api/src/modules/loop/context_pack_构建.py'
+out_of_scope:
+- 不在本 Story 中实现 Context Pack 构建 之外的后续能力。
+- 不做架构级重构。
+not_do:
+- 不在本 Story 中实现 Context Pack 构建 之外的后续能力。
+- 不做架构级重构。
+dependencies:
+- 无
+related_files:
+- apps/api/src/modules/loop/context_pack_构建.py
+- apps/api/src/modules/world/service.py
+primary_files:
+- apps/api/src/modules/loop/context_pack_构建.py
+secondary_files:
+- apps/api/src/modules/world/service.py
+test_cases:
+  normal:
+  - 正常路径：Context Pack 构建 的核心场景可以完成。
+  exception:
+  - 异常路径：Context Pack 构建 失败时返回可解释结果。

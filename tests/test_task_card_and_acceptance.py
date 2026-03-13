@@ -46,7 +46,7 @@ class TaskCardValidationTestCase(unittest.TestCase):
             result = runner.invoke(cli, ["run-task", "--task-file", str(task_file), "--env", "test"])
 
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("任务卡校验失败", result.output)
+        self.assertIn("Task card validation failed", result.output)
 
 
 class AcceptanceGateTestCase(unittest.TestCase):
@@ -74,7 +74,6 @@ class AcceptanceGateTestCase(unittest.TestCase):
             }
 
             final_state = acceptance_gate_node(state)
-
             self.assertFalse(final_state["acceptance_passed"])
             self.assertIn("Acceptance unmet: 页面顶部有副标题", final_state["blocking_issues"])
             self.assertIn("Acceptance failed", final_state["acceptance_report"])
@@ -89,8 +88,8 @@ class AcceptanceGateTestCase(unittest.TestCase):
                 '  return <div>\n'
                 '      <p className="mb-2 text-sm text-slate-500">Reviewer 测试副标题</p>\n'
                 '      <h1>Agent</h1>\n'
-                '  </div>;\n'
-                '}\n',
+                "  </div>;\n"
+                "}\n",
                 encoding="utf-8",
             )
 
@@ -111,7 +110,6 @@ class AcceptanceGateTestCase(unittest.TestCase):
             }
 
             final_state = acceptance_gate_node(state)
-
             self.assertTrue(final_state["acceptance_passed"])
             self.assertEqual(final_state["blocking_issues"], [])
 

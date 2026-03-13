@@ -1,287 +1,555 @@
 from __future__ import annotations
 
-import re
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
+from langchain_core.prompts import ChatPromptTemplate
 
-from agentsystem.adapters.context_assembler import ContextAssembler
+from agentsystem.llm.client import get_llm
+
+CONTRACTS_DIR = "docs/contracts"
+API_DIR = "apps/api/src"
+WEB_DIR = "apps/web/src"
 
 
-FRONTEND_FALLBACK_PAGE = "apps/web/src/app/(dashboard)/onboarding/page.tsx"
-FRONTEND_LAYOUT = "apps/web/src/app/(dashboard)/layout.tsx"
+FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
+    {
+        "number": 0,
+        "slug": "contract_foundation",
+        "name": "契约与基础设施钉死",
+        "goal": "先把 schema、状态、底层存储和审计基础打稳，防止后面返工。",
+        "out_of_scope": ["不实现交割单解析逻辑", "不实现交易撮合", "不实现前端观察台"],
+        "epics": [
+            {
+                "code": "0_1",
+                "slug": "platform_contract",
+                "title": "平台契约",
+                "description": "先定义核心 schema、payload 契约、错误码和状态机。",
+                "stories": [
+                    ("S0-001", "TradingAgentProfile Schema", "定义 TradingAgentProfile 的统一 JSON Schema。"),
+                    ("S0-002", "MarketWorldState Schema", "定义统一的 MarketWorldState schema。"),
+                    ("S0-003", "Agent Contract Schema", "定义 register、heartbeat、submit-actions 三类 payload schema。"),
+                    ("S0-004", "错误码与状态流转规范", "定义 statement、agent、order、binding 的状态机与统一错误码。"),
+                ],
+            },
+            {
+                "code": "0_2",
+                "slug": "foundation_storage",
+                "title": "基础存储与底座",
+                "description": "完成数据库表、对象存储、审计日志和幂等底座。",
+                "stories": [
+                    ("S0-005", "初始化核心 DB Schema", "创建 MVP 所需的核心写模型表结构。"),
+                    ("S0-006", "对象存储与 Statement 元数据表", "打通交割单原件存储与 statements 元数据引用关系。"),
+                    ("S0-007", "审计日志与幂等基础设施", "提供统一 audit write helper 和 idempotency check helper。"),
+                ],
+            },
+        ],
+    },
+    {
+        "number": 1,
+        "slug": "statement_to_agent",
+        "name": "交割单 → Agent 建模",
+        "goal": "完成交割单上传、解析、标准化、profile 生成和 Agent 创建。",
+        "out_of_scope": ["不实现世界状态与撮合逻辑", "不实现前端观察台"],
+        "epics": [
+            {
+                "code": "1_1",
+                "slug": "statement_ingestion",
+                "title": "交割单摄入",
+                "description": "实现上传 API、状态机、文件识别和上传失败路径。",
+                "stories": [
+                    ("S1-001", "交割单上传 API", "实现 CSV/XLSX 文件上传并落对象存储。"),
+                    ("S1-002", "交割单状态机", "实现 statement 状态流转和非法跳转拦截。"),
+                    ("S1-003", "文件类型识别", "识别 csv/xlsx 并路由到正确解析器。"),
+                    ("S1-004", "上传失败处理", "覆盖上传阶段异常路径。"),
+                ],
+            },
+            {
+                "code": "1_2",
+                "slug": "statement_parsing",
+                "title": "交割单解析与标准化",
+                "description": "把原始交割单映射为标准 TradeRecord 并输出解析报告。",
+                "stories": [
+                    ("S1-005", "券商字段映射规则", "定义原始列名到统一字段的映射。"),
+                    ("S1-006", "TradeRecord 标准化", "把原始记录转为统一 TradeRecord。"),
+                    ("S1-007", "解析校验与错误报告", "输出结构化解析结果与错误报告。"),
+                ],
+            },
+            {
+                "code": "1_3",
+                "slug": "agent_profile",
+                "title": "Agent DNA / Profile",
+                "description": "从标准化交易记录中提取 profile 并创建 Agent。",
+                "stories": [
+                    ("S1-008", "规则版 Profile 提取", "从 TradeRecord 提取基础交易画像。"),
+                    ("S1-009", "风格标签与风控约束生成", "生成 styleTags、riskControls、cadence。"),
+                    ("S1-010", "Agent 创建 API", "基于 statement/profile/init_cash 创建 Agent。"),
+                ],
+            },
+        ],
+    },
+    {
+        "number": 2,
+        "slug": "world_ledger_loop",
+        "name": "世界、撮合、账本、日循环",
+        "goal": "完成世界日历、行情、动作校验、撮合、账本和 Daily Loop。",
+        "out_of_scope": ["不实现 Dashboard 前端", "不实现 OpenClaw 对外接入"],
+        "epics": [
+            {
+                "code": "2_1",
+                "slug": "market_calendar_data",
+                "title": "市场日历与行情",
+                "description": "构建交易日历、行情拉取、缓存和版本号。",
+                "stories": [
+                    ("S2-001", "交易日历同步", "接入 trade_cal。"),
+                    ("S2-002", "当前交易日 / 下一交易日推进", "生成 tradingDay 和 nextTradingDay。"),
+                    ("S2-003", "日线行情拉取", "接入 daily 行情数据。"),
+                    ("S2-004", "行情缓存与版本号", "给 world snapshot 提供缓存和 dataVersion。"),
+                ],
+            },
+            {
+                "code": "2_2",
+                "slug": "action_validation_risk",
+                "title": "动作校验与风控",
+                "description": "完成 schema 校验、风控、现金/仓位/lot size 校验。",
+                "stories": [
+                    ("S2-005", "actions payload 校验", "校验 submit-actions 输入格式。"),
+                    ("S2-006", "风控规则校验", "校验 maxPositionPct、maxHoldDays、turnover 等规则。"),
+                    ("S2-007", "现金 / 仓位 / lot size 校验", "校验是否可下单。"),
+                ],
+            },
+            {
+                "code": "2_3",
+                "slug": "matching_and_ledger",
+                "title": "撮合与账本",
+                "description": "实现收盘价撮合、手续费滑点、fill、portfolio/positions、幂等和对账。",
+                "stories": [
+                    ("S2-008", "收盘价撮合", "实现 MVP 阶段基于 close price 的撮合逻辑。"),
+                    ("S2-009", "手续费与滑点模型", "实现 feePct/slipPct。"),
+                    ("S2-010", "fill 生成与结算", "生成 fills 并更新现金。"),
+                    ("S2-011", "portfolio / positions 更新", "基于 fills 更新持仓与组合。"),
+                    ("S2-012", "幂等提交去重", "同 idempotency_key 不重复入账。"),
+                    ("S2-013", "日终对账校验", "确保 equity = cash + 持仓市值。"),
+                ],
+            },
+            {
+                "code": "2_4",
+                "slug": "daily_loop",
+                "title": "Daily Loop",
+                "description": "构建 context pack、规则版决策引擎、编排和当日摘要。",
+                "stories": [
+                    ("S2-014", "Context Pack 构建", "为每日决策生成 context。"),
+                    ("S2-015", "规则版决策引擎", "MVP 用 rule-based 产生 actions。"),
+                    ("S2-016", "Daily Loop 编排", "串起 context → decide → risk → match → settle。"),
+                    ("S2-017", "Run Log 与当日摘要", "生成 daily summary 和审计日志。"),
+                ],
+            },
+        ],
+    },
+    {
+        "number": 3,
+        "slug": "dashboard_openclaw",
+        "name": "只读观察台 + OpenClaw-first 接入",
+        "goal": "完成人类只读观察台和 OpenClaw-first 接入能力。",
+        "out_of_scope": ["不实现 Event Bus、Shard Manager、多 runtime adapter", "不实现公开 Agent 广场"],
+        "epics": [
+            {
+                "code": "3_1",
+                "slug": "dashboard_read_api",
+                "title": "Dashboard 读接口",
+                "description": "完成 dashboard aggregate、positions/equity/logs 和访问控制。",
+                "stories": [
+                    ("S3-001", "dashboard aggregate API", "提供 Agent 观测台聚合接口。"),
+                    ("S3-002", "positions / equity / logs API", "拆分 positions、equity curve、logs 明细接口。"),
+                    ("S3-003", "公开页与权限控制", "支持 private/public 只读页。"),
+                ],
+            },
+            {
+                "code": "3_2",
+                "slug": "readonly_frontend",
+                "title": "只读前端",
+                "description": "完成持仓面板、收益曲线、日志和只读护栏。",
+                "stories": [
+                    ("S3-004", "持仓面板", "展示当前持仓。"),
+                    ("S3-005", "收益曲线", "展示 equity curve。"),
+                    ("S3-006", "日志流与当日摘要", "展示交易日志与 summary。"),
+                    ("S3-007", "只读护栏", "确保前端和 API 都无人工交易入口。"),
+                ],
+            },
+            {
+                "code": "3_3",
+                "slug": "openclaw_adapter",
+                "title": "OpenClaw-first 接入",
+                "description": "完成 register、heartbeat、submit-actions、revoke 和接入文档。",
+                "stories": [
+                    ("S3-008", "OpenClaw register API", "绑定 openclaw_agent_id 并生成 agent_api_key。"),
+                    ("S3-009", "OpenClaw heartbeat API", "接收运行时心跳。"),
+                    ("S3-010", "OpenClaw submit-actions API", "OpenClaw Agent 能提交 actions。"),
+                    ("S3-011", "binding / revoke", "支持解绑与失效处理。"),
+                    ("S3-012", "OpenClaw Skill 与 Cron 文档", "产出可直接跑通的接入文档。"),
+                ],
+            },
+        ],
+    },
+]
+
+
+V2_BACKLOG = [
+    {"name": "Event Bus", "description": "后续用事件总线解耦 world、orders、fills、projection。"},
+    {"name": "Read Model Projection", "description": "后续拆出 projection/read model 优化 Dashboard。"},
+    {"name": "Shard Manager", "description": "后续支持多 runtime / 多 Agent shard 调度。"},
+]
+
+
+def _looks_like_finance_world(requirement: str) -> bool:
+    lowered = requirement.lower()
+    markers = ["金融", "交割单", "撮合", "账本", "openclaw", "ledger", "portfolio", "statement"]
+    return any(marker in requirement or marker in lowered for marker in markers)
+
+
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _write_yaml(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
+def _slugify(value: str) -> str:
+    slug = "".join(char.lower() if char.isalnum() else "_" for char in value)
+    return "_".join(part for part in slug.split("_") if part) or "item"
+
+
+def _story_filename(story: dict[str, Any]) -> str:
+    return f"{story['story_id']}_{_slugify(str(story['task_name']))}.yaml"
+
+
+def _infer_paths(story_id: str, title: str, epic_slug: str) -> tuple[list[str], list[str]]:
+    lowered = title.lower()
+    if story_id.startswith("S0-00"):
+        primary = [f"{CONTRACTS_DIR}/{_slugify(title)}.md" if "schema" not in lowered else f"{CONTRACTS_DIR}/{_slugify(title)}.schema.json"]
+        secondary = [f"{CONTRACTS_DIR}/examples/{_slugify(title)}.example.json"] if "schema" in lowered else []
+        if story_id == "S0-005":
+            primary = ["scripts/init_schema.sql"]
+            secondary = [f"{CONTRACTS_DIR}/trading_agent_profile.schema.json"]
+        elif story_id == "S0-006":
+            primary = [f"{API_DIR}/modules/statements/storage.py", f"{API_DIR}/modules/statements/repository.py"]
+            secondary = ["scripts/init_schema.sql"]
+        elif story_id == "S0-007":
+            primary = [f"{API_DIR}/modules/audit/service.py", f"{API_DIR}/modules/idempotency/service.py"]
+            secondary = ["scripts/init_schema.sql"]
+        return (primary, secondary)
+    if epic_slug == "statement_ingestion":
+        return ([f"{API_DIR}/routes/statements.py"], [f"{API_DIR}/modules/statements/{_slugify(title)}.py"])
+    if epic_slug == "statement_parsing":
+        return ([f"{API_DIR}/modules/statements/{_slugify(title)}.py"], [f"{API_DIR}/modules/statements/mappers/__init__.py"])
+    if epic_slug == "agent_profile":
+        return ([f"{API_DIR}/modules/profile/{_slugify(title)}.py"], [f"{CONTRACTS_DIR}/trading_agent_profile.schema.json"])
+    if epic_slug == "market_calendar_data":
+        return ([f"{API_DIR}/modules/world/{_slugify(title)}.py"], [f"{API_DIR}/modules/world/service.py"])
+    if epic_slug == "action_validation_risk":
+        return ([f"{API_DIR}/modules/orders/{_slugify(title)}.py"], [f"{CONTRACTS_DIR}/agent_contract_schema.json"])
+    if epic_slug == "matching_and_ledger":
+        return ([f"{API_DIR}/modules/matching/{_slugify(title)}.py"], [f"{API_DIR}/modules/orders/service.py"])
+    if epic_slug == "daily_loop":
+        return ([f"{API_DIR}/modules/loop/{_slugify(title)}.py"], [f"{API_DIR}/modules/world/service.py"])
+    if epic_slug == "dashboard_read_api":
+        return ([f"{API_DIR}/routes/{_slugify(title)}.py"], [f"{API_DIR}/modules/dashboard/service.py"])
+    if epic_slug == "readonly_frontend":
+        return ([f"{WEB_DIR}/app/(dashboard)/agents/[agentId]/page.tsx"], [f"{WEB_DIR}/features/agent-observation/AgentObservation.tsx"])
+    if epic_slug == "openclaw_adapter":
+        return ([f"{API_DIR}/routes/openclaw.py"], [f"{CONTRACTS_DIR}/agent_submit_actions.schema.json"])
+    return ([f"{WEB_DIR}/app/(dashboard)/onboarding/page.tsx"], [])
+
+
+def _infer_blast_radius(story_id: str, title: str) -> tuple[str, str]:
+    lowered = title.lower()
+    if story_id.startswith("S0-") or "文档" in title or "schema" in lowered or "规范" in title:
+        return ("L1", "Safe")
+    if any(keyword in lowered for keyword in ["api", "daily", "matching", "portfolio", "profile", "validation", "engine"]):
+        return ("L2", "Safe")
+    return ("L1", "Fast")
+
+
+def _default_acceptance(task_name: str) -> list[str]:
+    return [
+        f"{task_name} 的核心输出可以被独立验收。",
+        "只跨一个业务边界，不扩大到相邻模块。",
+        "产物能够被后续 Story 直接复用。",
+        "正常路径和关键失败路径都有可验证结果。",
+    ]
+
+
+def _default_constraints(primary_files: list[str]) -> list[str]:
+    joined = ", ".join(primary_files[:3])
+    return [
+        "每个 Story 默认控制在 0.5 天到 1 天完成。",
+        "只修改当前 Story 相关文件，不跨多个大模块。",
+        f"优先修改这些 primary files: {joined}" if joined else "优先修改 Story 指定的 primary files。",
+    ]
+
+
+def _default_out_of_scope(task_name: str) -> list[str]:
+    return [f"不在本 Story 中实现 {task_name} 之外的后续能力。", "不做架构级重构。"]
+
+
+def _default_tests(task_name: str) -> dict[str, list[str]]:
+    return {
+        "normal": [f"正常路径：{task_name} 的核心场景可以完成。"],
+        "exception": [f"异常路径：{task_name} 失败时返回可解释结果。"],
+    }
+
+
+def _build_story(story_id: str, task_name: str, goal: str, sprint_number: int, epic_title: str, epic_slug: str, previous_story_id: str | None) -> dict[str, Any]:
+    primary_files, secondary_files = _infer_paths(story_id, task_name, epic_slug)
+    blast_radius, execution_mode = _infer_blast_radius(story_id, task_name)
+    dependencies = ["无"] if previous_story_id is None else [previous_story_id]
+    return {
+        "task_id": story_id,
+        "task_name": task_name,
+        "sprint": f"Sprint {sprint_number}",
+        "epic": epic_title,
+        "story_id": story_id,
+        "blast_radius": blast_radius,
+        "execution_mode": execution_mode,
+        "mode": execution_mode,
+        "goal": goal,
+        "business_value": f"让 {task_name} 成为可独立验收、可直接进入 Agent 执行闭环的 Story。",
+        "entry_criteria": ["前置依赖已完成并可用。"] if previous_story_id else ["无前置依赖。"],
+        "acceptance_criteria": _default_acceptance(task_name),
+        "constraints": _default_constraints(primary_files),
+        "out_of_scope": _default_out_of_scope(task_name),
+        "not_do": _default_out_of_scope(task_name),
+        "dependencies": dependencies,
+        "related_files": list(dict.fromkeys(primary_files + secondary_files)),
+        "primary_files": primary_files,
+        "secondary_files": secondary_files,
+        "test_cases": _default_tests(task_name),
+    }
 
 
 class RequirementsAnalystAgent:
-    """Planning-layer agent that turns a large requirement into sprint artifacts."""
+    """Planning-layer agent that turns a large requirement into formal backlog artifacts."""
 
     def __init__(self, repo_b_path: str | Path, tasks_root: str | Path):
         self.repo_b_path = Path(repo_b_path).resolve()
         self.tasks_root = Path(tasks_root).resolve()
-        self.context_assembler = ContextAssembler(self.repo_b_path)
 
-    def analyze(self, requirement: str, sprint: str = "1") -> dict[str, Any]:
+    def analyze(self, requirement: str, sprint: str = "1", prefix: str = "backlog_v1") -> dict[str, Any]:
         requirement = requirement.strip()
         if not requirement:
             raise ValueError("requirement must not be empty")
+        llm_backlog = self._maybe_generate_backlog_with_llm(requirement)
+        if llm_backlog:
+            return self._materialize_llm_backlog(llm_backlog, prefix)
+        if _looks_like_finance_world(requirement):
+            return self._materialize_finance_backlog(prefix)
+        return self._materialize_generic_backlog(requirement, str(sprint).strip() or "1", prefix)
 
-        sprint_number = str(sprint).strip() or "1"
-        sprint_dir = self.tasks_root / f"sprint_{sprint_number}"
-        sprint_dir.mkdir(parents=True, exist_ok=True)
-        self._clear_existing_artifacts(sprint_dir)
+    def analyze_file(self, requirement_file_path: str | Path, prefix: str = "backlog_v1") -> dict[str, Any]:
+        requirement_path = Path(requirement_file_path).resolve()
+        if not requirement_path.exists():
+            raise FileNotFoundError(f"Requirement file not found: {requirement_path}")
+        return self.analyze(requirement_path.read_text(encoding="utf-8"), prefix=prefix)
 
-        project_context = self._build_project_context()
-        scope = self._extract_scope(requirement)
-        story_items = self._extract_story_items(requirement)
-        story_cards = [self._build_story_card(item, index + 1, sprint_number) for index, item in enumerate(story_items)]
-        execution_order = [card["story_id"] for card in story_cards]
-        sprint_plan = self._build_sprint_plan(requirement, sprint_number, story_cards, project_context, scope)
+    def _materialize_finance_backlog(self, prefix: str) -> dict[str, Any]:
+        backlog_root = self.tasks_root / prefix
+        backlog_root.mkdir(parents=True, exist_ok=True)
+        _write_text(backlog_root / "sprint_overview.md", self._build_overview_md(FINANCE_BACKLOG_BLUEPRINT))
+        _write_text(backlog_root / "backlog_v2.md", self._build_v2_md())
 
-        (sprint_dir / "sprint_plan.md").write_text(sprint_plan, encoding="utf-8")
-        (sprint_dir / "execution_order.txt").write_text("\n".join(execution_order) + "\n", encoding="utf-8")
-
-        for card in story_cards:
-            slug = self._slugify(card["task_name"])
-            target = sprint_dir / f"{card['story_id']}_{slug}.yaml"
-            target.write_text(yaml.safe_dump(card, allow_unicode=True, sort_keys=False), encoding="utf-8")
-
+        story_cards: list[dict[str, Any]] = []
+        sprint_dirs: list[str] = []
+        for sprint in FINANCE_BACKLOG_BLUEPRINT:
+            sprint_dir = backlog_root / f"sprint_{sprint['number']}_{sprint['slug']}"
+            sprint_dir.mkdir(parents=True, exist_ok=True)
+            sprint_dirs.append(str(sprint_dir))
+            execution_order: list[str] = []
+            _write_text(sprint_dir / "sprint_plan.md", self._build_sprint_plan_md(sprint))
+            for epic in sprint["epics"]:
+                epic_doc_name = f"epic_{epic['code']}_{epic['slug']}.md"
+                epic_dir_name = f"epic_{epic['code']}_{epic['slug']}"
+                _write_text(sprint_dir / epic_doc_name, self._build_epic_md(epic))
+                epic_dir = sprint_dir / epic_dir_name
+                epic_dir.mkdir(parents=True, exist_ok=True)
+                previous_story_id: str | None = None
+                for story_id, task_name, goal in epic["stories"]:
+                    epic_label = f"Epic {str(epic['code']).replace('_', '.')} {epic['title']}"
+                    story = _build_story(story_id, task_name, goal, sprint["number"], epic_label, epic["slug"], previous_story_id)
+                    _write_yaml(epic_dir / _story_filename(story), story)
+                    story_cards.append(story)
+                    execution_order.append(story_id)
+                    previous_story_id = story_id
+            _write_text(sprint_dir / "execution_order.txt", "\n".join(execution_order) + "\n")
         return {
-            "sprint_dir": str(sprint_dir),
-            "sprint_plan_path": str(sprint_dir / "sprint_plan.md"),
-            "execution_order_path": str(sprint_dir / "execution_order.txt"),
+            "backlog_root": str(backlog_root),
+            "overview_path": str(backlog_root / "sprint_overview.md"),
+            "sprint_dirs": sprint_dirs,
             "story_cards": story_cards,
-            "execution_order": execution_order,
-            "project_context": project_context,
         }
 
-    def _clear_existing_artifacts(self, sprint_dir: Path) -> None:
-        for path in sprint_dir.glob("*.yaml"):
-            path.unlink(missing_ok=True)
-        for name in ("sprint_plan.md", "execution_order.txt"):
-            (sprint_dir / name).unlink(missing_ok=True)
+    def _materialize_generic_backlog(self, requirement: str, sprint_number: str, prefix: str) -> dict[str, Any]:
+        backlog_root = self.tasks_root / prefix
+        sprint_dir = backlog_root / f"sprint_{sprint_number}_general_planning"
+        sprint_dir.mkdir(parents=True, exist_ok=True)
+        story = _build_story(f"S{sprint_number}-001", "首个可执行 Story", requirement, int(sprint_number), "Epic 1 通用规划", "general_scope", None)
+        epic_dir = sprint_dir / f"epic_{sprint_number}_1_general_scope"
+        epic_dir.mkdir(parents=True, exist_ok=True)
+        _write_text(backlog_root / "sprint_overview.md", "# Generic backlog\n")
+        _write_text(sprint_dir / "sprint_plan.md", f"# Sprint {sprint_number}\n\n{requirement}\n")
+        _write_text(sprint_dir / "execution_order.txt", f"{story['story_id']}\n")
+        _write_text(sprint_dir / f"epic_{sprint_number}_1_general_scope.md", "# Epic 通用规划\n")
+        _write_yaml(epic_dir / _story_filename(story), story)
+        return {"backlog_root": str(backlog_root), "overview_path": str(backlog_root / "sprint_overview.md"), "sprint_dirs": [str(sprint_dir)], "story_cards": [story]}
 
-    def _build_project_context(self) -> dict[str, Any]:
-        constitution = self.context_assembler.build_constitution()
-        web_pages = sorted(
-            str(path.relative_to(self.repo_b_path)).replace("\\", "/")
-            for path in (self.repo_b_path / "apps" / "web" / "src" / "app").rglob("page.tsx")
-        )
-        api_modules = sorted(
-            str(path.relative_to(self.repo_b_path)).replace("\\", "/")
-            for path in (self.repo_b_path / "apps" / "api" / "src").rglob("*.py")
-        )
+    def _materialize_llm_backlog(self, backlog: dict[str, Any], prefix: str) -> dict[str, Any]:
+        backlog_root = self.tasks_root / prefix
+        backlog_root.mkdir(parents=True, exist_ok=True)
+        _write_text(backlog_root / "sprint_overview.md", backlog.get("overview", "# backlog_v1\n"))
+        if backlog.get("v2_backlog_markdown"):
+            _write_text(backlog_root / "backlog_v2.md", str(backlog["v2_backlog_markdown"]))
+
+        story_cards: list[dict[str, Any]] = []
+        sprint_dirs: list[str] = []
+        for sprint in backlog.get("sprints", []):
+            sprint_dir = backlog_root / f"sprint_{sprint['number']}_{sprint['slug']}"
+            sprint_dir.mkdir(parents=True, exist_ok=True)
+            sprint_dirs.append(str(sprint_dir))
+            _write_text(sprint_dir / "sprint_plan.md", str(sprint["plan_markdown"]))
+            _write_text(sprint_dir / "execution_order.txt", "\n".join(sprint["execution_order"]) + "\n")
+            for epic in sprint.get("epics", []):
+                _write_text(sprint_dir / f"epic_{epic['code']}_{epic['slug']}.md", str(epic["markdown"]))
+                epic_dir = sprint_dir / f"epic_{epic['code']}_{epic['slug']}"
+                epic_dir.mkdir(parents=True, exist_ok=True)
+                for story in epic.get("stories", []):
+                    _write_yaml(epic_dir / _story_filename(story), story)
+                    story_cards.append(story)
         return {
-            "constitution_length": len(constitution),
-            "web_pages": web_pages,
-            "api_modules": api_modules,
+            "backlog_root": str(backlog_root),
+            "overview_path": str(backlog_root / "sprint_overview.md"),
+            "sprint_dirs": sprint_dirs,
+            "story_cards": story_cards,
         }
 
-    def _extract_scope(self, requirement: str) -> dict[str, list[str]]:
-        sentences = [part.strip() for part in re.split(r"[。！？!?\n]+", requirement) if part.strip()]
-        constraints: list[str] = []
-        not_do: list[str] = []
-
-        for sentence in sentences:
-            if any(keyword in sentence for keyword in ["只做", "必须", "遵循", "复用", "仅限", "限制"]):
-                constraints.append(sentence)
-            if any(keyword in sentence for keyword in ["不动", "不得", "不要", "不新增", "不修改", "不做"]):
-                not_do.append(sentence)
-
-        constraints = list(dict.fromkeys(constraints))
-        not_do = list(dict.fromkeys(not_do))
-        return {"constraints": constraints, "not_do": not_do}
-
-    def _extract_story_items(self, requirement: str) -> list[str]:
-        numbered_items = re.findall(r"(?:^|\n)\s*\d+[.、]\s*([^\n]+)", requirement)
-        if numbered_items:
-            return [self._clean_text(item) for item in numbered_items if self._clean_text(item)]
-
-        include_match = re.search(r"包括(?P<body>.+?)(?:。|；|;|只做|不动|必须|不得|不要|$)", requirement)
-        if include_match:
-            body = include_match.group("body")
-            items = [self._clean_text(part) for part in re.split(r"[、,，；;]", body) if self._clean_text(part)]
-            if items:
-                return items
-
-        segments = [self._clean_text(part) for part in re.split(r"[；;。！？!?\n]", requirement) if self._clean_text(part)]
-        feature_segments = [
-            part
-            for part in segments
-            if not any(keyword in part for keyword in ["只做", "必须", "不动", "不新增", "不修改", "不得", "不要"])
+    def _build_overview_md(self, sprints: list[dict[str, Any]]) -> str:
+        lines = [
+            "# 金融世界 MVP 正式 Backlog v1.0",
+            "",
+            "## Sprint 总览",
+            "| Sprint | 名称 | Epic数 | Story数 | 核心目标 |",
+            "| :--- | :--- | :--- | :--- | :--- |",
         ]
-        if feature_segments:
-            return feature_segments
+        for sprint in sprints:
+            story_count = sum(len(epic["stories"]) for epic in sprint["epics"])
+            lines.append(f"| Sprint {sprint['number']} | {sprint['name']} | {len(sprint['epics'])} | {story_count} | {sprint['goal']} |")
+        return "\n".join(lines) + "\n"
 
-        cleaned = self._clean_text(requirement)
-        return [cleaned] if cleaned else []
+    def _build_sprint_plan_md(self, sprint: dict[str, Any]) -> str:
+        lines = [f"# Sprint {sprint['number']} {sprint['name']}", "", "## Sprint目标", sprint["goal"], "", "## 不做什么"]
+        lines.extend(f"- [ ] {item}" for item in sprint["out_of_scope"])
+        lines.extend(["", "## Epic 总览", "| Epic | Story数 | 核心职责 |", "| :--- | :--- | :--- |"])
+        for epic in sprint["epics"]:
+            lines.append(f"| {epic['title']} | {len(epic['stories'])} | {epic['description']} |")
+        return "\n".join(lines) + "\n"
 
-    def _build_story_card(self, item: str, index: int, sprint_number: str) -> dict[str, Any]:
-        story_id = f"S{sprint_number}-{index:03d}"
-        level = "L1" if self._is_l1_story(item) else "L2"
-        mode = "Fast" if level == "L1" else "Safe"
-        primary_files, secondary_files = self._resolve_files(item)
-        related_files = list(dict.fromkeys(primary_files + secondary_files))
-        task_name = self._story_name(item)
+    def _build_epic_md(self, epic: dict[str, Any]) -> str:
+        lines = [f"# Epic {epic['code']} {epic['title']}", "", epic["description"], "", "## Stories", "| Story ID | Story 名称 |", "| :--- | :--- |"]
+        for story_id, task_name, _goal in epic["stories"]:
+            lines.append(f"| {story_id} | {task_name} |")
+        return "\n".join(lines) + "\n"
 
-        return {
-            "task_id": story_id,
-            "task_name": task_name,
-            "sprint": f"Sprint {sprint_number}",
-            "story_id": story_id,
-            "blast_radius": level,
-            "execution_mode": mode,
-            "mode": mode,
-            "goal": item,
-            "acceptance_criteria": self._acceptance_criteria(item, level),
-            "constraints": self._constraints(primary_files),
-            "not_do": self._not_do(item),
-            "related_files": related_files,
-            "primary_files": primary_files,
-            "secondary_files": secondary_files,
+    def _build_v2_md(self) -> str:
+        lines = ["# backlog_v2", "", "> 以下内容不进入当前 MVP 执行范围。", ""]
+        for item in V2_BACKLOG:
+            lines.extend([f"## {item['name']}", item["description"], ""])
+        return "\n".join(lines)
+
+    def _maybe_generate_backlog_with_llm(self, requirement: str) -> dict[str, Any] | None:
+        if not os.getenv("OPENAI_API_KEY"):
+            return None
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """
+You are a requirements analyst for an agentic software factory.
+Break the requirement into Sprint -> Epic -> Story.
+Every story must be 0.5 to 1 day, independently testable, and directly executable by a coding agent.
+Return strict JSON with this shape:
+{
+  "overview": "markdown",
+  "v2_backlog_markdown": "markdown",
+  "sprints": [
+    {
+      "number": 0,
+      "slug": "contract_foundation",
+      "plan_markdown": "...",
+      "execution_order": ["S0-001"],
+      "epics": [
+        {
+          "code": "0_1",
+          "slug": "platform_contract",
+          "markdown": "...",
+          "stories": [
+            {
+              "task_id": "S0-001",
+              "task_name": "...",
+              "sprint": "Sprint 0",
+              "epic": "Epic 0.1 平台契约",
+              "story_id": "S0-001",
+              "blast_radius": "L1",
+              "execution_mode": "Safe",
+              "goal": "...",
+              "business_value": "...",
+              "entry_criteria": ["..."],
+              "acceptance_criteria": ["..."],
+              "constraints": ["..."],
+              "out_of_scope": ["..."],
+              "dependencies": ["无"],
+              "related_files": ["..."],
+              "primary_files": ["..."],
+              "secondary_files": ["..."],
+              "test_cases": {"normal": ["..."], "exception": ["..."]}
+            }
+          ]
         }
-
-    def _is_l1_story(self, item: str) -> bool:
-        lowered = item.lower()
-        l1_keywords = [
-            "标题",
-            "副标题",
-            "文案",
-            "按钮",
-            "入口",
-            "样式",
-            "骨架",
-            "布局",
-            "title",
-            "subtitle",
-            "button",
-            "layout",
-        ]
-        return any(keyword in item or keyword in lowered for keyword in l1_keywords)
-
-    def _resolve_files(self, item: str) -> tuple[list[str], list[str]]:
-        lowered = item.lower()
-        if any(keyword in item for keyword in ["用户", "个人中心", "头像", "昵称", "订单", "设置"]):
-            return ([FRONTEND_FALLBACK_PAGE], [FRONTEND_LAYOUT])
-        if any(keyword in lowered for keyword in ["agent", "position", "snapshot"]) or any(
-            keyword in item for keyword in ["观测", "持仓", "快照"]
-        ):
-            return (
-                ["apps/web/src/app/(dashboard)/agents/[agentId]/page.tsx"],
-                ["apps/api/src/domain/agent_registry/service.py"],
-            )
-        if any(keyword in lowered for keyword in ["ranking", "rank"]) or any(keyword in item for keyword in ["排行", "排名"]):
-            return (
-                ["apps/web/src/app/(dashboard)/rankings/page.tsx"],
-                ["apps/api/src/projection/rankings/service.py"],
-            )
-        if any(keyword in lowered for keyword in ["universe", "market"]) or any(keyword in item for keyword in ["市场", "股票池"]):
-            return (
-                ["apps/web/src/app/(dashboard)/universe/page.tsx"],
-                ["apps/api/src/domain/market_world/service.py"],
-            )
-        if any(keyword in lowered for keyword in ["api", "backend"]) or any(keyword in item for keyword in ["接口", "后端"]):
-            return (
-                ["apps/api/src/api/query/routes.py"],
-                ["apps/api/src/schemas/query.py"],
-            )
-        return ([FRONTEND_FALLBACK_PAGE], [FRONTEND_LAYOUT])
-
-    def _acceptance_criteria(self, item: str, level: str) -> list[str]:
-        criteria = [
-            f"完成“{item}”对应的页面或逻辑改动",
-            "改动仅限任务相关文件，并保持现有项目结构不变",
-        ]
-        if level == "L1":
-            criteria.append("代码通过 prettier 格式化")
-        else:
-            criteria.extend(
-                [
-                    "复用现有页面结构或服务模块，不新增无关依赖",
-                    "修改后页面或接口入口可正常访问",
-                ]
-            )
-        return criteria
-
-    def _constraints(self, primary_files: list[str]) -> list[str]:
-        constraints = ["严格遵循现有代码规范和样式体系", "不得新增第三方依赖"]
-        if primary_files:
-            constraints.append(f"优先修改这些主文件: {', '.join(primary_files)}")
-        return constraints
-
-    def _not_do(self, item: str) -> list[str]:
-        rules = ["不做与当前 Story 无关的重构", "不修改未列入 related_files 的模块"]
-        if any(keyword in item for keyword in ["页面", "按钮", "标题", "头像", "昵称", "订单", "设置", "前端"]):
-            rules.append("不新增后端 API")
-        return rules
-
-    def _build_sprint_plan(
-        self,
-        requirement: str,
-        sprint_number: str,
-        story_cards: list[dict[str, Any]],
-        project_context: dict[str, Any],
-        scope: dict[str, list[str]],
-    ) -> str:
-        table_rows = "\n".join(
-            f"| {card['story_id']} | {card['task_name']} | {card['blast_radius']} | 无 | {len(card['acceptance_criteria'])} |"
-            for card in story_cards
+      ]
+    }
+  ]
+}
+Only return JSON.
+                    """.strip(),
+                ),
+                (
+                    "user",
+                    """
+Repository root: {repo_b_path}
+Requirement:
+{requirement}
+                    """.strip(),
+                ),
+            ]
         )
-        do_items = "\n".join(f"- [ ] {card['task_name']}" for card in story_cards)
-        not_do_items = "\n".join(f"- {item}" for item in scope["not_do"]) or "- 不进入 L3 级别改动"
-        constraints = "\n".join(f"- {item}" for item in scope["constraints"]) or "- 必须复用现有页面、布局和服务模块"
-        order = "\n".join(f"{index}. {card['story_id']}" for index, card in enumerate(story_cards, start=1))
-
-        return (
-            "\n".join(
-                [
-                    f"# Sprint {sprint_number} 规划",
-                    "",
-                    "## Sprint 目标",
-                    requirement,
-                    "",
-                    "## 业务边界",
-                    "### 做什么",
-                    do_items,
-                    "",
-                    "### 不做什么",
-                    not_do_items,
-                    "",
-                    "## 技术约束",
-                    constraints,
-                    f"- 当前可用前端页面数: {len(project_context['web_pages'])}",
-                    "",
-                    "## Story List 总览",
-                    "| Story ID | Story 名称 | 级别 | 依赖 | 验收标准数 |",
-                    "| :--- | :--- | :--- | :--- | :--- |",
-                    table_rows,
-                    "",
-                    "## 推荐执行顺序",
-                    order,
-                ]
-            ).strip()
-            + "\n"
-        )
-
-    def _story_name(self, item: str) -> str:
-        item = self._clean_text(item)
-        if len(item) <= 24:
-            return item
-        return item[:24]
-
-    def _slugify(self, name: str) -> str:
-        slug = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
-        return slug or "story"
-
-    def _clean_text(self, value: str) -> str:
-        return value.strip(" \t\r\n，。；;、:：")
+        try:
+            response = (prompt | get_llm()).invoke(
+                {
+                    "repo_b_path": str(self.repo_b_path),
+                    "requirement": requirement,
+                }
+            )
+            text = str(getattr(response, "content", response)).strip()
+            return yaml.safe_load(text)
+        except Exception:
+            return None
 
 
-def analyze_requirement(
-    repo_b_path: str | Path,
-    tasks_root: str | Path,
-    requirement: str,
-    sprint: str = "1",
-) -> dict[str, Any]:
-    agent = RequirementsAnalystAgent(repo_b_path, tasks_root)
-    return agent.analyze(requirement, sprint)
+def analyze_requirement(repo_b_path: str | Path, tasks_root: str | Path, requirement: str, sprint: str = "1", prefix: str = "backlog_v1") -> dict[str, Any]:
+    return RequirementsAnalystAgent(repo_b_path, tasks_root).analyze(requirement, sprint=sprint, prefix=prefix)
+
+
+def split_requirement_file(repo_b_path: str | Path, tasks_root: str | Path, requirement_file_path: str | Path, prefix: str = "backlog_v1") -> dict[str, Any]:
+    return RequirementsAnalystAgent(repo_b_path, tasks_root).analyze_file(requirement_file_path, prefix=prefix)

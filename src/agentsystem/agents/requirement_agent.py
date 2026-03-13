@@ -63,6 +63,24 @@ def requirement_analysis_node(state: DevState) -> DevState:
                         files_to_modify=[normalized],
                     )
                 )
+            elif normalized.startswith("docs/") or normalized.startswith(".agents/"):
+                subtasks.append(
+                    SubTask(
+                        id=str(index),
+                        type="backend",
+                        description="Update the requested contract or documentation asset",
+                        files_to_modify=[normalized],
+                    )
+                )
+            elif normalized.startswith("scripts/") or normalized.endswith(".sql"):
+                subtasks.append(
+                    SubTask(
+                        id=str(index),
+                        type="database",
+                        description="Update the requested database or script asset",
+                        files_to_modify=[normalized],
+                    )
+                )
 
     if not subtasks:
         subtasks = [

@@ -1,0 +1,41 @@
+task_id: S3-008
+task_name: OpenClaw register API
+sprint: Sprint 3
+epic: Epic 3.3 OpenClaw-first 接入
+story_id: S3-008
+blast_radius: L2
+execution_mode: Safe
+mode: Safe
+goal: 绑定 openclaw_agent_id 并生成 agent_api_key。
+business_value: 让 OpenClaw register API 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+entry_criteria:
+- 无前置依赖。
+acceptance_criteria:
+- OpenClaw register API 的核心输出可以被独立验收。
+- 只跨一个业务边界，不扩大到相邻模块。
+- 产物能够被后续 Story 直接复用。
+- 正常路径和关键失败路径都有可验证结果。
+constraints:
+- 每个 Story 默认控制在 0.5 天到 1 天完成。
+- 只修改当前 Story 相关文件，不跨多个大模块。
+- '优先修改这些 primary files: apps/api/src/routes/openclaw.py'
+out_of_scope:
+- 不在本 Story 中实现 OpenClaw register API 之外的后续能力。
+- 不做架构级重构。
+not_do:
+- 不在本 Story 中实现 OpenClaw register API 之外的后续能力。
+- 不做架构级重构。
+dependencies:
+- 无
+related_files:
+- apps/api/src/routes/openclaw.py
+- docs/contracts/agent_submit_actions.schema.json
+primary_files:
+- apps/api/src/routes/openclaw.py
+secondary_files:
+- docs/contracts/agent_submit_actions.schema.json
+test_cases:
+  normal:
+  - 正常路径：OpenClaw register API 的核心场景可以完成。
+  exception:
+  - 异常路径：OpenClaw register API 失败时返回可解释结果。
