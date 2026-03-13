@@ -353,6 +353,79 @@ def materialize_agent_contract_artifacts(repo_b_path: Path, related_files: list[
     return updated_files
 
 
+def materialize_error_state_spec_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "docs/contracts/error_codes.md",
+            "docs/contracts/state_machine.md",
+        ]
+
+    payload_by_name = {
+        "error_codes.md": """# Error Codes
+
+## Upload
+- `UPLOAD_FILE_TOO_LARGE`: Uploaded statement file exceeds the allowed size limit.
+- `UPLOAD_EMPTY_FILE`: Uploaded statement file is empty.
+- `UPLOAD_UNSUPPORTED_FORMAT`: Uploaded statement file format is not supported.
+
+## Parsing
+- `PARSING_MAPPING_NOT_FOUND`: No broker field mapping rule matched the uploaded statement.
+- `PARSING_REQUIRED_FIELD_MISSING`: Required trade field is missing after parsing.
+- `PARSING_INVALID_VALUE`: Parsed value cannot be normalized into the canonical trade record.
+
+## Risk
+- `RISK_MAX_POSITION_EXCEEDED`: Action would exceed the configured max position percentage.
+- `RISK_MAX_HOLD_DAYS_EXCEEDED`: Position exceeds the allowed holding horizon.
+- `RISK_TURNOVER_LIMIT_EXCEEDED`: Daily turnover would exceed the configured limit.
+
+## Matching
+- `MATCHING_PRICE_NOT_AVAILABLE`: No market price is available for the requested trading day.
+- `MATCHING_LOT_SIZE_INVALID`: Submitted quantity does not satisfy the market lot size.
+- `MATCHING_SHORT_NOT_ALLOWED`: Submitted sell action would require short selling in a market that forbids it.
+
+## Permission
+- `PERMISSION_PRIVATE_AGENT_READ_ONLY`: Human viewers cannot write to a private agent runtime.
+- `PERMISSION_INVALID_AGENT_KEY`: Submitted agent API key is invalid or revoked.
+- `PERMISSION_SCOPE_DENIED`: Caller attempted an operation outside the granted scope.
+""",
+        "state_machine.md": """# State Machine
+
+## Statement
+- `uploaded` -> `parsing`
+- `parsing` -> `parsed`
+- `parsing` -> `failed`
+
+## Agent
+- `active` -> `paused`
+- `active` -> `stale`
+- `paused` -> `active`
+- `stale` -> `active`
+- `active` -> `banned`
+
+## Order
+- `submitted` -> `rejected`
+- `submitted` -> `filled`
+
+## Binding
+- `pending` -> `active`
+- `active` -> `revoked`
+- `active` -> `expired`
+""",
+    }
+
+    updated_files: list[str] = []
+    for raw_path in related_files:
+        path = repo_b_path / raw_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = payload_by_name.get(path.name)
+        if payload is None:
+            continue
+        path.write_text(payload if payload.endswith("\n") else payload + "\n", encoding="utf-8")
+        updated_files.append(str(path))
+    return updated_files
+
+
 def _write_json_artifacts(repo_b_path: Path, related_files: list[str], payload_map: dict[str, object]) -> list[str]:
     updated_files: list[str] = []
     for raw_path in related_files:

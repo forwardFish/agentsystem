@@ -186,6 +186,8 @@ def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, ob
         return _validate_world_state_schema_story(repo_b_path, task_payload)
     if story_id == "S0-003":
         return _validate_agent_contract_story(repo_b_path, task_payload)
+    if story_id == "S0-004":
+        return _validate_error_state_spec_story(repo_b_path, task_payload)
     return True, "No story-specific validation required."
 
 
@@ -279,3 +281,47 @@ def _validate_agent_contract_story(repo_b_path: Path, task_payload: dict[str, ob
     except Exception:
         return True, "Agent contract schemas validate valid examples and reject the invalid submit-actions example."
     return False, "Invalid submit-actions example unexpectedly passed schema validation."
+
+
+def _validate_error_state_spec_story(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
+    related_files = [str(item) for item in task_payload.get("related_files", [])]
+    if not related_files:
+        related_files = [
+            "docs/contracts/error_codes.md",
+            "docs/contracts/state_machine.md",
+        ]
+
+    required_paths = [repo_b_path / raw_path for raw_path in related_files]
+    for path in required_paths:
+        if not path.exists():
+            return False, f"Missing required contract artifact: {path}"
+
+    error_codes = (repo_b_path / "docs/contracts/error_codes.md").read_text(encoding="utf-8")
+    state_machine = (repo_b_path / "docs/contracts/state_machine.md").read_text(encoding="utf-8")
+
+    error_sections = ["## Upload", "## Parsing", "## Risk", "## Matching", "## Permission"]
+    missing_sections = [section for section in error_sections if section not in error_codes]
+    if missing_sections:
+        return False, f"Missing error code sections: {', '.join(missing_sections)}"
+
+    required_states = [
+        "uploaded",
+        "parsing",
+        "parsed",
+        "failed",
+        "active",
+        "paused",
+        "stale",
+        "banned",
+        "submitted",
+        "rejected",
+        "filled",
+        "pending",
+        "revoked",
+        "expired",
+    ]
+    missing_states = [status for status in required_states if f"`{status}`" not in state_machine]
+    if missing_states:
+        return False, f"Missing state-machine statuses: {', '.join(missing_states)}"
+
+    return True, "Error code and state machine documents include the required sections and transitions."

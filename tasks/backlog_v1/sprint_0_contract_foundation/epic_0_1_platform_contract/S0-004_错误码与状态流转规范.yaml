@@ -1,39 +1,43 @@
 task_id: S0-004
-task_name: 错误码与状态流转规范
+task_name: Error Codes and State Machine Spec
 sprint: Sprint 0
-epic: Epic 0.1 平台契约
+epic: Epic 0.1 Platform Contract
 story_id: S0-004
 blast_radius: L1
 execution_mode: Safe
 mode: Safe
-goal: 定义 statement、agent、order、binding 的状态机与统一错误码。
-business_value: 让 错误码与状态流转规范 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+goal: Define the platform-wide error code catalog and the state-machine specification for statement, agent, order, and binding flows.
+business_value: Give every downstream API and runtime story a stable contract for status transitions, failure reasons, and operator-facing diagnostics.
 entry_criteria:
-- 前置依赖已完成并可用。
+  - S0-001 to S0-003 are completed so the profile, world-state, and runtime payload contracts already exist.
 acceptance_criteria:
-- 错误码与状态流转规范 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - docs/contracts/error_codes.md documents upload, parsing, risk, matching, and permission error categories.
+  - docs/contracts/state_machine.md documents statement states uploaded, parsing, parsed, and failed.
+  - docs/contracts/state_machine.md documents agent states active, paused, stale, and banned.
+  - docs/contracts/state_machine.md documents order states submitted, rejected, and filled.
+  - docs/contracts/state_machine.md documents binding states pending, active, revoked, and expired.
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: docs/contracts/错误码与状态流转规范.md'
+  - Only modify the contract documentation files required for this story.
+  - Keep the specification readable, UTF-8 encoded, and directly reusable by later API and runtime stories.
+  - Do not implement API routes, database tables, or runtime code in this story.
 out_of_scope:
-- 不在本 Story 中实现 错误码与状态流转规范 之外的后续能力。
-- 不做架构级重构。
+  - API implementation for status transitions.
+  - Persistence logic for order, binding, or statement state updates.
 not_do:
-- 不在本 Story 中实现 错误码与状态流转规范 之外的后续能力。
-- 不做架构级重构。
+  - Do not introduce unrelated files or directories.
+  - Do not bundle runtime implementation details into the contract docs.
 dependencies:
-- S0-003
+  - S0-003
 related_files:
-- docs/contracts/错误码与状态流转规范.md
+  - docs/contracts/error_codes.md
+  - docs/contracts/state_machine.md
 primary_files:
-- docs/contracts/错误码与状态流转规范.md
+  - docs/contracts/error_codes.md
+  - docs/contracts/state_machine.md
 secondary_files: []
 test_cases:
   normal:
-  - 正常路径：错误码与状态流转规范 的核心场景可以完成。
+    - error_codes.md includes upload, parsing, risk, matching, and permission sections.
+    - state_machine.md includes the required statement, agent, order, and binding states.
   exception:
-  - 异常路径：错误码与状态流转规范 失败时返回可解释结果。
+    - Missing categories or missing states cause story-specific validation to fail.

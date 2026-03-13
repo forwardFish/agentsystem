@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import PurePosixPath
 from pathlib import Path
@@ -101,7 +102,7 @@ def requirement_analysis_node(state: DevState) -> DevState:
             ),
         ]
 
-    if "database" in requirement or "migration" in requirement:
+    if _contains_signal_word(requirement, "database", "migration"):
         subtasks.append(
             SubTask(
                 id=str(len(subtasks) + 1),
@@ -110,7 +111,7 @@ def requirement_analysis_node(state: DevState) -> DevState:
                 files_to_modify=["apps/api/src/infra/db/tables.py"],
             )
         )
-    if "devops" in requirement or "docker" in requirement or "ci" in requirement:
+    if _contains_signal_word(requirement, "devops", "docker", "ci"):
         subtasks.append(
             SubTask(
                 id=str(len(subtasks) + 1),
@@ -214,3 +215,10 @@ def _write_requirement_artifacts(repo_b_path: Path, state: DevState) -> None:
         *file_scope_lines,
     ]
     (requirement_dir / "intent_confirmation.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _contains_signal_word(text: str, *signals: str) -> bool:
+    for signal in signals:
+        if re.search(rf"\b{re.escape(signal)}\b", text):
+            return True
+    return False

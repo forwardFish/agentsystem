@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from git import Repo
 
+from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.doc_agent import doc_node
 from agentsystem.agents.fix_agent import fix_node
@@ -15,6 +16,24 @@ from agentsystem.agents.test_agent import _run_story_specific_validation
 
 
 class StoryCompletionFlowTestCase(unittest.TestCase):
+    def test_requirement_agent_does_not_infer_devops_from_specification(self) -> None:
+        state = {
+            "task_id": "task-demo",
+            "user_requirement": "Define the platform-wide error code catalog and the state-machine specification for statement, agent, order, and binding flows.",
+            "task_payload": {
+                "goal": "Define the platform-wide error code catalog and the state-machine specification for statement, agent, order, and binding flows.",
+                "related_files": [
+                    "docs/contracts/error_codes.md",
+                    "docs/contracts/state_machine.md",
+                ],
+                "acceptance_criteria": ["docs/contracts/error_codes.md documents upload, parsing, risk, matching, and permission error categories."],
+            },
+            "collaboration_trace_id": "trace-demo",
+        }
+
+        updated = requirement_analysis_node(state)
+        self.assertTrue(all(subtask.type != "devops" for subtask in updated["subtasks"]))
+
     def test_code_acceptance_passes_for_clean_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_path = Path(tmp) / "repo"
@@ -376,6 +395,73 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             )
             self.assertTrue(ok)
             self.assertIn("reject", message.lower())
+
+    def test_story_specific_validation_for_s0_004_error_state_spec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            docs_dir = repo_path / "docs" / "contracts"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            docs_dir.joinpath("error_codes.md").write_text(
+                "# Error Codes\n\n## Upload\n- a\n\n## Parsing\n- a\n\n## Risk\n- a\n\n## Matching\n- a\n\n## Permission\n- a\n",
+                encoding="utf-8",
+            )
+            docs_dir.joinpath("state_machine.md").write_text(
+                "# State Machine\n\n## Statement\n- `uploaded`\n- `parsing`\n- `parsed`\n- `failed`\n\n## Agent\n- `active`\n- `paused`\n- `stale`\n- `banned`\n\n## Order\n- `submitted`\n- `rejected`\n- `filled`\n\n## Binding\n- `pending`\n- `active`\n- `revoked`\n- `expired`\n",
+                encoding="utf-8",
+            )
+
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-004",
+                    "related_files": [
+                        "docs/contracts/error_codes.md",
+                        "docs/contracts/state_machine.md",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("required sections and transitions", message)
+
+    def test_fixer_rebuilds_contract_story_artifacts_for_s0_004(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            broken = repo_path / "docs" / "contracts" / "error_codes.md"
+            broken.parent.mkdir(parents=True, exist_ok=True)
+            broken.write_text("broken", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-004",
+                    "related_files": [
+                        "docs/contracts/error_codes.md",
+                        "docs/contracts/state_machine.md",
+                    ],
+                },
+                "test_passed": False,
+                "test_failure_info": "Missing required error code sections",
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-004",
+                    "related_files": [
+                        "docs/contracts/error_codes.md",
+                        "docs/contracts/state_machine.md",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("required sections and transitions", message)
 
 
 if __name__ == "__main__":

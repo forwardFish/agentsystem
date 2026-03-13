@@ -75,6 +75,7 @@ def acceptance_gate_node(state: DevState) -> DevState:
     state["acceptance_dir"] = str(report_dir)
     state["blocking_issues"] = blocking_issues
     state["current_step"] = "acceptance_done"
+
     issues: list[Issue] = []
     for item in blocking_issues:
         issue = Issue(
@@ -89,6 +90,7 @@ def acceptance_gate_node(state: DevState) -> DevState:
         if not state.get("acceptance_passed"):
             add_issue(state, issue)
         issues.append(issue)
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -161,6 +163,17 @@ def _evaluate_criterion(
     state: DevState,
 ) -> tuple[bool, str]:
     lowered = criterion.lower()
+    story_id = str(task_payload.get("story_id", "")).strip()
+
+    if story_id == "S0-003":
+        evidence = _evaluate_s0_003_criterion(criterion, repo_b_path)
+        if evidence is not None:
+            return evidence
+    if story_id == "S0-004":
+        evidence = _evaluate_s0_004_criterion(criterion, repo_b_path)
+        if evidence is not None:
+            return evidence
+
     if "subtitle" in lowered or "副标题" in criterion:
         target_text = _infer_target_text(str(task_payload.get("goal", "")), subtitle=True)
         for raw_path in related_files:
@@ -205,16 +218,82 @@ def _evaluate_criterion(
     return True, "No deterministic rule required for this criterion"
 
 
+def _evaluate_s0_003_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
+    lowered = criterion.lower()
+    if "agent_register.schema.json" in lowered:
+        path = repo_b_path / "docs/contracts/agent_register.schema.json"
+        if not path.exists():
+            return False, "Register schema file is missing"
+        content = path.read_text(encoding="utf-8")
+        required_tokens = ['"agentId"', '"runtime"', '"runtimeAgentId"', '"capabilities"']
+        missing = [token for token in required_tokens if token not in content]
+        return (not missing, "Register schema contains required fields" if not missing else f"Missing fields: {', '.join(missing)}")
+    if "agent_heartbeat.schema.json" in lowered:
+        path = repo_b_path / "docs/contracts/agent_heartbeat.schema.json"
+        if not path.exists():
+            return False, "Heartbeat schema file is missing"
+        content = path.read_text(encoding="utf-8")
+        required_tokens = ['"lastSeenAt"', '"health"', '"status"', '"latencyMs"']
+        missing = [token for token in required_tokens if token not in content]
+        return (not missing, "Heartbeat schema contains required health fields" if not missing else f"Missing fields: {', '.join(missing)}")
+    if "agent_submit_actions.schema.json" in lowered:
+        path = repo_b_path / "docs/contracts/agent_submit_actions.schema.json"
+        if not path.exists():
+            return False, "Submit-actions schema file is missing"
+        content = path.read_text(encoding="utf-8")
+        required_tokens = ['"symbol"', '"side"', '"qty"', '"reason"', '"idempotency_key"']
+        missing = [token for token in required_tokens if token not in content]
+        return (not missing, "Submit-actions schema defines the required action fields" if not missing else f"Missing fields: {', '.join(missing)}")
+    if "valid example payloads exist" in lowered:
+        paths = [
+            repo_b_path / "docs/contracts/examples/agent_register.example.json",
+            repo_b_path / "docs/contracts/examples/agent_heartbeat.example.json",
+            repo_b_path / "docs/contracts/examples/agent_submit_actions.example.json",
+        ]
+        missing = [path.name for path in paths if not path.exists()]
+        return (not missing, "All valid examples exist" if not missing else f"Missing examples: {', '.join(missing)}")
+    if "invalid submit-actions example" in lowered:
+        path = repo_b_path / "docs/contracts/examples/agent_submit_actions.invalid.json"
+        return (path.exists(), "Invalid submit-actions example exists" if path.exists() else "Invalid submit-actions example is missing")
+    return None
+
+
+def _evaluate_s0_004_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
+    lowered = criterion.lower()
+    error_codes_path = repo_b_path / "docs/contracts/error_codes.md"
+    state_machine_path = repo_b_path / "docs/contracts/state_machine.md"
+    error_codes = error_codes_path.read_text(encoding="utf-8") if error_codes_path.exists() else ""
+    state_machine = state_machine_path.read_text(encoding="utf-8") if state_machine_path.exists() else ""
+
+    if "error_codes.md" in lowered and "upload" in lowered and "permission" in lowered:
+        required_sections = ["## Upload", "## Parsing", "## Risk", "## Matching", "## Permission"]
+        missing = [section for section in required_sections if section not in error_codes]
+        return (not missing, "error_codes.md covers all required categories" if not missing else f"Missing sections: {', '.join(missing)}")
+    if "statement" in lowered and "uploaded" in lowered and "failed" in lowered:
+        required_states = ["`uploaded`", "`parsing`", "`parsed`", "`failed`"]
+        missing = [state for state in required_states if state not in state_machine]
+        return (not missing, "Statement states are documented" if not missing else f"Missing statement states: {', '.join(missing)}")
+    if "agent" in lowered and "stale" in lowered and "banned" in lowered:
+        required_states = ["`active`", "`paused`", "`stale`", "`banned`"]
+        missing = [state for state in required_states if state not in state_machine]
+        return (not missing, "Agent states are documented" if not missing else f"Missing agent states: {', '.join(missing)}")
+    if "order" in lowered and "submitted" in lowered and "filled" in lowered:
+        required_states = ["`submitted`", "`rejected`", "`filled`"]
+        missing = [state for state in required_states if state not in state_machine]
+        return (not missing, "Order states are documented" if not missing else f"Missing order states: {', '.join(missing)}")
+    if "binding" in lowered:
+        required_states = ["`pending`", "`active`", "`revoked`", "`expired`"]
+        missing = [state for state in required_states if state not in state_machine]
+        return (not missing, "Binding states are documented" if not missing else f"Missing binding states: {', '.join(missing)}")
+    return None
+
+
 def _infer_target_text(goal: str, *, subtitle: bool) -> str | None:
     quote_match = re.search(r"[\"'“”‘’「」『』](.*?)[\"'“”‘’「」『』]", goal)
     if quote_match:
         return quote_match.group(1).strip()
 
-    patterns = (
-        [r"加(?:一个)?副标题[:：]?\s*(.+)$", r"subtitle[:：]?\s*(.+)$"]
-        if subtitle
-        else [r"加(?:一个)?标题[:：]?\s*(.+)$", r"title[:：]?\s*(.+)$"]
-    )
+    patterns = [r"subtitle[:：]?\s*(.+)$"] if subtitle else [r"title[:：]?\s*(.+)$"]
     cleaned = goal.strip(" ，。：:!?\"'“”‘’「」『』")
     for pattern in patterns:
         match = re.search(pattern, cleaned, re.IGNORECASE)
