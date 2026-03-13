@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 import uuid
 
-from agentsystem.agents.contract_artifacts import materialize_profile_schema_artifacts, materialize_world_state_schema_artifacts
+from agentsystem.agents.contract_artifacts import (
+    materialize_agent_contract_artifacts,
+    materialize_profile_schema_artifacts,
+    materialize_world_state_schema_artifacts,
+)
 from agentsystem.agents.llm_editing import llm_rewrite_file
 from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, add_handoff_packet
 
@@ -85,6 +89,8 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
         return materialize_profile_schema_artifacts(repo_b_path, related_files)
     if story_id == "S0-002":
         return materialize_world_state_schema_artifacts(repo_b_path, related_files)
+    if story_id == "S0-003":
+        return materialize_agent_contract_artifacts(repo_b_path, related_files)
 
     for backend_file in candidate_files:
         if not backend_file.exists():

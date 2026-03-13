@@ -6,7 +6,11 @@ import uuid
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from agentsystem.agents.contract_artifacts import materialize_profile_schema_artifacts, materialize_world_state_schema_artifacts
+from agentsystem.agents.contract_artifacts import (
+    materialize_agent_contract_artifacts,
+    materialize_profile_schema_artifacts,
+    materialize_world_state_schema_artifacts,
+)
 from agentsystem.core.state import (
     AgentRole,
     Deliverable,
@@ -48,7 +52,7 @@ def fix_node(state: DevState) -> DevState:
 
     repo_b_path = Path(state["repo_b_path"]).resolve()
     target_file = repo_b_path / related_files[0]
-    if not target_file.exists() and str(task_payload.get("story_id", "")).strip() not in {"S0-001", "S0-002"}:
+    if not target_file.exists() and str(task_payload.get("story_id", "")).strip() not in {"S0-001", "S0-002", "S0-003"}:
         state["fixer_success"] = False
         state["fix_result"] = f"Target file missing: {target_file}"
         state["error_message"] = state.get("test_failure_info") or state.get("error_message")
@@ -59,7 +63,7 @@ def fix_node(state: DevState) -> DevState:
     story_id = str(task_payload.get("story_id", "")).strip()
     failure_info = state.get("test_failure_info") or state.get("error_message") or "Unknown validation failure"
 
-    if story_id in {"S0-001", "S0-002"}:
+    if story_id in {"S0-001", "S0-002", "S0-003"}:
         regenerated_files = _regenerate_contract_story_artifacts(repo_b_path, task_payload)
     else:
         current_code = target_file.read_text(encoding="utf-8")
@@ -214,4 +218,6 @@ def _regenerate_contract_story_artifacts(repo_b_path: Path, task_payload: dict[s
         return materialize_profile_schema_artifacts(repo_b_path, related_files)
     if story_id == "S0-002":
         return materialize_world_state_schema_artifacts(repo_b_path, related_files)
+    if story_id == "S0-003":
+        return materialize_agent_contract_artifacts(repo_b_path, related_files)
     return []

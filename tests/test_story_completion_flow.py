@@ -215,6 +215,168 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             self.assertTrue(ok)
             self.assertIn("rejects invalid example", message)
 
+    def test_story_specific_validation_for_s0_003_agent_contract_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            contract_dir = repo_path / "docs" / "contracts"
+            example_dir = contract_dir / "examples"
+            example_dir.mkdir(parents=True, exist_ok=True)
+
+            contract_dir.joinpath("agent_register.schema.json").write_text(
+                """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["agentId", "runtime", "runtimeAgentId", "capabilities"],
+  "properties": {
+    "agentId": {"type": "string"},
+    "runtime": {"type": "string"},
+    "runtimeAgentId": {"type": "string"},
+    "capabilities": {"type": "array"}
+  },
+  "additionalProperties": false
+}
+""",
+                encoding="utf-8",
+            )
+            contract_dir.joinpath("agent_heartbeat.schema.json").write_text(
+                """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["agentId", "runtime", "runtimeAgentId", "capabilities", "lastSeenAt", "health"],
+  "properties": {
+    "agentId": {"type": "string"},
+    "runtime": {"type": "string"},
+    "runtimeAgentId": {"type": "string"},
+    "capabilities": {"type": "array"},
+    "lastSeenAt": {"type": "string"},
+    "health": {
+      "type": "object",
+      "required": ["status", "latencyMs"],
+      "properties": {
+        "status": {"type": "string"},
+        "latencyMs": {"type": "integer"}
+      }
+    }
+  },
+  "additionalProperties": false
+}
+""",
+                encoding="utf-8",
+            )
+            contract_dir.joinpath("agent_submit_actions.schema.json").write_text(
+                """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["agentId", "tradingDay", "actions"],
+  "properties": {
+    "agentId": {"type": "string"},
+    "tradingDay": {"type": "string"},
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "side", "qty", "reason", "idempotency_key"],
+        "properties": {
+          "symbol": {"type": "string"},
+          "side": {"type": "string", "enum": ["buy", "sell"]},
+          "qty": {"type": "integer", "minimum": 1},
+          "reason": {"type": "string"},
+          "idempotency_key": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
+""",
+                encoding="utf-8",
+            )
+            example_dir.joinpath("agent_register.example.json").write_text(
+                '{"agentId":"agt_123","runtime":"openclaw","runtimeAgentId":"main","capabilities":["plan","act"]}\n',
+                encoding="utf-8",
+            )
+            example_dir.joinpath("agent_heartbeat.example.json").write_text(
+                '{"agentId":"agt_123","runtime":"openclaw","runtimeAgentId":"main","capabilities":["plan","act"],"lastSeenAt":"2026-03-13T09:30:00+08:00","health":{"status":"ok","latencyMs":120}}\n',
+                encoding="utf-8",
+            )
+            example_dir.joinpath("agent_submit_actions.example.json").write_text(
+                '{"agentId":"agt_123","tradingDay":"2026-03-13","actions":[{"symbol":"600519.SH","side":"buy","qty":100,"reason":"breakout","idempotency_key":"agt_123-001"}]}\n',
+                encoding="utf-8",
+            )
+            example_dir.joinpath("agent_submit_actions.invalid.json").write_text(
+                '{"agentId":"agt_123","tradingDay":"2026-03-13","actions":[{"symbol":"600519.SH","side":"hold","qty":0,"reason":""}]}\n',
+                encoding="utf-8",
+            )
+
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-003",
+                    "related_files": [
+                        "docs/contracts/agent_register.schema.json",
+                        "docs/contracts/agent_heartbeat.schema.json",
+                        "docs/contracts/agent_submit_actions.schema.json",
+                        "docs/contracts/examples/agent_register.example.json",
+                        "docs/contracts/examples/agent_heartbeat.example.json",
+                        "docs/contracts/examples/agent_submit_actions.example.json",
+                        "docs/contracts/examples/agent_submit_actions.invalid.json",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("reject", message.lower())
+
+    def test_fixer_rebuilds_contract_story_artifacts_for_s0_003(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            broken = repo_path / "docs" / "contracts" / "agent_submit_actions.schema.json"
+            broken.parent.mkdir(parents=True, exist_ok=True)
+            broken.write_text("{ invalid json", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-003",
+                    "related_files": [
+                        "docs/contracts/agent_register.schema.json",
+                        "docs/contracts/agent_heartbeat.schema.json",
+                        "docs/contracts/agent_submit_actions.schema.json",
+                        "docs/contracts/examples/agent_register.example.json",
+                        "docs/contracts/examples/agent_heartbeat.example.json",
+                        "docs/contracts/examples/agent_submit_actions.example.json",
+                        "docs/contracts/examples/agent_submit_actions.invalid.json",
+                    ],
+                },
+                "test_passed": False,
+                "test_failure_info": "Submit-actions schema JSON parse failed",
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-003",
+                    "related_files": [
+                        "docs/contracts/agent_register.schema.json",
+                        "docs/contracts/agent_heartbeat.schema.json",
+                        "docs/contracts/agent_submit_actions.schema.json",
+                        "docs/contracts/examples/agent_register.example.json",
+                        "docs/contracts/examples/agent_heartbeat.example.json",
+                        "docs/contracts/examples/agent_submit_actions.example.json",
+                        "docs/contracts/examples/agent_submit_actions.invalid.json",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("reject", message.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

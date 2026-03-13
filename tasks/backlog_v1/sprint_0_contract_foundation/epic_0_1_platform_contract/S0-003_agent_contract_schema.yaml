@@ -1,41 +1,55 @@
 task_id: S0-003
 task_name: Agent Contract Schema
 sprint: Sprint 0
-epic: Epic 0.1 平台契约
+epic: Epic 0.1 Platform Contract
 story_id: S0-003
 blast_radius: L1
 execution_mode: Safe
 mode: Safe
-goal: 定义 register、heartbeat、submit-actions 三类 payload schema。
-business_value: 让 Agent Contract Schema 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+goal: Define the register, heartbeat, and submit-actions payload schemas used by external runtimes to integrate with the platform.
+business_value: Make the agent contract explicit, reusable, and safe to validate before any runtime integration or daily-loop execution.
 entry_criteria:
-- 前置依赖已完成并可用。
+  - S0-001 and S0-002 are completed so the platform profile and world-state contracts are already fixed.
 acceptance_criteria:
-- Agent Contract Schema 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - docs/contracts/agent_register.schema.json defines agentId, runtime, runtimeAgentId, and capabilities as required fields.
+  - docs/contracts/agent_heartbeat.schema.json defines capabilities, lastSeenAt, and a structured health object with status and latencyMs.
+  - docs/contracts/agent_submit_actions.schema.json defines actions with required fields symbol, side, qty, reason, and idempotency_key.
+  - Valid example payloads exist for register, heartbeat, and submit-actions, and each passes schema validation.
+  - An invalid submit-actions example exists and is rejected by schema validation.
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: docs/contracts/agent_contract_schema.schema.json'
+  - Only modify the schema and example files required for this story.
+  - Keep the output UTF-8 encoded and reusable by downstream OpenClaw and native runtime stories.
+  - Do not implement API routes or runtime logic in this story.
 out_of_scope:
-- 不在本 Story 中实现 Agent Contract Schema 之外的后续能力。
-- 不做架构级重构。
+  - Runtime authentication and binding logic.
+  - API endpoint implementation for register, heartbeat, or submit-actions.
 not_do:
-- 不在本 Story 中实现 Agent Contract Schema 之外的后续能力。
-- 不做架构级重构。
+  - Do not add platform business logic outside the payload contracts.
+  - Do not introduce unrelated files or directories.
 dependencies:
-- S0-002
+  - S0-001
+  - S0-002
 related_files:
-- docs/contracts/agent_contract_schema.schema.json
-- docs/contracts/examples/agent_contract_schema.example.json
+  - docs/contracts/agent_register.schema.json
+  - docs/contracts/agent_heartbeat.schema.json
+  - docs/contracts/agent_submit_actions.schema.json
+  - docs/contracts/examples/agent_register.example.json
+  - docs/contracts/examples/agent_heartbeat.example.json
+  - docs/contracts/examples/agent_submit_actions.example.json
+  - docs/contracts/examples/agent_submit_actions.invalid.json
 primary_files:
-- docs/contracts/agent_contract_schema.schema.json
+  - docs/contracts/agent_register.schema.json
+  - docs/contracts/agent_heartbeat.schema.json
+  - docs/contracts/agent_submit_actions.schema.json
 secondary_files:
-- docs/contracts/examples/agent_contract_schema.example.json
+  - docs/contracts/examples/agent_register.example.json
+  - docs/contracts/examples/agent_heartbeat.example.json
+  - docs/contracts/examples/agent_submit_actions.example.json
+  - docs/contracts/examples/agent_submit_actions.invalid.json
 test_cases:
   normal:
-  - 正常路径：Agent Contract Schema 的核心场景可以完成。
+    - The register example validates against the register schema.
+    - The heartbeat example validates against the heartbeat schema.
+    - The submit-actions example validates against the submit-actions schema.
   exception:
-  - 异常路径：Agent Contract Schema 失败时返回可解释结果。
+    - The invalid submit-actions example is rejected because it omits idempotency_key and uses an invalid side/qty combination.

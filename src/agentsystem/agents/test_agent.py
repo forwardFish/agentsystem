@@ -184,6 +184,8 @@ def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, ob
         return _validate_profile_schema_story(repo_b_path)
     if story_id == "S0-002":
         return _validate_world_state_schema_story(repo_b_path, task_payload)
+    if story_id == "S0-003":
+        return _validate_agent_contract_story(repo_b_path, task_payload)
     return True, "No story-specific validation required."
 
 
@@ -235,3 +237,45 @@ def _validate_world_state_schema_story(repo_b_path: Path, task_payload: dict[str
     except Exception:
         return True, "World state schema validates example and rejects invalid example."
     return False, "Invalid world state example unexpectedly passed schema validation."
+
+
+def _validate_agent_contract_story(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
+    related_files = [str(item) for item in task_payload.get("related_files", [])]
+    if not related_files:
+        related_files = [
+            "docs/contracts/agent_register.schema.json",
+            "docs/contracts/agent_heartbeat.schema.json",
+            "docs/contracts/agent_submit_actions.schema.json",
+            "docs/contracts/examples/agent_register.example.json",
+            "docs/contracts/examples/agent_heartbeat.example.json",
+            "docs/contracts/examples/agent_submit_actions.example.json",
+            "docs/contracts/examples/agent_submit_actions.invalid.json",
+        ]
+
+    for raw_path in related_files:
+        path = repo_b_path / raw_path
+        if not path.exists():
+            return False, f"Missing required contract artifact: {path}"
+
+    register_schema = json.loads((repo_b_path / "docs/contracts/agent_register.schema.json").read_text(encoding="utf-8"))
+    heartbeat_schema = json.loads((repo_b_path / "docs/contracts/agent_heartbeat.schema.json").read_text(encoding="utf-8"))
+    submit_schema = json.loads((repo_b_path / "docs/contracts/agent_submit_actions.schema.json").read_text(encoding="utf-8"))
+    register_example = json.loads((repo_b_path / "docs/contracts/examples/agent_register.example.json").read_text(encoding="utf-8"))
+    heartbeat_example = json.loads((repo_b_path / "docs/contracts/examples/agent_heartbeat.example.json").read_text(encoding="utf-8"))
+    submit_example = json.loads((repo_b_path / "docs/contracts/examples/agent_submit_actions.example.json").read_text(encoding="utf-8"))
+    invalid_submit_example = json.loads((repo_b_path / "docs/contracts/examples/agent_submit_actions.invalid.json").read_text(encoding="utf-8"))
+
+    validate(instance=register_example, schema=register_schema)
+    validate(instance=heartbeat_example, schema=heartbeat_schema)
+    validate(instance=submit_example, schema=submit_schema)
+
+    action_required = set(submit_schema["properties"]["actions"]["items"]["required"])
+    expected = {"symbol", "side", "qty", "reason", "idempotency_key"}
+    if action_required != expected:
+        return False, "Submit-actions schema does not require the expected action fields."
+
+    try:
+        validate(instance=invalid_submit_example, schema=submit_schema)
+    except Exception:
+        return True, "Agent contract schemas validate valid examples and reject the invalid submit-actions example."
+    return False, "Invalid submit-actions example unexpectedly passed schema validation."

@@ -221,6 +221,138 @@ def materialize_world_state_schema_artifacts(repo_b_path: Path, related_files: l
     )
 
 
+def materialize_agent_contract_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "docs/contracts/agent_register.schema.json",
+            "docs/contracts/agent_heartbeat.schema.json",
+            "docs/contracts/agent_submit_actions.schema.json",
+            "docs/contracts/examples/agent_register.example.json",
+            "docs/contracts/examples/agent_heartbeat.example.json",
+            "docs/contracts/examples/agent_submit_actions.example.json",
+            "docs/contracts/examples/agent_submit_actions.invalid.json",
+        ]
+
+    payload_by_name = {
+        "agent_register.schema.json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "AgentRegisterPayload",
+            "type": "object",
+            "required": ["agentId", "runtime", "runtimeAgentId", "capabilities"],
+            "properties": {
+                "agentId": {"type": "string"},
+                "runtime": {"type": "string", "enum": ["native", "openclaw"]},
+                "runtimeAgentId": {"type": "string"},
+                "capabilities": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "metadata": {"type": "object"},
+            },
+            "additionalProperties": False,
+        },
+        "agent_heartbeat.schema.json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "AgentHeartbeatPayload",
+            "type": "object",
+            "required": ["agentId", "runtime", "runtimeAgentId", "capabilities", "lastSeenAt", "health"],
+            "properties": {
+                "agentId": {"type": "string"},
+                "runtime": {"type": "string", "enum": ["native", "openclaw"]},
+                "runtimeAgentId": {"type": "string"},
+                "capabilities": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "lastSeenAt": {"type": "string", "format": "date-time"},
+                "health": {
+                    "type": "object",
+                    "required": ["status", "latencyMs"],
+                    "properties": {
+                        "status": {"type": "string", "enum": ["ok", "degraded", "error"]},
+                        "latencyMs": {"type": "integer", "minimum": 0},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+            "additionalProperties": False,
+        },
+        "agent_submit_actions.schema.json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "AgentSubmitActionsPayload",
+            "type": "object",
+            "required": ["agentId", "tradingDay", "actions"],
+            "properties": {
+                "agentId": {"type": "string"},
+                "tradingDay": {"type": "string", "format": "date"},
+                "actions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "required": ["symbol", "side", "qty", "reason", "idempotency_key"],
+                        "properties": {
+                            "symbol": {"type": "string"},
+                            "side": {"type": "string", "enum": ["buy", "sell"]},
+                            "qty": {"type": "integer", "minimum": 1},
+                            "reason": {"type": "string", "minLength": 1},
+                            "idempotency_key": {"type": "string", "minLength": 1},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        },
+        "agent_register.example.json": {
+            "agentId": "agt_123",
+            "runtime": "openclaw",
+            "runtimeAgentId": "main",
+            "capabilities": ["plan", "act", "audit"],
+            "metadata": {"owner": "demo-user"},
+        },
+        "agent_heartbeat.example.json": {
+            "agentId": "agt_123",
+            "runtime": "openclaw",
+            "runtimeAgentId": "main",
+            "capabilities": ["plan", "act", "audit"],
+            "lastSeenAt": "2026-03-13T09:30:00+08:00",
+            "health": {"status": "ok", "latencyMs": 120},
+        },
+        "agent_submit_actions.example.json": {
+            "agentId": "agt_123",
+            "tradingDay": "2026-03-13",
+            "actions": [
+                {
+                    "symbol": "600519.SH",
+                    "side": "buy",
+                    "qty": 100,
+                    "reason": "close-price breakout",
+                    "idempotency_key": "agt_123-20260313-001",
+                }
+            ],
+        },
+        "agent_submit_actions.invalid.json": {
+            "agentId": "agt_123",
+            "tradingDay": "2026-03-13",
+            "actions": [
+                {
+                    "symbol": "600519.SH",
+                    "side": "hold",
+                    "qty": 0,
+                    "reason": "",
+                }
+            ],
+        },
+    }
+
+    updated_files: list[str] = []
+    for raw_path in related_files:
+        path = repo_b_path / raw_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = payload_by_name.get(path.name)
+        if payload is None:
+            continue
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        updated_files.append(str(path))
+    return updated_files
+
+
 def _write_json_artifacts(repo_b_path: Path, related_files: list[str], payload_map: dict[str, object]) -> list[str]:
     updated_files: list[str] = []
     for raw_path in related_files:

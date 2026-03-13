@@ -9,20 +9,24 @@ from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPack
 
 STORY_COMPLETION_STANDARD = """# Story Completion Standard
 
+## Purpose
+A Story is the smallest execution and acceptance unit in the system. A Story is only considered complete when implementation, validation, review, code acceptance, final acceptance, and delivery reporting all succeed with evidence.
+
 ## Definition of Done
-- Task card schema is valid and the execution scope is explicit.
-- Required files are created or updated in the target repository.
-- Validation passes for story-specific checks and configured project checks.
-- Reviewer passes with no blocking issues.
-- Code acceptance passes for style consistency and artifact hygiene.
-- Acceptance Gate passes all checklist items and scope checks.
-- Delivery report is generated and archived with the run artifacts.
+- The task card is valid and passes TaskCard schema validation.
+- The execution scope is explicit and limited to files allowed by the Story.
+- The expected output artifacts are written into the target repository and can be reused by downstream stories.
+- Configured project checks and Story-specific validation both pass.
+- Reviewer reports no blocking issues.
+- Code Acceptance Agent reports no style-consistency or file-hygiene blockers.
+- Acceptance Gate passes all checklist items and confirms there is no out-of-scope change.
+- A delivery report is generated and archived.
 
 ## Acceptance OK
-- All acceptance criteria are marked as passed.
-- No blocking issue remains in review, code acceptance, or acceptance gate.
-- The latest commit references only story-scoped changes.
-- Output artifacts are readable and stored in UTF-8.
+- Every acceptance criterion has explicit evidence recorded in the delivery report.
+- The test report contains no failing checks.
+- Review, Code Acceptance, and Acceptance Gate all pass.
+- Output artifacts, reports, and logs are readable UTF-8 content.
 """
 
 
@@ -64,6 +68,11 @@ def doc_node(state: DevState) -> DevState:
         report_lines.append("- None recorded.")
     report_lines.extend(
         [
+            "",
+            "## Acceptance Evidence",
+            f"- Story-specific validation: {state.get('test_results') or 'n/a'}",
+            f"- Blocking issues remaining: {len(state.get('issues_to_fix') or [])}",
+            f"- Fix attempts: {state.get('fix_attempts') or 0}",
             "",
             "## Reports",
             f"- Test results: {state.get('test_results') or 'n/a'}",
