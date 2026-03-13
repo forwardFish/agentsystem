@@ -9,7 +9,9 @@ from git import Repo
 
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.doc_agent import doc_node
+from agentsystem.agents.fix_agent import fix_node
 from agentsystem.agents.review_agent import review_node, route_after_review
+from agentsystem.agents.test_agent import _run_story_specific_validation
 
 
 class StoryCompletionFlowTestCase(unittest.TestCase):
@@ -101,6 +103,117 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             self.assertFalse(updated["review_passed"])
             self.assertEqual(route_after_review(updated), "fixer")
             self.assertGreater(len(updated["issues_to_fix"]), 0)
+
+    def test_story_specific_validation_for_s0_002_world_state_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            schema_path = repo_path / "docs" / "contracts" / "marketworldstate_schema.schema.json"
+            example_path = repo_path / "docs" / "contracts" / "examples" / "marketworldstate_schema.example.json"
+            invalid_path = repo_path / "docs" / "contracts" / "examples" / "marketworldstate_schema.invalid.json"
+            invalid_path.parent.mkdir(parents=True, exist_ok=True)
+
+            schema_path.write_text(
+                """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MarketWorldState",
+  "type": "object",
+  "required": ["worldId", "market", "tradingDay", "nextTradingDay", "sessionRules", "costModelDefault", "universe", "prices", "dataVersion"],
+  "properties": {
+    "worldId": {"type": "string"},
+    "market": {"type": "string"},
+    "tradingDay": {"type": "string"},
+    "nextTradingDay": {"type": "string"},
+    "sessionRules": {"type": "object", "required": ["fillPrice", "allowShort", "lotSize"]},
+    "costModelDefault": {"type": "object", "required": ["feePct", "slipPct"]},
+    "universe": {"type": "array"},
+    "prices": {"type": "object"},
+    "dataVersion": {"type": "string"}
+  },
+  "additionalProperties": false
+}
+""",
+                encoding="utf-8",
+            )
+            example_path.write_text(
+                """{
+  "worldId": "world_cn_a_v2",
+  "market": "CN_A",
+  "tradingDay": "2026-03-11",
+  "nextTradingDay": "2026-03-12",
+  "sessionRules": {"fillPrice": "close", "allowShort": false, "lotSize": 100},
+  "costModelDefault": {"feePct": 0.0005, "slipPct": 0.001},
+  "universe": ["600519.SH"],
+  "prices": {"600519.SH": {"open": 1, "high": 2, "low": 1, "close": 2, "vol": 100}},
+  "dataVersion": "v1"
+}
+""",
+                encoding="utf-8",
+            )
+            invalid_path.write_text(
+                """{
+  "worldId": "world_cn_a_v2",
+  "market": "CN_A",
+  "tradingDay": "2026-03-11"
+}
+""",
+                encoding="utf-8",
+            )
+
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-002",
+                    "related_files": [
+                        "docs/contracts/marketworldstate_schema.schema.json",
+                        "docs/contracts/examples/marketworldstate_schema.example.json",
+                        "docs/contracts/examples/marketworldstate_schema.invalid.json",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("rejects invalid example", message)
+
+    def test_fixer_rebuilds_contract_story_artifacts_for_s0_002(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            schema_path = repo_path / "docs" / "contracts" / "marketworldstate_schema.schema.json"
+            schema_path.parent.mkdir(parents=True, exist_ok=True)
+            schema_path.write_text("{ invalid json", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-002",
+                    "related_files": [
+                        "docs/contracts/marketworldstate_schema.schema.json",
+                        "docs/contracts/examples/marketworldstate_schema.example.json",
+                        "docs/contracts/examples/marketworldstate_schema.invalid.json",
+                    ],
+                },
+                "test_passed": False,
+                "test_failure_info": "Schema JSON parse failed",
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-002",
+                    "related_files": [
+                        "docs/contracts/marketworldstate_schema.schema.json",
+                        "docs/contracts/examples/marketworldstate_schema.example.json",
+                        "docs/contracts/examples/marketworldstate_schema.invalid.json",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("rejects invalid example", message)
 
 
 if __name__ == "__main__":

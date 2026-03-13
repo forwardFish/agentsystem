@@ -180,9 +180,14 @@ def _record_test_handoff(state: DevState) -> None:
 
 def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
     story_id = str(task_payload.get("story_id", "")).strip()
-    if story_id != "S0-001":
-        return True, "No story-specific validation required."
+    if story_id == "S0-001":
+        return _validate_profile_schema_story(repo_b_path)
+    if story_id == "S0-002":
+        return _validate_world_state_schema_story(repo_b_path, task_payload)
+    return True, "No story-specific validation required."
 
+
+def _validate_profile_schema_story(repo_b_path: Path) -> tuple[bool, str]:
     schema_path = repo_b_path / "docs" / "contracts" / "trading_agent_profile.schema.json"
     example_path = repo_b_path / "docs" / "contracts" / "examples" / "trading_agent_profile.example.json"
     invalid_path = repo_b_path / "docs" / "contracts" / "examples" / "trading_agent_profile.invalid.json"
@@ -201,3 +206,32 @@ def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, ob
     except Exception:
         return True, "Schema validates example and rejects invalid example."
     return False, "Invalid example unexpectedly passed schema validation."
+
+
+def _validate_world_state_schema_story(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
+    related_files = [str(item) for item in task_payload.get("related_files", [])]
+    if not related_files:
+        related_files = [
+            "docs/contracts/marketworldstate_schema.schema.json",
+            "docs/contracts/examples/marketworldstate_schema.example.json",
+            "docs/contracts/examples/marketworldstate_schema.invalid.json",
+        ]
+
+    schema_path = repo_b_path / next((path for path in related_files if "example" not in path.lower() and "invalid" not in path.lower()), related_files[0])
+    example_path = repo_b_path / next((path for path in related_files if "example" in path.lower()), related_files[1])
+    invalid_path = repo_b_path / next((path for path in related_files if "invalid" in path.lower()), related_files[-1])
+
+    for path in (schema_path, example_path, invalid_path):
+        if not path.exists():
+            return False, f"Missing required contract artifact: {path}"
+
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    example = json.loads(example_path.read_text(encoding="utf-8"))
+    invalid_example = json.loads(invalid_path.read_text(encoding="utf-8"))
+
+    validate(instance=example, schema=schema)
+    try:
+        validate(instance=invalid_example, schema=schema)
+    except Exception:
+        return True, "World state schema validates example and rejects invalid example."
+    return False, "Invalid world state example unexpectedly passed schema validation."

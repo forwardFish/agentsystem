@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
 import uuid
 
+from agentsystem.agents.contract_artifacts import materialize_profile_schema_artifacts, materialize_world_state_schema_artifacts
 from agentsystem.agents.llm_editing import llm_rewrite_file
 from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, add_handoff_packet
 
@@ -79,11 +79,14 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
     if not candidate_files:
         candidate_files.append(repo_b_path / "apps" / "api" / "src" / "domain" / "agent_registry" / "service.py")
 
+    story_id = str((task_payload or {}).get("story_id", "")).strip()
+    related_files = [str(item) for item in (task_payload or {}).get("related_files", [])]
+    if story_id == "S0-001":
+        return materialize_profile_schema_artifacts(repo_b_path, related_files)
+    if story_id == "S0-002":
+        return materialize_world_state_schema_artifacts(repo_b_path, related_files)
+
     for backend_file in candidate_files:
-        story_id = str((task_payload or {}).get("story_id", "")).strip()
-        if story_id == "S0-001":
-            updated_files.extend(_materialize_profile_schema_artifacts(repo_b_path, task_payload))
-            break
         if not backend_file.exists():
             backend_file.parent.mkdir(parents=True, exist_ok=True)
             backend_file.write_text("from __future__ import annotations\n", encoding="utf-8")
@@ -104,127 +107,4 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
             )
             backend_file.write_text(content, encoding="utf-8")
             updated_files.append(str(backend_file))
-    return updated_files
-
-
-def _materialize_profile_schema_artifacts(repo_b_path: Path, task_payload: dict[str, object] | None) -> list[str]:
-    related_files = [str(item) for item in (task_payload or {}).get("related_files", [])]
-    if not related_files:
-        related_files = [
-            "docs/contracts/trading_agent_profile.schema.json",
-            "docs/contracts/examples/trading_agent_profile.example.json",
-            "docs/contracts/examples/trading_agent_profile.invalid.json",
-        ]
-
-    schema_payload = {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "TradingAgentProfile",
-        "type": "object",
-        "required": [
-            "agentId",
-            "market",
-            "styleTags",
-            "preferredUniverse",
-            "riskControls",
-            "cadence",
-            "costModel",
-            "decisionPolicy",
-            "sourceRuntime",
-        ],
-        "properties": {
-            "agentId": {"type": "string"},
-            "market": {"type": "string", "enum": ["CN_A", "US", "CRYPTO"]},
-            "styleTags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-            "preferredUniverse": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["type", "value"],
-                    "properties": {
-                        "type": {"type": "string"},
-                        "value": {"type": "string"},
-                    },
-                },
-            },
-            "riskControls": {
-                "type": "object",
-                "required": ["maxPositionPct", "maxHoldDays", "maxDailyTurnoverPct"],
-                "properties": {
-                    "maxPositionPct": {"type": "number"},
-                    "maxHoldDays": {"type": "integer"},
-                    "maxDailyTurnoverPct": {"type": "number"},
-                },
-            },
-            "cadence": {
-                "type": "object",
-                "required": ["tradesPerDay", "activeDaysPerWeek"],
-                "properties": {
-                    "tradesPerDay": {"type": "integer"},
-                    "activeDaysPerWeek": {"type": "integer"},
-                },
-            },
-            "costModel": {
-                "type": "object",
-                "required": ["feePct", "slipPct"],
-                "properties": {
-                    "feePct": {"type": "number"},
-                    "slipPct": {"type": "number"},
-                },
-            },
-            "decisionPolicy": {
-                "type": "object",
-                "required": ["type", "params"],
-                "properties": {
-                    "type": {"type": "string"},
-                    "params": {"type": "object"},
-                },
-            },
-            "sourceRuntime": {"type": "string"},
-            "openclawBinding": {
-                "type": "object",
-                "properties": {
-                    "openclawAgentId": {"type": "string"},
-                    "boundAt": {"type": "string", "format": "date-time"},
-                },
-                "additionalProperties": False,
-            },
-        },
-        "additionalProperties": False,
-    }
-    example_payload = {
-        "agentId": "agt_123",
-        "market": "CN_A",
-        "styleTags": ["趋势", "短线", "高换手"],
-        "preferredUniverse": [{"type": "symbol", "value": "600519.SH"}],
-        "riskControls": {"maxPositionPct": 0.3, "maxHoldDays": 5, "maxDailyTurnoverPct": 0.6},
-        "cadence": {"tradesPerDay": 2, "activeDaysPerWeek": 4},
-        "costModel": {"feePct": 0.0005, "slipPct": 0.001},
-        "decisionPolicy": {"type": "rule_based", "params": {"exitAfterDays": 5}},
-        "sourceRuntime": "openclaw",
-    }
-    invalid_payload = {
-        "market": "CN_A",
-        "styleTags": [],
-        "preferredUniverse": [{"type": "symbol"}],
-    }
-
-    payload_map = {
-        "schema": schema_payload,
-        "example": example_payload,
-        "invalid": invalid_payload,
-    }
-
-    updated_files: list[str] = []
-    for raw_path in related_files:
-        path = repo_b_path / raw_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lowered = path.name.lower()
-        if "invalid" in lowered:
-            payload = payload_map["invalid"]
-        elif "example" in lowered:
-            payload = payload_map["example"]
-        else:
-            payload = payload_map["schema"]
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        updated_files.append(str(path))
     return updated_files

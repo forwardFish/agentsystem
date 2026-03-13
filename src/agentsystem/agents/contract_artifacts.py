@@ -1,0 +1,238 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+def materialize_profile_schema_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "docs/contracts/trading_agent_profile.schema.json",
+            "docs/contracts/examples/trading_agent_profile.example.json",
+            "docs/contracts/examples/trading_agent_profile.invalid.json",
+        ]
+
+    schema_payload = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "TradingAgentProfile",
+        "type": "object",
+        "required": [
+            "agentId",
+            "market",
+            "styleTags",
+            "preferredUniverse",
+            "riskControls",
+            "cadence",
+            "costModel",
+            "decisionPolicy",
+            "sourceRuntime",
+        ],
+        "properties": {
+            "agentId": {"type": "string"},
+            "market": {"type": "string", "enum": ["CN_A", "US", "CRYPTO"]},
+            "styleTags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            "preferredUniverse": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["type", "value"],
+                    "properties": {
+                        "type": {"type": "string"},
+                        "value": {"type": "string"},
+                    },
+                },
+            },
+            "riskControls": {
+                "type": "object",
+                "required": ["maxPositionPct", "maxHoldDays", "maxDailyTurnoverPct"],
+                "properties": {
+                    "maxPositionPct": {"type": "number"},
+                    "maxHoldDays": {"type": "integer"},
+                    "maxDailyTurnoverPct": {"type": "number"},
+                },
+            },
+            "cadence": {
+                "type": "object",
+                "required": ["tradesPerDay", "activeDaysPerWeek"],
+                "properties": {
+                    "tradesPerDay": {"type": "integer"},
+                    "activeDaysPerWeek": {"type": "integer"},
+                },
+            },
+            "costModel": {
+                "type": "object",
+                "required": ["feePct", "slipPct"],
+                "properties": {
+                    "feePct": {"type": "number"},
+                    "slipPct": {"type": "number"},
+                },
+            },
+            "decisionPolicy": {
+                "type": "object",
+                "required": ["type", "params"],
+                "properties": {
+                    "type": {"type": "string"},
+                    "params": {"type": "object"},
+                },
+            },
+            "sourceRuntime": {"type": "string"},
+            "openclawBinding": {
+                "type": "object",
+                "properties": {
+                    "openclawAgentId": {"type": "string"},
+                    "boundAt": {"type": "string", "format": "date-time"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "additionalProperties": False,
+    }
+    example_payload = {
+        "agentId": "agt_123",
+        "market": "CN_A",
+        "styleTags": ["趋势", "短线", "高换手"],
+        "preferredUniverse": [{"type": "symbol", "value": "600519.SH"}],
+        "riskControls": {"maxPositionPct": 0.3, "maxHoldDays": 5, "maxDailyTurnoverPct": 0.6},
+        "cadence": {"tradesPerDay": 2, "activeDaysPerWeek": 4},
+        "costModel": {"feePct": 0.0005, "slipPct": 0.001},
+        "decisionPolicy": {"type": "rule_based", "params": {"exitAfterDays": 5}},
+        "sourceRuntime": "openclaw",
+    }
+    invalid_payload = {
+        "market": "CN_A",
+        "styleTags": [],
+        "preferredUniverse": [{"type": "symbol"}],
+    }
+
+    return _write_json_artifacts(
+        repo_b_path,
+        related_files,
+        {
+            "schema": schema_payload,
+            "example": example_payload,
+            "invalid": invalid_payload,
+        },
+    )
+
+
+def materialize_world_state_schema_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "docs/contracts/marketworldstate_schema.schema.json",
+            "docs/contracts/examples/marketworldstate_schema.example.json",
+            "docs/contracts/examples/marketworldstate_schema.invalid.json",
+        ]
+    if not any("invalid" in Path(path).name.lower() for path in related_files):
+        related_files.append("docs/contracts/examples/marketworldstate_schema.invalid.json")
+
+    schema_payload = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "MarketWorldState",
+        "type": "object",
+        "required": [
+            "worldId",
+            "market",
+            "tradingDay",
+            "nextTradingDay",
+            "sessionRules",
+            "costModelDefault",
+            "universe",
+            "prices",
+            "dataVersion",
+        ],
+        "properties": {
+            "worldId": {"type": "string"},
+            "market": {"type": "string", "enum": ["CN_A", "US", "CRYPTO"]},
+            "tradingDay": {"type": "string", "format": "date"},
+            "nextTradingDay": {"type": "string", "format": "date"},
+            "sessionRules": {
+                "type": "object",
+                "required": ["fillPrice", "allowShort", "lotSize"],
+                "properties": {
+                    "fillPrice": {"type": "string"},
+                    "allowShort": {"type": "boolean"},
+                    "lotSize": {"type": "integer", "minimum": 1},
+                },
+                "additionalProperties": False,
+            },
+            "costModelDefault": {
+                "type": "object",
+                "required": ["feePct", "slipPct"],
+                "properties": {
+                    "feePct": {"type": "number"},
+                    "slipPct": {"type": "number"},
+                },
+                "additionalProperties": False,
+            },
+            "universe": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            "prices": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "required": ["open", "high", "low", "close", "vol"],
+                    "properties": {
+                        "open": {"type": "number"},
+                        "high": {"type": "number"},
+                        "low": {"type": "number"},
+                        "close": {"type": "number"},
+                        "vol": {"type": "number"},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+            "marketContext": {"type": "object"},
+            "dataVersion": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+    example_payload = {
+        "worldId": "world_cn_a_v2",
+        "market": "CN_A",
+        "tradingDay": "2026-03-11",
+        "nextTradingDay": "2026-03-12",
+        "sessionRules": {"fillPrice": "close", "allowShort": False, "lotSize": 100},
+        "costModelDefault": {"feePct": 0.0005, "slipPct": 0.001},
+        "universe": ["600519.SH", "300750.SZ"],
+        "prices": {
+            "600519.SH": {"open": 1680.0, "high": 1712.0, "low": 1672.0, "close": 1701.0, "vol": 123456},
+            "300750.SZ": {"open": 195.0, "high": 199.8, "low": 193.2, "close": 198.1, "vol": 987654},
+        },
+        "marketContext": {"index": {"000001.SH": {"close": 3200.1}}},
+        "dataVersion": "tushare_daily_20260311",
+    }
+    invalid_payload = {
+        "worldId": "world_cn_a_v2",
+        "market": "CN_A",
+        "tradingDay": "2026-03-11",
+        "sessionRules": {"fillPrice": "close", "allowShort": False},
+        "universe": [],
+    }
+
+    return _write_json_artifacts(
+        repo_b_path,
+        related_files,
+        {
+            "schema": schema_payload,
+            "example": example_payload,
+            "invalid": invalid_payload,
+        },
+    )
+
+
+def _write_json_artifacts(repo_b_path: Path, related_files: list[str], payload_map: dict[str, object]) -> list[str]:
+    updated_files: list[str] = []
+    for raw_path in related_files:
+        path = repo_b_path / raw_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lowered = path.name.lower()
+        if "invalid" in lowered:
+            payload = payload_map["invalid"]
+        elif "example" in lowered:
+            payload = payload_map["example"]
+        else:
+            payload = payload_map["schema"]
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        updated_files.append(str(path))
+    return updated_files

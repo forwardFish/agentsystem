@@ -1,41 +1,43 @@
-task_id: S0-002
-task_name: MarketWorldState Schema
-sprint: Sprint 0
-epic: Epic 0.1 平台契约
-story_id: S0-002
-blast_radius: L1
-execution_mode: Safe
-mode: Safe
-goal: 定义统一的 MarketWorldState Schema。
-business_value: 让 MarketWorldState Schema 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S0-002"
+task_name: "MarketWorldState Schema"
+sprint: "Sprint 0"
+epic: "Epic 0.1 Platform Contract"
+story_id: "S0-002"
+blast_radius: "L1"
+execution_mode: "Safe"
+mode: "Safe"
+goal: "定义统一的 MarketWorldState Schema，并提供合法示例与非法示例，作为后续世界快照、上下文构建和 OpenClaw 接入的统一契约。"
+business_value: "把 MarketWorldState 契约一次钉死，避免后续世界服务、dashboard 聚合和 Agent context pack 反复返工。"
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S0-001 已完成，平台契约目录结构已建立。"
 acceptance_criteria:
-- MarketWorldState Schema 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "schema 包含 worldId、market、tradingDay、nextTradingDay、sessionRules、costModelDefault、universe、prices、dataVersion。"
+  - "sessionRules 明确定义 fillPrice、allowShort、lotSize。"
+  - "提供一份合法示例 marketworldstate_schema.example.json，并能通过 schema 校验。"
+  - "提供一份非法示例 marketworldstate_schema.invalid.json，并会被 schema 校验拒绝。"
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: docs/contracts/marketworldstate_schema.schema.json'
+  - "每个 Story 默认控制在 0.5 天到 1 天完成。"
+  - "只修改当前 Story 相关文件，不跨多个大模块。"
+  - "优先修改这些 primary files: docs/contracts/marketworldstate_schema.schema.json"
 out_of_scope:
-- 不在本 Story 中实现 MarketWorldState Schema 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现世界快照服务和读接口。"
+  - "不做数据库映射和事件总线接入。"
 not_do:
-- 不在本 Story 中实现 MarketWorldState Schema 之外的后续能力。
-- 不做架构级重构。
+  - "不实现 dashboard API。"
+  - "不实现 OpenClaw submit-actions 契约。"
 dependencies:
-- S0-001
+  - "S0-001"
 related_files:
-- docs/contracts/marketworldstate_schema.schema.json
-- docs/contracts/examples/marketworldstate_schema.example.json
+  - "docs/contracts/marketworldstate_schema.schema.json"
+  - "docs/contracts/examples/marketworldstate_schema.example.json"
+  - "docs/contracts/examples/marketworldstate_schema.invalid.json"
 primary_files:
-- docs/contracts/marketworldstate_schema.schema.json
+  - "docs/contracts/marketworldstate_schema.schema.json"
 secondary_files:
-- docs/contracts/examples/marketworldstate_schema.example.json
+  - "docs/contracts/examples/marketworldstate_schema.example.json"
+  - "docs/contracts/examples/marketworldstate_schema.invalid.json"
 test_cases:
   normal:
-  - 正常路径：MarketWorldState Schema 的核心场景可以完成。
+    - "合法示例能够通过 schema 校验。"
   exception:
-  - 异常路径：MarketWorldState Schema 失败时返回可解释结果。
+    - "缺少必填字段的非法示例会被 schema 校验拒绝。"
