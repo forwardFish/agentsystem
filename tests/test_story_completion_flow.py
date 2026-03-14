@@ -681,6 +681,105 @@ COMMIT;
             self.assertTrue(ok)
             self.assertIn("Statement storage artifacts", message)
 
+    def test_story_specific_validation_for_s0_007_audit_idempotency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            audit_path = repo_path / "apps" / "api" / "src" / "modules" / "audit" / "service.py"
+            idempotency_path = repo_path / "apps" / "api" / "src" / "modules" / "idempotency" / "service.py"
+            audit_path.parent.mkdir(parents=True, exist_ok=True)
+            idempotency_path.parent.mkdir(parents=True, exist_ok=True)
+
+            audit_path.write_text(
+                "from dataclasses import dataclass, asdict\n\n"
+                "INSERT_AUDIT_LOG_SQL = 'INSERT INTO audit_logs'\n\n"
+                "@dataclass(frozen=True)\n"
+                "class AuditLogEntry:\n"
+                "    audit_id: str\n"
+                "    actor_type: str\n"
+                "    actor_id: str\n"
+                "    action: str\n"
+                "    payload_ref: str | None\n"
+                "    trace_id: str\n\n"
+                "def build_audit_log_payload(entry):\n"
+                "    return asdict(entry)\n\n"
+                "def build_audit_write_query(entry):\n"
+                "    return INSERT_AUDIT_LOG_SQL, build_audit_log_payload(entry)\n",
+                encoding="utf-8",
+            )
+            idempotency_path.write_text(
+                "from dataclasses import dataclass\n\n"
+                "SELECT_IDEMPOTENCY_KEY_SQL = 'SELECT idempotency_key'\n"
+                "INSERT_IDEMPOTENCY_KEY_SQL = 'INSERT INTO idempotency_keys'\n\n"
+                "@dataclass(frozen=True)\n"
+                "class IdempotencyCheckResult:\n"
+                "    idempotency_key: str\n"
+                "    seen_before: bool\n"
+                "    result_ref: str | None = None\n"
+                "    status: str | None = None\n\n"
+                "def build_idempotency_lookup_query(idempotency_key):\n"
+                "    return SELECT_IDEMPOTENCY_KEY_SQL, {'idempotency_key': idempotency_key}\n\n"
+                "def build_idempotency_insert_query(idempotency_key, result_ref, status):\n"
+                "    return INSERT_IDEMPOTENCY_KEY_SQL, {'idempotency_key': idempotency_key, 'result_ref': result_ref, 'status': status}\n\n"
+                "def evaluate_idempotency(existing_row, idempotency_key):\n"
+                "    if not existing_row:\n"
+                "        return IdempotencyCheckResult(idempotency_key=idempotency_key, seen_before=False)\n"
+                "    return IdempotencyCheckResult(idempotency_key=idempotency_key, seen_before=True, result_ref=existing_row.get('result_ref'), status=existing_row.get('status'))\n",
+                encoding="utf-8",
+            )
+
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-007",
+                    "related_files": [
+                        "apps/api/src/modules/audit/service.py",
+                        "apps/api/src/modules/idempotency/service.py",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Audit and idempotency artifacts", message)
+
+    def test_fixer_rebuilds_contract_story_artifacts_for_s0_007(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            broken = repo_path / "apps" / "api" / "src" / "modules" / "audit" / "service.py"
+            broken.parent.mkdir(parents=True, exist_ok=True)
+            broken.write_text("pass\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-007",
+                    "related_files": [
+                        "apps/api/src/modules/audit/service.py",
+                        "apps/api/src/modules/idempotency/service.py",
+                    ],
+                },
+                "test_passed": False,
+                "test_failure_info": "Missing audit helper behavior",
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-007",
+                    "related_files": [
+                        "apps/api/src/modules/audit/service.py",
+                        "apps/api/src/modules/idempotency/service.py",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Audit and idempotency artifacts", message)
+
     def test_fixer_routes_back_to_code_style_review_for_style_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_path = Path(tmp) / "repo"

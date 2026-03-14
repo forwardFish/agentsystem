@@ -192,6 +192,8 @@ def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, ob
         return _validate_core_db_schema_story(repo_b_path, task_payload)
     if story_id == "S0-006":
         return _validate_statement_storage_story(repo_b_path, task_payload)
+    if story_id == "S0-007":
+        return _validate_audit_idempotency_story(repo_b_path, task_payload)
     return True, "No story-specific validation required."
 
 
@@ -404,3 +406,47 @@ def _validate_statement_storage_story(repo_b_path: Path, task_payload: dict[str,
         return False, f"Missing repository metadata behavior: {', '.join(missing_repository)}"
 
     return True, "Statement storage artifacts support object-key generation, metadata persistence, lookup, and rollback."
+
+
+def _validate_audit_idempotency_story(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
+    related_files = [str(item) for item in task_payload.get("related_files", [])]
+    audit_path = repo_b_path / next((path for path in related_files if path.endswith("audit/service.py")), "apps/api/src/modules/audit/service.py")
+    idempotency_path = repo_b_path / next((path for path in related_files if path.endswith("idempotency/service.py")), "apps/api/src/modules/idempotency/service.py")
+
+    for path in (audit_path, idempotency_path):
+        if not path.exists():
+            return False, f"Missing required audit/idempotency artifact: {path}"
+
+    audit_code = audit_path.read_text(encoding="utf-8")
+    idempotency_code = idempotency_path.read_text(encoding="utf-8")
+
+    audit_tokens = [
+        "AuditLogEntry",
+        "build_audit_log_payload",
+        "build_audit_write_query",
+        "INSERT INTO audit_logs",
+        "actor_type",
+        "actor_id",
+        "action",
+        "trace_id",
+    ]
+    missing_audit = [token for token in audit_tokens if token not in audit_code]
+    if missing_audit:
+        return False, f"Missing audit helper behavior: {', '.join(missing_audit)}"
+
+    idempotency_tokens = [
+        "IdempotencyCheckResult",
+        "build_idempotency_lookup_query",
+        "build_idempotency_insert_query",
+        "evaluate_idempotency",
+        "SELECT",
+        "INSERT INTO idempotency_keys",
+        "idempotency_key",
+        "result_ref",
+        "status",
+    ]
+    missing_idempotency = [token for token in idempotency_tokens if token not in idempotency_code]
+    if missing_idempotency:
+        return False, f"Missing idempotency helper behavior: {', '.join(missing_idempotency)}"
+
+    return True, "Audit and idempotency artifacts provide reusable write, lookup, insert, and evaluation helpers."

@@ -1,43 +1,57 @@
-task_id: S0-007
-task_name: 审计日志与幂等基础设施
-sprint: Sprint 0
-epic: Epic 0.2 基础存储与底座
-story_id: S0-007
-blast_radius: L1
-execution_mode: Safe
-mode: Safe
-goal: 提供统一 audit write helper 和 idempotency check helper。
-business_value: 让 审计日志与幂等基础设施 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S0-007"
+task_name: "审计日志与幂等基础设施"
+sprint: "Sprint 0"
+epic: "Epic 0.2 基础存储与底座"
+story_id: "S0-007"
+blast_radius: "L1"
+execution_mode: "Safe"
+mode: "Safe"
+
+goal: "提供统一的 audit write helper 和 idempotency check helper，作为后续订单、成交和运行日志链路的基础设施。"
+business_value: "让审计日志与幂等能力成为可独立验收、可复用的底层模块，支撑后续 Story 的一致性和可追踪性。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S0-005 已完成，核心表结构已定义。"
+  - "S0-006 已完成，基础存储与 statement 元数据模式已建立。"
+
 acceptance_criteria:
-- 审计日志与幂等基础设施 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "audit/service.py 和 idempotency/service.py 提供可独立复用的核心 helper。"
+  - "本 Story 只覆盖 audit 和 idempotency 两个模块，不扩展到相邻业务模块。"
+  - "产出的 helper 可被后续 Story 直接复用。"
+  - "正常路径和关键失败路径都具备可验证的结果。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/modules/audit/service.py, apps/api/src/modules/idempotency/service.py'
+  - "Story 规模控制在 0.5 天到 1 天。"
+  - "只修改当前 Story 相关文件，不跨多个大模块。"
+  - "优先修改这些 primary files: apps/api/src/modules/audit/service.py, apps/api/src/modules/idempotency/service.py"
+
 out_of_scope:
-- 不在本 Story 中实现 审计日志与幂等基础设施 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现下游订单、成交或调度功能。"
+  - "不做架构级重构。"
+
 not_do:
-- 不在本 Story 中实现 审计日志与幂等基础设施 之外的后续能力。
-- 不做架构级重构。
+  - "不实现实际数据库执行器。"
+  - "不新增额外的 API 路由。"
+
 dependencies:
-- S0-006
+  - "S0-006"
+
 related_files:
-- apps/api/src/modules/audit/service.py
-- apps/api/src/modules/idempotency/service.py
-- scripts/init_schema.sql
+  - "apps/api/src/modules/audit/service.py"
+  - "apps/api/src/modules/idempotency/service.py"
+  - "scripts/init_schema.sql"
+
 primary_files:
-- apps/api/src/modules/audit/service.py
-- apps/api/src/modules/idempotency/service.py
+  - "apps/api/src/modules/audit/service.py"
+  - "apps/api/src/modules/idempotency/service.py"
+
 secondary_files:
-- scripts/init_schema.sql
+  - "scripts/init_schema.sql"
+
 test_cases:
   normal:
-  - 正常路径：审计日志与幂等基础设施 的核心场景可以完成。
+    - "audit helper 能生成标准化写入 payload 和 SQL 查询。"
+    - "idempotency helper 能生成 lookup/insert 查询，并对首次请求返回 seen_before=false。"
   exception:
-  - 异常路径：审计日志与幂等基础设施 失败时返回可解释结果。
+    - "idempotency helper 对重复请求返回 seen_before=true，并保留 result_ref/status。"
+    - "helper 缺失关键字段时，Story 专项校验会失败。"

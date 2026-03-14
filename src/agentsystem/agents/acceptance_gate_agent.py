@@ -184,6 +184,10 @@ def _evaluate_criterion(
         evidence = _evaluate_s0_006_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
+    if story_id == "S0-007":
+        evidence = _evaluate_s0_007_criterion(criterion, repo_b_path)
+        if evidence is not None:
+            return evidence
 
     if "subtitle" in lowered or "副标题" in criterion:
         target_text = _infer_target_text(str(task_payload.get("goal", "")), subtitle=True)
@@ -351,6 +355,60 @@ def _evaluate_s0_006_criterion(criterion: str, repo_b_path: Path) -> tuple[bool,
         combined = storage_code + "\n" + repository_code
         missing = [token for token in required_tokens if token not in combined]
         return (not missing, "Lookup by statement_id and rollback helpers are defined" if not missing else f"Missing lookup/rollback helpers: {', '.join(missing)}")
+    return None
+
+
+def _evaluate_s0_007_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
+    lowered = criterion.lower()
+    audit_path = repo_b_path / "apps/api/src/modules/audit/service.py"
+    idempotency_path = repo_b_path / "apps/api/src/modules/idempotency/service.py"
+    audit_code = audit_path.read_text(encoding="utf-8") if audit_path.exists() else ""
+    idempotency_code = idempotency_path.read_text(encoding="utf-8") if idempotency_path.exists() else ""
+
+    if "audit" in lowered and "idempotency" in lowered and ("helper" in lowered or "基础设施" in criterion or "复用" in criterion):
+        missing = [path.name for path in (audit_path, idempotency_path) if not path.exists()]
+        return (not missing, "Audit and idempotency helper modules exist" if not missing else f"Missing helper modules: {', '.join(missing)}")
+    if (
+        ("single business boundary" in lowered)
+        or ("一个业务边界" in criterion)
+        or ("only covers" in lowered and "audit" in lowered and "idempotency" in lowered)
+        or ("does not expand" in lowered and "module" in lowered)
+        or ("audit" in lowered and "idempotency" in lowered and "module" in lowered)
+        or ("本 story 只覆盖" in criterion)
+        or ("不扩展到相邻业务模块" in criterion)
+    ):
+        expected = {
+            "apps/api/src/modules/audit/service.py",
+            "apps/api/src/modules/idempotency/service.py",
+        }
+        existing = {
+            "apps/api/src/modules/audit/service.py" if audit_path.exists() else "",
+            "apps/api/src/modules/idempotency/service.py" if idempotency_path.exists() else "",
+        }
+        existing.discard("")
+        return (existing == expected, "Changes stay within the audit/idempotency module boundary" if existing == expected else "Artifacts drifted outside the expected module boundary")
+    if ("downstream" in lowered and "reused" in lowered) or ("后续" in criterion and "复用" in criterion):
+        required_tokens = [
+            "build_audit_write_query",
+            "build_audit_log_payload",
+            "build_idempotency_lookup_query",
+            "build_idempotency_insert_query",
+            "evaluate_idempotency",
+        ]
+        combined = audit_code + "\n" + idempotency_code
+        missing = [token for token in required_tokens if token not in combined]
+        return (not missing, "Reusable downstream helper functions are present" if not missing else f"Missing reusable helpers: {', '.join(missing)}")
+    if ("failure" in lowered and "result" in lowered) or ("失败路径" in criterion) or ("正常路径" in criterion):
+        required_tokens = [
+            "INSERT INTO audit_logs",
+            "trace_id",
+            "seen_before",
+            "result_ref",
+            "status",
+        ]
+        combined = audit_code + "\n" + idempotency_code
+        missing = [token for token in required_tokens if token not in combined]
+        return (not missing, "Helpers cover both write-path and duplicate/failure-path evaluation" if not missing else f"Missing normal/failure-path coverage tokens: {', '.join(missing)}")
     return None
 
 

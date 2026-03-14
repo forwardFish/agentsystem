@@ -5,6 +5,7 @@ import uuid
 
 from agentsystem.agents.contract_artifacts import (
     materialize_agent_contract_artifacts,
+    materialize_audit_idempotency_artifacts,
     materialize_error_state_spec_artifacts,
     materialize_profile_schema_artifacts,
     materialize_statement_storage_artifacts,
@@ -97,6 +98,8 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
         return materialize_error_state_spec_artifacts(repo_b_path, related_files)
     if story_id == "S0-006":
         return materialize_statement_storage_artifacts(repo_b_path, related_files)
+    if story_id == "S0-007":
+        return materialize_audit_idempotency_artifacts(repo_b_path, related_files)
 
     for backend_file in candidate_files:
         if not backend_file.exists():

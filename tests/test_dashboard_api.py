@@ -45,6 +45,7 @@ class DashboardApiTestCase(unittest.TestCase):
             meta_dir = base / "repo-worktree" / ".meta" / "task-demo"
             (meta_dir / "pr_prep").mkdir(parents=True)
             (meta_dir / "review").mkdir(parents=True)
+            (meta_dir / "code_style_review").mkdir(parents=True)
             (meta_dir / "code_acceptance").mkdir(parents=True)
             (meta_dir / "acceptance").mkdir(parents=True)
             (meta_dir / "delivery").mkdir(parents=True)
@@ -72,6 +73,7 @@ class DashboardApiTestCase(unittest.TestCase):
             (meta_dir / "pr_prep" / "pr_description.md").write_text("PR body", encoding="utf-8")
             (meta_dir / "pr_prep" / "commit_message.txt").write_text("feat: demo", encoding="utf-8")
             (meta_dir / "review" / "review_report.md").write_text("review body", encoding="utf-8")
+            (meta_dir / "code_style_review" / "code_style_review_report.md").write_text("code style body", encoding="utf-8")
             (meta_dir / "code_acceptance" / "code_acceptance_report.md").write_text("code acceptance body", encoding="utf-8")
             (meta_dir / "acceptance" / "acceptance_report.md").write_text("acceptance body", encoding="utf-8")
             (meta_dir / "delivery" / "story_delivery_report.md").write_text("delivery body", encoding="utf-8")
@@ -87,6 +89,7 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(detail["artifacts"]["pr_description"], "PR body")
             self.assertEqual(detail["artifacts"]["commit_message"], "feat: demo")
             self.assertEqual(detail["artifacts"]["review_report"], "review body")
+            self.assertEqual(detail["artifacts"]["code_style_review_report"], "code style body")
             self.assertEqual(detail["artifacts"]["code_acceptance_report"], "code acceptance body")
             self.assertEqual(detail["artifacts"]["acceptance_report"], "acceptance body")
             self.assertEqual(detail["artifacts"]["delivery_report"], "delivery body")

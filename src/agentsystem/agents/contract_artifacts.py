@@ -707,6 +707,132 @@ def rollback_statement_metadata_query(statement_id: str) -> tuple[str, dict[str,
     return updated_files
 
 
+def materialize_audit_idempotency_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "apps/api/src/modules/audit/service.py",
+            "apps/api/src/modules/idempotency/service.py",
+        ]
+
+    payload_by_name = {
+        "service.py": {
+            "apps/api/src/modules/audit/service.py": """from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+
+INSERT_AUDIT_LOG_SQL = '''
+INSERT INTO audit_logs (
+    audit_id,
+    actor_type,
+    actor_id,
+    action,
+    payload_ref,
+    trace_id
+) VALUES (
+    %(audit_id)s,
+    %(actor_type)s,
+    %(actor_id)s,
+    %(action)s,
+    %(payload_ref)s,
+    %(trace_id)s
+);
+'''.strip()
+
+
+@dataclass(frozen=True)
+class AuditLogEntry:
+    audit_id: str
+    actor_type: str
+    actor_id: str
+    action: str
+    payload_ref: str | None
+    trace_id: str
+
+
+def build_audit_log_payload(entry: AuditLogEntry) -> dict[str, Any]:
+    return asdict(entry)
+
+
+def build_audit_write_query(entry: AuditLogEntry) -> tuple[str, dict[str, Any]]:
+    return INSERT_AUDIT_LOG_SQL, build_audit_log_payload(entry)
+""",
+            "apps/api/src/modules/idempotency/service.py": """from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+
+SELECT_IDEMPOTENCY_KEY_SQL = '''
+SELECT
+    idempotency_key,
+    first_seen_at,
+    result_ref,
+    status
+FROM idempotency_keys
+WHERE idempotency_key = %(idempotency_key)s;
+'''.strip()
+
+INSERT_IDEMPOTENCY_KEY_SQL = '''
+INSERT INTO idempotency_keys (
+    idempotency_key,
+    result_ref,
+    status
+) VALUES (
+    %(idempotency_key)s,
+    %(result_ref)s,
+    %(status)s
+);
+'''.strip()
+
+
+@dataclass(frozen=True)
+class IdempotencyCheckResult:
+    idempotency_key: str
+    seen_before: bool
+    result_ref: str | None = None
+    status: str | None = None
+
+
+def build_idempotency_lookup_query(idempotency_key: str) -> tuple[str, dict[str, Any]]:
+    return SELECT_IDEMPOTENCY_KEY_SQL, {"idempotency_key": idempotency_key}
+
+
+def build_idempotency_insert_query(idempotency_key: str, result_ref: str, status: str) -> tuple[str, dict[str, Any]]:
+    return INSERT_IDEMPOTENCY_KEY_SQL, {
+        "idempotency_key": idempotency_key,
+        "result_ref": result_ref,
+        "status": status,
+    }
+
+
+def evaluate_idempotency(existing_row: dict[str, Any] | None, idempotency_key: str) -> IdempotencyCheckResult:
+    if not existing_row:
+        return IdempotencyCheckResult(idempotency_key=idempotency_key, seen_before=False)
+    return IdempotencyCheckResult(
+        idempotency_key=idempotency_key,
+        seen_before=True,
+        result_ref=str(existing_row.get("result_ref") or ""),
+        status=str(existing_row.get("status") or ""),
+    )
+""",
+        }
+    }
+
+    updated_files: list[str] = []
+    for raw_path in related_files:
+        path = repo_b_path / raw_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = payload_by_name.get(path.name, {}).get(raw_path.replace("\\", "/"))
+        if payload is None:
+            continue
+        path.write_text(payload if payload.endswith("\n") else payload + "\n", encoding="utf-8")
+        updated_files.append(str(path))
+    return updated_files
+
+
 def _write_json_artifacts(repo_b_path: Path, related_files: list[str], payload_map: dict[str, object]) -> list[str]:
     updated_files: list[str] = []
     for raw_path in related_files:

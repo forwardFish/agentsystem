@@ -137,6 +137,10 @@
               <div id="artifact-review" class="markdown"></div>
             </div>
             <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">Code Style Review</div>
+              <div id="artifact-code-style" class="markdown"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
               <div class="mb-3 text-lg font-semibold text-white">代码验收报告</div>
               <div id="artifact-code-acceptance" class="markdown"></div>
             </div>
@@ -411,6 +415,7 @@
 
       document.getElementById("artifact-pr").innerHTML = marked.parse(taskDetail.artifacts?.pr_description || "_暂无 PR 描述_");
       document.getElementById("artifact-review").innerHTML = marked.parse(taskDetail.artifacts?.review_report || "_暂无审查报告_");
+      document.getElementById("artifact-code-style").innerHTML = marked.parse(taskDetail.artifacts?.code_style_review_report || "_暂无 Code Style Review 报告_");
       document.getElementById("artifact-code-acceptance").innerHTML = marked.parse(
         [
           taskDetail.artifacts?.code_acceptance_report || "_暂无代码验收报告_",
