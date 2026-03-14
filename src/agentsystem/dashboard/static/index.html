@@ -33,8 +33,14 @@
       background: linear-gradient(180deg, rgba(13,19,37,0.92), rgba(9,14,27,0.94));
       transition: 140ms ease;
     }
-    .list-card:hover { border-color: rgba(125, 211, 252, 0.35); transform: translateY(-1px); }
-    .list-card.active { border-color: rgba(125, 211, 252, 0.6); box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.12); }
+    .list-card:hover {
+      border-color: rgba(125, 211, 252, 0.35);
+      transform: translateY(-1px);
+    }
+    .list-card.active {
+      border-color: rgba(125, 211, 252, 0.6);
+      box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.12);
+    }
     .pill {
       display: inline-flex;
       align-items: center;
@@ -55,8 +61,14 @@
       -webkit-line-clamp: 2;
       overflow: hidden;
     }
-    .markdown { color: #dbe4f3; line-height: 1.75; }
-    .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown strong { color: #fff; }
+    .markdown {
+      color: #dbe4f3;
+      line-height: 1.75;
+      overflow-wrap: anywhere;
+    }
+    .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown strong {
+      color: #fff;
+    }
   </style>
 </head>
 <body class="min-h-screen text-slate-100">
@@ -67,7 +79,8 @@
           <div class="section-title mb-3">Agentic Delivery Console</div>
           <h1 class="text-2xl font-bold tracking-tight text-white lg:text-4xl">Backlog / Sprint / Story 列表总览</h1>
           <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
-            这个页面负责看全局状态：有哪些 backlog、每个 sprint 的推进情况、每个 story 的状态。点开 story 后进入详情页查看交付物、协作链与实时事件。
+            这个页面负责看全局状态：有哪些 backlog、每个 sprint 的推进情况、每个 story 的状态。
+            点击 story 后进入详情页查看交付物、协作链、代码验收和实时事件。
           </p>
         </div>
         <div class="flex items-center gap-3">
@@ -84,9 +97,18 @@
     </section>
 
     <section class="mb-6 grid gap-4 xl:grid-cols-3">
-      <div class="panel rounded-[24px] p-5"><div class="mb-3"><div class="section-title">Trend</div><div class="mt-1 text-lg font-semibold text-white">近 7 天成功率</div></div><div class="h-56"><canvas id="success-chart"></canvas></div></div>
-      <div class="panel rounded-[24px] p-5"><div class="mb-3"><div class="section-title">Repair</div><div class="mt-1 text-lg font-semibold text-white">近 7 天回修轮次</div></div><div class="h-56"><canvas id="retry-chart"></canvas></div></div>
-      <div class="panel rounded-[24px] p-5"><div class="mb-3"><div class="section-title">Acceptance</div><div class="mt-1 text-lg font-semibold text-white">近 7 天验收命中率</div></div><div class="h-56"><canvas id="acceptance-chart"></canvas></div></div>
+      <div class="panel rounded-[24px] p-5">
+        <div class="mb-3"><div class="section-title">Trend</div><div class="mt-1 text-lg font-semibold text-white">近 7 天成功率</div></div>
+        <div class="h-56"><canvas id="success-chart"></canvas></div>
+      </div>
+      <div class="panel rounded-[24px] p-5">
+        <div class="mb-3"><div class="section-title">Repair</div><div class="mt-1 text-lg font-semibold text-white">近 7 天回修轮次</div></div>
+        <div class="h-56"><canvas id="retry-chart"></canvas></div>
+      </div>
+      <div class="panel rounded-[24px] p-5">
+        <div class="mb-3"><div class="section-title">Acceptance</div><div class="mt-1 text-lg font-semibold text-white">近 7 天验收命中率</div></div>
+        <div class="h-56"><canvas id="acceptance-chart"></canvas></div>
+      </div>
     </section>
 
     <section class="panel mb-6 rounded-[28px] p-5 lg:p-6">
@@ -122,6 +144,7 @@
           <div id="story-count" class="text-sm text-slate-400">0</div>
         </div>
         <div id="sprint-plan" class="markdown mb-5 rounded-[22px] border border-white/8 bg-black/20 p-5"></div>
+        <div id="sprint-quality-report" class="markdown mb-5 rounded-[22px] border border-white/8 bg-black/20 p-5"></div>
         <div id="story-list" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
       </div>
     </section>
@@ -236,7 +259,14 @@
         button.onclick = () => loadSprintDetail(backlogId, sprint.id);
         list.appendChild(button);
       });
-      if (sprints.length) await loadSprintDetail(backlogId, sprints[0].id);
+      if (sprints.length) {
+        await loadSprintDetail(backlogId, sprints[0].id);
+      } else {
+        document.getElementById("sprint-plan").innerHTML = marked.parse("_暂无 sprint 规划_");
+        document.getElementById("sprint-quality-report").innerHTML = marked.parse("_暂无 sprint 质量报告_");
+        document.getElementById("story-list").innerHTML = "";
+        document.getElementById("story-count").textContent = "0 个 story";
+      }
     }
 
     async function loadSprintDetail(backlogId, sprintId) {
@@ -244,6 +274,7 @@
       setActiveCard("sprint-list", sprintId, "sprint");
       const detail = await fetchJson(`/api/backlogs/${backlogId}/sprints/${sprintId}`);
       document.getElementById("sprint-plan").innerHTML = marked.parse(detail.sprint_plan_markdown || "_暂无 sprint 规划_");
+      document.getElementById("sprint-quality-report").innerHTML = marked.parse(detail.quality_report_markdown || "_暂无 sprint 质量报告_");
       const list = document.getElementById("story-list");
       list.innerHTML = "";
       const stories = [];

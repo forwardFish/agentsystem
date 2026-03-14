@@ -346,6 +346,7 @@ def load_sprint_detail(backlog_id: str, sprint_id: str) -> dict[str, Any]:
     return {
         "id": sprint_id,
         "sprint_plan_markdown": _read_optional_text(sprint_dir / "sprint_plan.md"),
+        "quality_report_markdown": _read_optional_text(sprint_dir / "sprint_quality_report.md"),
         "execution_order": execution_order,
         "epics": epics,
     }

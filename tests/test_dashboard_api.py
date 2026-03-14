@@ -145,6 +145,7 @@ class DashboardApiTestCase(unittest.TestCase):
 
             (backlog_dir / "sprint_overview.md").write_text("# Backlog Overview", encoding="utf-8")
             (sprint_dir / "sprint_plan.md").write_text("# Sprint Plan", encoding="utf-8")
+            (sprint_dir / "sprint_quality_report.md").write_text("# Sprint Quality", encoding="utf-8")
             (sprint_dir / "execution_order.txt").write_text("S0-001\n", encoding="utf-8")
             (sprint_dir / "epic_0_1_platform_contract.md").write_text("# Epic Contract", encoding="utf-8")
             (epic_dir / "S0-001_profile_schema.yaml").write_text(
@@ -207,6 +208,7 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(backlogs[0]["id"], "backlog_v1")
             self.assertEqual(backlog_detail["sprints"][0]["status"], "done")
             self.assertEqual(sprint_detail["execution_order"], ["S0-001"])
+            self.assertEqual(sprint_detail["quality_report_markdown"], "# Sprint Quality")
             self.assertEqual(sprint_detail["epics"][0]["stories"][0]["story_id"], "S0-001")
             self.assertEqual(story_detail["story"]["task_name"], "TradingAgentProfile Schema")
             self.assertEqual(story_detail["latest_task_id"], "task-story")
