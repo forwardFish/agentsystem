@@ -92,8 +92,8 @@ def requirement_analysis_node(state: DevState) -> DevState:
             SubTask(
                 id="1",
                 type="backend",
-                description="Refine backend AgentSnapshot contract",
-                files_to_modify=["apps/api/src/schemas/agent.py"],
+                description="Refine backend registry snapshot service",
+                files_to_modify=["apps/api/src/domain/agent_registry/service.py"],
             ),
             SubTask(
                 id="2",

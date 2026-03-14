@@ -20,7 +20,6 @@ def sync_merge_node(state: DevState) -> DevState:
             changed_files.extend(str(path) for path in payload.get("updated_files", []))
             completed_types.add(agent_name)
 
-    state["generated_code_diff"] = "\n".join(dict.fromkeys(changed_files))
     state["subtasks"] = _mark_completed(state.get("subtasks", []), completed_types)
     state["staged_files"] = list(dict.fromkeys(changed_files))
 
@@ -37,7 +36,9 @@ def sync_merge_node(state: DevState) -> DevState:
         (pr_prep_dir / "pr_description.md").write_text(pr_desc, encoding="utf-8")
         (pr_prep_dir / "commit_message.txt").write_text(commit_msg, encoding="utf-8")
 
-        state["staged_files"] = staged_files or state["staged_files"]
+        effective_staged_files = staged_files or state["staged_files"]
+        state["staged_files"] = effective_staged_files
+        state["generated_code_diff"] = "\n".join(dict.fromkeys(effective_staged_files))
         state["pr_desc"] = pr_desc
         state["commit_msg"] = commit_msg
         state["pr_prep_dir"] = str(pr_prep_dir)

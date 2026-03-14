@@ -31,6 +31,7 @@ class AgentRole(str, Enum):
     FIXER = "Fixer"
     REVIEWER = "Reviewer"
     CODE_STYLE_REVIEWER = "CodeStyleReviewer"
+    CODE_ACCEPTANCE = "CodeAcceptance"
     ACCEPTANCE_GATE = "AcceptanceGate"
     DOC_WRITER = "DocWriter"
 
@@ -167,6 +168,11 @@ class DevState(TypedDict, total=False):
     important_issues: list[str] | None
     nice_to_haves: list[str] | None
     review_report: str | None
+    code_style_review_success: bool | None
+    code_style_review_passed: bool | None
+    code_style_review_report: str | None
+    code_style_review_dir: str | None
+    code_style_review_issues: list[str] | None
     code_acceptance_success: bool | None
     code_acceptance_passed: bool | None
     code_acceptance_report: str | None
@@ -182,6 +188,7 @@ class DevState(TypedDict, total=False):
     fixer_needed: bool | None
     fixer_success: bool | None
     fix_attempts: int
+    fix_return_to: str | None
     current_step: str
     error_message: str | None
     shared_blackboard: dict[str, Any] | None

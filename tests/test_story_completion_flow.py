@@ -9,8 +9,9 @@ from git import Repo
 
 from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
+from agentsystem.agents.code_style_reviewer_agent import code_style_review_node, route_after_code_style_review
 from agentsystem.agents.doc_agent import doc_node
-from agentsystem.agents.fix_agent import fix_node
+from agentsystem.agents.fix_agent import fix_node, route_after_fix
 from agentsystem.agents.review_agent import review_node, route_after_review
 from agentsystem.agents.test_agent import _run_story_specific_validation
 
@@ -81,6 +82,39 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             self.assertTrue(updated["code_acceptance_passed"])
             self.assertTrue(Path(updated["code_acceptance_dir"]).joinpath("code_acceptance_report.md").exists())
 
+    def test_code_style_review_passes_for_clean_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            schema_path = repo_path / "docs" / "contracts" / "trading_agent_profile.schema.json"
+            schema_path.parent.mkdir(parents=True)
+            schema_path.write_text('{\n  "title": "TradingAgentProfile"\n}\n', encoding="utf-8")
+            (repo_path / ".agents").mkdir(parents=True, exist_ok=True)
+            (repo_path / ".agents" / "project.yaml").write_text("code_style:\n  line_length: 120\n", encoding="utf-8")
+            (repo_path / ".agents" / "rules.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "commands.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "review_policy.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "contracts.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "style_guide.md").write_text("# Style Guide\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "dev_results": {
+                    "backend": {
+                        "updated_files": [str(schema_path)],
+                    }
+                },
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+            updated = code_style_review_node(state)
+            self.assertTrue(updated["code_style_review_success"])
+            self.assertTrue(updated["code_style_review_passed"])
+            self.assertEqual(route_after_code_style_review(updated), "tester")
+            self.assertTrue(Path(updated["code_style_review_dir"]).joinpath("code_style_review_report.md").exists())
+
     def test_doc_agent_writes_delivery_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_path = Path(tmp) / "repo"
@@ -94,11 +128,13 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
                     "epic": "Epic 0.1 Platform Contract",
                     "acceptance_criteria": ["schema file exists", "example passes validation"],
                 },
+                "code_style_review_passed": True,
                 "test_passed": True,
                 "review_passed": True,
                 "code_acceptance_passed": True,
                 "acceptance_passed": True,
                 "test_results": "StoryValidation: PASS",
+                "code_style_review_dir": str(repo_path / ".meta" / "code_style_review"),
                 "review_dir": str(repo_path / ".meta" / "review"),
                 "code_acceptance_dir": str(repo_path / ".meta" / "code_acceptance"),
                 "acceptance_dir": str(repo_path / ".meta" / "acceptance"),
@@ -644,6 +680,41 @@ COMMIT;
             )
             self.assertTrue(ok)
             self.assertIn("Statement storage artifacts", message)
+
+    def test_fixer_routes_back_to_code_style_review_for_style_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            file_path = repo_path / "apps" / "api" / "src" / "demo.py"
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text("print('demo')\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S9-999",
+                    "related_files": ["apps/api/src/demo.py"],
+                },
+                "test_passed": False,
+                "test_failure_info": "tabs are not allowed",
+                "issues_to_fix": [
+                    {
+                        "issue_id": "issue-style",
+                        "severity": "blocking",
+                        "source_agent": "CodeStyleReviewer",
+                        "target_agent": "Fixer",
+                        "title": "Code style review issue",
+                        "description": "tabs are not allowed",
+                    }
+                ],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            self.assertEqual(route_after_fix(updated), "code_style_reviewer")
 
 
 if __name__ == "__main__":

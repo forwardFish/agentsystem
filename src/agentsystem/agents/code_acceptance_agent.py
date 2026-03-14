@@ -74,9 +74,9 @@ def code_acceptance_node(state: DevState) -> DevState:
         issue = Issue(
             issue_id=str(uuid.uuid4()),
             severity=IssueSeverity.BLOCKING,
-            source_agent=AgentRole.CODE_STYLE_REVIEWER,
+            source_agent=AgentRole.CODE_ACCEPTANCE,
             target_agent=AgentRole.FIXER,
-            title="Code style consistency issue",
+            title="Code acceptance issue",
             description=str(raw_issue),
             suggestion="Apply the reported code hygiene fix and rerun code acceptance.",
         )
@@ -86,18 +86,18 @@ def code_acceptance_node(state: DevState) -> DevState:
         state,
         HandoffPacket(
             packet_id=str(uuid.uuid4()),
-            from_agent=AgentRole.CODE_STYLE_REVIEWER,
+            from_agent=AgentRole.CODE_ACCEPTANCE,
             to_agent=AgentRole.ACCEPTANCE_GATE if state.get("code_acceptance_passed") else AgentRole.FIXER,
             status=HandoffStatus.COMPLETED if state.get("code_acceptance_passed") else HandoffStatus.BLOCKED,
-            what_i_did="Checked style consistency, UTF-8 readability, whitespace hygiene, and JSON validity where applicable.",
+            what_i_did="Checked final code acceptance gates including UTF-8 readability, whitespace hygiene, and JSON validity where applicable.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Code Acceptance Report",
                     type="report",
                     path=str(Path(str(state.get('code_acceptance_dir') or '')) / 'code_acceptance_report.md'),
-                    description="Style and hygiene review report for the current story.",
-                    created_by=AgentRole.CODE_STYLE_REVIEWER,
+                    description="Final code acceptance report for the current story.",
+                    created_by=AgentRole.CODE_ACCEPTANCE,
                 )
             ],
             what_risks_i_found=[str(item) for item in (state.get("code_acceptance_issues") or [])],

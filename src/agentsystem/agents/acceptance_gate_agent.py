@@ -45,6 +45,8 @@ def acceptance_gate_node(state: DevState) -> DevState:
 
     if not state.get("review_passed"):
         blocking_issues.append("Reviewer did not pass the change set.")
+    if not state.get("code_style_review_passed"):
+        blocking_issues.append("Code style review did not pass the change set.")
     if not state.get("code_acceptance_passed"):
         blocking_issues.append("Code acceptance did not pass the change set.")
 
@@ -59,6 +61,7 @@ def acceptance_gate_node(state: DevState) -> DevState:
         f"- Related files: {', '.join(related_files) if related_files else 'None recorded'}",
         "",
         "## Review Gates",
+        f"- Code style review passed: {'yes' if state.get('code_style_review_passed') else 'no'}",
         f"- Reviewer passed: {'yes' if state.get('review_passed') else 'no'}",
         f"- Code acceptance passed: {'yes' if state.get('code_acceptance_passed') else 'no'}",
         "",
@@ -98,7 +101,7 @@ def acceptance_gate_node(state: DevState) -> DevState:
             from_agent=AgentRole.ACCEPTANCE_GATE,
             to_agent=AgentRole.DOC_WRITER if state.get("acceptance_passed") else AgentRole.FIXER,
             status=HandoffStatus.COMPLETED if state.get("acceptance_passed") else HandoffStatus.BLOCKED,
-            what_i_did="Cross-checked acceptance criteria, task scope, reviewer status, and code acceptance status for the story.",
+            what_i_did="Cross-checked acceptance criteria, task scope, code style review, reviewer status, and code acceptance status for the story.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),

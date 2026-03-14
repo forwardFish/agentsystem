@@ -10,10 +10,11 @@ from agentsystem.dashboard.hooks import send_log, send_node_end, send_node_start
 from agentsystem.agents.backend_dev_agent import backend_dev_node
 from agentsystem.agents.acceptance_gate_agent import acceptance_gate_node, route_after_acceptance
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node, route_after_code_acceptance
+from agentsystem.agents.code_style_reviewer_agent import code_style_review_node, route_after_code_style_review
 from agentsystem.agents.database_agent import database_dev_node
 from agentsystem.agents.devops_agent import devops_dev_node
 from agentsystem.agents.doc_agent import doc_node
-from agentsystem.agents.fix_agent import fix_node
+from agentsystem.agents.fix_agent import fix_node, route_after_fix
 from agentsystem.agents.frontend_dev_agent import frontend_dev_node
 from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.router_agent import route_after_test, task_router
@@ -58,6 +59,11 @@ class DevWorkflow:
             "important_issues": None,
             "nice_to_haves": None,
             "review_report": None,
+            "code_style_review_success": None,
+            "code_style_review_passed": None,
+            "code_style_review_report": None,
+            "code_style_review_dir": None,
+            "code_style_review_issues": None,
             "code_acceptance_success": None,
             "code_acceptance_passed": None,
             "code_acceptance_report": None,
@@ -71,6 +77,7 @@ class DevWorkflow:
             "delivery_dir": None,
             "fix_result": None,
             "fix_attempts": 0,
+            "fix_return_to": None,
             "error_message": None,
             "shared_blackboard": {},
             "handoff_packets": [],
@@ -112,6 +119,7 @@ def create_dev_graph():
     workflow.add_node("database_dev", _instrument_node("Database Dev", database_dev_node))
     workflow.add_node("devops_dev", _instrument_node("DevOps Dev", devops_dev_node))
     workflow.add_node("sync_merge", _instrument_node("Sync Merge", sync_merge_node))
+    workflow.add_node("code_style_reviewer", _instrument_node("Code Style Reviewer", code_style_review_node))
     workflow.add_node("tester", _instrument_node("Tester", test_node))
     workflow.add_node("fixer", _instrument_node("Fixer", fix_node))
     workflow.add_node("security_scanner", _instrument_node("Security Scanner", security_node))
@@ -136,7 +144,15 @@ def create_dev_graph():
     workflow.add_edge("frontend_dev", "sync_merge")
     workflow.add_edge("database_dev", "sync_merge")
     workflow.add_edge("devops_dev", "sync_merge")
-    workflow.add_edge("sync_merge", "tester")
+    workflow.add_edge("sync_merge", "code_style_reviewer")
+    workflow.add_conditional_edges(
+        "code_style_reviewer",
+        route_after_code_style_review,
+        {
+            "tester": "tester",
+            "fixer": "fixer",
+        },
+    )
     workflow.add_conditional_edges(
         "tester",
         route_after_test,
@@ -145,7 +161,17 @@ def create_dev_graph():
             "security_scanner": "security_scanner",
         },
     )
-    workflow.add_edge("fixer", "tester")
+    workflow.add_conditional_edges(
+        "fixer",
+        route_after_fix,
+        {
+            "code_style_reviewer": "code_style_reviewer",
+            "tester": "tester",
+            "reviewer": "reviewer",
+            "code_acceptance": "code_acceptance",
+            "acceptance_gate": "acceptance_gate",
+        },
+    )
     workflow.add_edge("security_scanner", "reviewer")
     workflow.add_conditional_edges(
         "reviewer",

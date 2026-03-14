@@ -74,7 +74,9 @@ def fix_node(state: DevState) -> DevState:
         target_file.write_text(fixed_code, encoding="utf-8")
         regenerated_files = [str(target_file)]
 
-    resolved_issue_ids = [issue.get("issue_id") for issue in list(state.get("issues_to_fix") or []) if issue.get("target_agent") == AgentRole.FIXER]
+    pending_fix_issues = [issue for issue in list(state.get("issues_to_fix") or []) if issue.get("target_agent") == AgentRole.FIXER]
+    return_target = _infer_fix_return_target(pending_fix_issues)
+    resolved_issue_ids = [issue.get("issue_id") for issue in pending_fix_issues]
     for issue_id in resolved_issue_ids:
         if issue_id:
             resolve_issue(state, str(issue_id))
@@ -102,12 +104,13 @@ def fix_node(state: DevState) -> DevState:
     state["error_message"] = None
     state["message"] = "Code fixed and ready for another validation pass."
     state["current_step"] = "fix_done"
+    state["fix_return_to"] = return_target
     add_handoff_packet(
         state,
         HandoffPacket(
             packet_id=str(uuid.uuid4()),
             from_agent=AgentRole.FIXER,
-            to_agent=AgentRole.TESTER,
+            to_agent=_route_name_to_agent_role(return_target),
             status=HandoffStatus.COMPLETED,
             what_i_did=f"Applied an automated remediation pass to {', '.join(regenerated_files)} and resolved the currently assigned issues.",
             what_i_produced=[
@@ -130,13 +133,17 @@ def fix_node(state: DevState) -> DevState:
                 ),
             ],
             what_risks_i_found=[],
-            what_i_require_next="Run the same validations again and confirm that all blocking issues are now resolved.",
+            what_i_require_next=f"Return the story to {return_target} and confirm that the previously reported issues are now resolved.",
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),
     )
 
     print(f"[Fix Agent] Fix attempt {attempts} recorded")
     return state
+
+
+def route_after_fix(state: DevState) -> str:
+    return str(state.get("fix_return_to") or "tester")
 
 
 def _generate_fix(current_code: str, failure_info: str, target_file: Path | None = None) -> str:
@@ -230,3 +237,28 @@ def _regenerate_contract_story_artifacts(repo_b_path: Path, task_payload: dict[s
     if story_id == "S0-006":
         return materialize_statement_storage_artifacts(repo_b_path, related_files)
     return []
+
+
+def _infer_fix_return_target(issues: list[dict[str, object]]) -> str:
+    priorities = {
+        AgentRole.CODE_STYLE_REVIEWER.value: "code_style_reviewer",
+        AgentRole.TESTER.value: "tester",
+        AgentRole.REVIEWER.value: "reviewer",
+        AgentRole.CODE_ACCEPTANCE.value: "code_acceptance",
+        AgentRole.ACCEPTANCE_GATE.value: "acceptance_gate",
+    }
+    for source_agent, route_name in priorities.items():
+        if any(str(issue.get("source_agent")) == source_agent for issue in issues):
+            return route_name
+    return "tester"
+
+
+def _route_name_to_agent_role(route_name: str) -> AgentRole:
+    mapping = {
+        "code_style_reviewer": AgentRole.CODE_STYLE_REVIEWER,
+        "tester": AgentRole.TESTER,
+        "reviewer": AgentRole.REVIEWER,
+        "code_acceptance": AgentRole.CODE_ACCEPTANCE,
+        "acceptance_gate": AgentRole.ACCEPTANCE_GATE,
+    }
+    return mapping.get(route_name, AgentRole.TESTER)

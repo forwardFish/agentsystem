@@ -16,6 +16,7 @@ A Story is the smallest execution and acceptance unit in the system. A Story is 
 - The task card is valid and passes TaskCard schema validation.
 - The execution scope is explicit and limited to files allowed by the Story.
 - The expected output artifacts are written into the target repository and can be reused by downstream stories.
+- Code Style Reviewer reports no blocking style-consistency issues before tests start.
 - Configured project checks and Story-specific validation both pass.
 - Reviewer reports no blocking issues.
 - Code Acceptance Agent reports no style-consistency or file-hygiene blockers.
@@ -25,7 +26,7 @@ A Story is the smallest execution and acceptance unit in the system. A Story is 
 ## Acceptance OK
 - Every acceptance criterion has explicit evidence recorded in the delivery report.
 - The test report contains no failing checks.
-- Review, Code Acceptance, and Acceptance Gate all pass.
+- Code Style Review, Review, Code Acceptance, and Acceptance Gate all pass.
 - Output artifacts, reports, and logs are readable UTF-8 content.
 """
 
@@ -54,6 +55,7 @@ def doc_node(state: DevState) -> DevState:
         f"- Standard file: {standard_path.name}",
         "",
         "## Validation Summary",
+        f"- Code Style Review: {'PASS' if state.get('code_style_review_passed') else 'FAIL'}",
         f"- Tests: {'PASS' if state.get('test_passed') else 'FAIL'}",
         f"- Reviewer: {'PASS' if state.get('review_passed') else 'FAIL'}",
         f"- Code Acceptance: {'PASS' if state.get('code_acceptance_passed') else 'FAIL'}",
@@ -75,6 +77,7 @@ def doc_node(state: DevState) -> DevState:
             f"- Fix attempts: {state.get('fix_attempts') or 0}",
             "",
             "## Reports",
+            f"- Code style review report: {state.get('code_style_review_dir') or 'n/a'}",
             f"- Test results: {state.get('test_results') or 'n/a'}",
             f"- Review report: {state.get('review_dir') or 'n/a'}",
             f"- Code acceptance report: {state.get('code_acceptance_dir') or 'n/a'}",
@@ -82,7 +85,7 @@ def doc_node(state: DevState) -> DevState:
             "",
             "## Final Verdict",
             "- [x] Story completed and accepted"
-            if state.get("test_passed") and state.get("review_passed") and state.get("code_acceptance_passed") and state.get("acceptance_passed")
+            if state.get("code_style_review_passed") and state.get("test_passed") and state.get("review_passed") and state.get("code_acceptance_passed") and state.get("acceptance_passed")
             else "- [ ] Story is not fully accepted",
             "",
         ]

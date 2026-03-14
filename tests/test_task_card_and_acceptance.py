@@ -69,6 +69,7 @@ class AcceptanceGateTestCase(unittest.TestCase):
                         "updated_files": [str(target_file)],
                     }
                 },
+                "code_style_review_passed": True,
                 "review_passed": True,
                 "code_acceptance_passed": True,
                 "blocking_issues": [],
@@ -106,6 +107,7 @@ class AcceptanceGateTestCase(unittest.TestCase):
                         "updated_files": [str(target_file)],
                     }
                 },
+                "code_style_review_passed": True,
                 "review_passed": True,
                 "code_acceptance_passed": True,
                 "blocking_issues": [],

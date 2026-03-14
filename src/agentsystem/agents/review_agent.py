@@ -230,7 +230,7 @@ def review_node(state: DevState) -> DevState:
             HandoffPacket(
                 packet_id=str(uuid.uuid4()),
                 from_agent=AgentRole.REVIEWER,
-                to_agent=AgentRole.CODE_STYLE_REVIEWER if state.get("review_passed") else AgentRole.FIXER,
+                to_agent=AgentRole.CODE_ACCEPTANCE if state.get("review_passed") else AgentRole.FIXER,
                 status=HandoffStatus.COMPLETED if state.get("review_passed") else HandoffStatus.BLOCKED,
                 what_i_did="Reviewed the validated change set for requirement fit, rules compliance, and maintainability.",
                 what_i_produced=[
