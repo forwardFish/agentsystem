@@ -559,6 +559,92 @@ COMMIT;
             self.assertTrue(ok)
             self.assertIn("Core DB schema SQL", message)
 
+    def test_story_specific_validation_for_s0_006_statement_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            storage_path = repo_path / "apps" / "api" / "src" / "modules" / "statements" / "storage.py"
+            repository_path = repo_path / "apps" / "api" / "src" / "modules" / "statements" / "repository.py"
+            storage_path.parent.mkdir(parents=True, exist_ok=True)
+            repository_path.parent.mkdir(parents=True, exist_ok=True)
+
+            storage_path.write_text(
+                "def build_statement_object_key(owner_id, statement_id, original_filename):\n"
+                "    return f\"statements/{owner_id}/{statement_id}/{original_filename}\"\n\n"
+                "def save_statement_object(*args, **kwargs):\n"
+                "    return None\n\n"
+                "def delete_statement_object(*args, **kwargs):\n"
+                "    return None\n",
+                encoding="utf-8",
+            )
+            repository_path.write_text(
+                "class StatementMetadata:\n"
+                "    statement_id = None\n"
+                "    object_key = None\n"
+                "    market = None\n"
+                "    owner_id = None\n"
+                "    parsed_status = None\n\n"
+                "def create_statement_metadata_payload(metadata):\n"
+                "    return metadata\n\n"
+                "def get_statement_metadata_query(statement_id):\n"
+                "    return statement_id\n\n"
+                "def rollback_statement_metadata_query(statement_id):\n"
+                "    return statement_id\n",
+                encoding="utf-8",
+            )
+
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-006",
+                    "related_files": [
+                        "apps/api/src/modules/statements/storage.py",
+                        "apps/api/src/modules/statements/repository.py",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Statement storage artifacts", message)
+
+    def test_fixer_rebuilds_contract_story_artifacts_for_s0_006(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            broken = repo_path / "apps" / "api" / "src" / "modules" / "statements" / "storage.py"
+            broken.parent.mkdir(parents=True, exist_ok=True)
+            broken.write_text("pass\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-006",
+                    "related_files": [
+                        "apps/api/src/modules/statements/storage.py",
+                        "apps/api/src/modules/statements/repository.py",
+                    ],
+                },
+                "test_passed": False,
+                "test_failure_info": "Missing statement storage helper behavior",
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S0-006",
+                    "related_files": [
+                        "apps/api/src/modules/statements/storage.py",
+                        "apps/api/src/modules/statements/repository.py",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Statement storage artifacts", message)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -177,6 +177,10 @@ def _evaluate_criterion(
         evidence = _evaluate_s0_005_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
+    if story_id == "S0-006":
+        evidence = _evaluate_s0_006_criterion(criterion, repo_b_path)
+        if evidence is not None:
+            return evidence
 
     if "subtitle" in lowered or "副标题" in criterion:
         target_text = _infer_target_text(str(task_payload.get("goal", "")), subtitle=True)
@@ -322,6 +326,28 @@ def _evaluate_s0_005_criterion(criterion: str, repo_b_path: Path) -> tuple[bool,
         ]
         missing = [table for table in required_tables if f"CREATE TABLE IF NOT EXISTS {table}" not in sql]
         return (not missing, "init_schema.sql defines all required core tables" if not missing else f"Missing tables: {', '.join(missing)}")
+    return None
+
+
+def _evaluate_s0_006_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
+    lowered = criterion.lower()
+    storage_path = repo_b_path / "apps/api/src/modules/statements/storage.py"
+    repository_path = repo_b_path / "apps/api/src/modules/statements/repository.py"
+    storage_code = storage_path.read_text(encoding="utf-8") if storage_path.exists() else ""
+    repository_code = repository_path.read_text(encoding="utf-8") if repository_path.exists() else ""
+
+    if "storage.py" in lowered and "repository.py" in lowered:
+        missing = [path.name for path in (storage_path, repository_path) if not path.exists()]
+        return (not missing, "Statement storage and repository artifacts exist" if not missing else f"Missing files: {', '.join(missing)}")
+    if "object_key" in lowered and "parsed_status" in lowered:
+        required_tokens = ["StatementMetadata", "object_key", "market", "owner_id", "parsed_status"]
+        missing = [token for token in required_tokens if token not in repository_code]
+        return (not missing, "Repository metadata contract covers object_key, market, owner_id, and parsed_status" if not missing else f"Missing repository fields: {', '.join(missing)}")
+    if ("statement_id" in lowered and "rollback" in lowered) or ("statement_id" in criterion and "回滚" in criterion):
+        required_tokens = ["get_statement_metadata_query", "rollback_statement_metadata_query", "build_statement_object_key", "delete_statement_object"]
+        combined = storage_code + "\n" + repository_code
+        missing = [token for token in required_tokens if token not in combined]
+        return (not missing, "Lookup by statement_id and rollback helpers are defined" if not missing else f"Missing lookup/rollback helpers: {', '.join(missing)}")
     return None
 
 

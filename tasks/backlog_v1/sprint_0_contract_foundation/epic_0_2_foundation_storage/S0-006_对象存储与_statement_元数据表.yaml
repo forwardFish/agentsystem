@@ -1,43 +1,57 @@
-task_id: S0-006
-task_name: 对象存储与 Statement 元数据表
-sprint: Sprint 0
-epic: Epic 0.2 基础存储与底座
-story_id: S0-006
-blast_radius: L1
-execution_mode: Safe
-mode: Safe
-goal: 打通交割单原件存储与 statements 元数据引用关系。
-business_value: 让 对象存储与 Statement 元数据表 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S0-006"
+task_name: "对象存储与 Statement 元数据表"
+sprint: "Sprint 0 契约与基础设施"
+epic: "Epic 0.2 基础存储与底座"
+story_id: "S0-006"
+blast_radius: "L1"
+execution_mode: "Safe"
+mode: "Safe"
+
+goal: "打通交割单原件对象存储路径规范与 statement 元数据读写契约，为后续上传链路提供可复用底座。"
+
+business_value: "让后续的 statement upload / metadata / rollback Story 能直接复用统一的对象存储 key 规则和 metadata repository 契约。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S0-005 已完成，核心 statements 表结构已经定义。"
+
 acceptance_criteria:
-- 对象存储与 Statement 元数据表 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "apps/api/src/modules/statements/storage.py 和 apps/api/src/modules/statements/repository.py 这两个核心文件存在，并提供本 Story 所需的对象存储与元数据契约。"
+  - "repository.py 明确覆盖 statement metadata 的关键字段与契约，至少包含 statement_id、object_key、market、owner_id、parsed_status。"
+  - "对象存储与元数据层支持按 statement_id 查询和失败回滚所需的 helper，不把半成品脏状态留在系统里。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/modules/statements/storage.py, apps/api/src/modules/statements/repository.py'
+  - "本 Story 只实现对象存储 key 规则与 statement metadata 契约，不实现真实上传 API。"
+  - "只修改 apps/api/src/modules/statements/storage.py 和 apps/api/src/modules/statements/repository.py。"
+  - "保持 UTF-8、可读、可被后续 Story 直接复用。"
+
 out_of_scope:
-- 不在本 Story 中实现 对象存储与 Statement 元数据表 之外的后续能力。
-- 不做架构级重构。
+  - "不实现真实数据库连接和 ORM。"
+  - "不实现 multipart 上传接口（S1-001 负责）。"
+  - "不实现对象存储 SDK 集成。"
+
 not_do:
-- 不在本 Story 中实现 对象存储与 Statement 元数据表 之外的后续能力。
-- 不做架构级重构。
+  - "不修改 scripts/init_schema.sql 以外的数据库基础 Story 产物。"
+  - "不新增与 statement storage 无关的运行时模块。"
+
 dependencies:
-- S0-005
+  - "S0-005"
+
 related_files:
-- apps/api/src/modules/statements/storage.py
-- apps/api/src/modules/statements/repository.py
-- scripts/init_schema.sql
+  - "apps/api/src/modules/statements/storage.py"
+  - "apps/api/src/modules/statements/repository.py"
+  - "scripts/init_schema.sql"
+
 primary_files:
-- apps/api/src/modules/statements/storage.py
-- apps/api/src/modules/statements/repository.py
+  - "apps/api/src/modules/statements/storage.py"
+  - "apps/api/src/modules/statements/repository.py"
+
 secondary_files:
-- scripts/init_schema.sql
+  - "scripts/init_schema.sql"
+
 test_cases:
   normal:
-  - 正常路径：对象存储与 Statement 元数据表 的核心场景可以完成。
+    - "storage.py 能生成 statements/{owner_id}/{statement_id}/{filename} 形式的 object key。"
+    - "repository.py 定义了 statement metadata 的创建、查询与回滚契约。"
   exception:
-  - 异常路径：对象存储与 Statement 元数据表 失败时返回可解释结果。
+    - "缺少 object_key / parsed_status 等关键字段时，Story 专项校验失败。"
+    - "缺少 rollback helper 时，Story 专项校验失败。"

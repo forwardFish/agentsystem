@@ -190,6 +190,8 @@ def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, ob
         return _validate_error_state_spec_story(repo_b_path, task_payload)
     if story_id == "S0-005":
         return _validate_core_db_schema_story(repo_b_path, task_payload)
+    if story_id == "S0-006":
+        return _validate_statement_storage_story(repo_b_path, task_payload)
     return True, "No story-specific validation required."
 
 
@@ -368,3 +370,37 @@ def _validate_core_db_schema_story(repo_b_path: Path, task_payload: dict[str, ob
         return False, "Missing audit log trace index."
 
     return True, "Core DB schema SQL defines the required tables, keys, references, and supporting indexes."
+
+
+def _validate_statement_storage_story(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
+    related_files = [str(item) for item in task_payload.get("related_files", [])]
+    storage_path = repo_b_path / next((path for path in related_files if path.endswith("storage.py")), "apps/api/src/modules/statements/storage.py")
+    repository_path = repo_b_path / next((path for path in related_files if path.endswith("repository.py")), "apps/api/src/modules/statements/repository.py")
+
+    for path in (storage_path, repository_path):
+        if not path.exists():
+            return False, f"Missing required statement storage artifact: {path}"
+
+    storage_code = storage_path.read_text(encoding="utf-8")
+    repository_code = repository_path.read_text(encoding="utf-8")
+
+    storage_tokens = ["build_statement_object_key", "save_statement_object", "delete_statement_object", "statements/{owner_id}/{statement_id}"]
+    missing_storage = [token for token in storage_tokens if token not in storage_code]
+    if missing_storage:
+        return False, f"Missing storage helper behavior: {', '.join(missing_storage)}"
+
+    repository_tokens = [
+        "StatementMetadata",
+        "create_statement_metadata_payload",
+        "get_statement_metadata_query",
+        "rollback_statement_metadata_query",
+        "object_key",
+        "market",
+        "owner_id",
+        "parsed_status",
+    ]
+    missing_repository = [token for token in repository_tokens if token not in repository_code]
+    if missing_repository:
+        return False, f"Missing repository metadata behavior: {', '.join(missing_repository)}"
+
+    return True, "Statement storage artifacts support object-key generation, metadata persistence, lookup, and rollback."

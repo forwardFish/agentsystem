@@ -579,6 +579,134 @@ COMMIT;
     return updated_files
 
 
+def materialize_statement_storage_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "apps/api/src/modules/statements/storage.py",
+            "apps/api/src/modules/statements/repository.py",
+        ]
+
+    payload_by_name = {
+        "storage.py": """from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+ALLOWED_STATEMENT_SUFFIXES = {".csv", ".xls", ".xlsx"}
+
+
+def build_statement_object_key(owner_id: str, statement_id: str, original_filename: str) -> str:
+    suffix = Path(original_filename).suffix.lower()
+    if suffix not in ALLOWED_STATEMENT_SUFFIXES:
+        raise ValueError(f"Unsupported statement suffix: {suffix}")
+    return f"statements/{owner_id}/{statement_id}/{Path(original_filename).name}"
+
+
+@dataclass(frozen=True)
+class StoredStatementObject:
+    object_key: str
+    size_bytes: int
+
+
+class LocalStatementObjectStore:
+    def __init__(self, root_dir: str | Path) -> None:
+        self.root_dir = Path(root_dir)
+
+    def save_statement_object(
+        self,
+        owner_id: str,
+        statement_id: str,
+        original_filename: str,
+        payload: bytes,
+    ) -> StoredStatementObject:
+        object_key = build_statement_object_key(owner_id, statement_id, original_filename)
+        target_path = self.root_dir / object_key
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(payload)
+        return StoredStatementObject(object_key=object_key, size_bytes=len(payload))
+
+    def delete_statement_object(self, object_key: str) -> None:
+        target_path = self.root_dir / object_key
+        if target_path.exists():
+            target_path.unlink()
+""",
+        "repository.py": """from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+INSERT_STATEMENT_METADATA_SQL = '''
+INSERT INTO statements (
+    statement_id,
+    owner_id,
+    market,
+    object_key,
+    parsed_status,
+    broker_hint
+) VALUES (
+    %(statement_id)s,
+    %(owner_id)s,
+    %(market)s,
+    %(object_key)s,
+    %(parsed_status)s,
+    %(broker_hint)s
+);
+'''.strip()
+
+SELECT_STATEMENT_METADATA_SQL = '''
+SELECT
+    statement_id,
+    owner_id,
+    market,
+    object_key,
+    parsed_status,
+    broker_hint
+FROM statements
+WHERE statement_id = %(statement_id)s;
+'''.strip()
+
+ROLLBACK_STATEMENT_METADATA_SQL = '''
+DELETE FROM statements
+WHERE statement_id = %(statement_id)s;
+'''.strip()
+
+
+@dataclass(frozen=True)
+class StatementMetadata:
+    statement_id: str
+    owner_id: str
+    market: str
+    object_key: str
+    parsed_status: str
+    broker_hint: str | None = None
+
+
+def create_statement_metadata_payload(metadata: StatementMetadata) -> dict[str, Any]:
+    return asdict(metadata)
+
+
+def get_statement_metadata_query(statement_id: str) -> tuple[str, dict[str, Any]]:
+    return SELECT_STATEMENT_METADATA_SQL, {"statement_id": statement_id}
+
+
+def rollback_statement_metadata_query(statement_id: str) -> tuple[str, dict[str, Any]]:
+    return ROLLBACK_STATEMENT_METADATA_SQL, {"statement_id": statement_id}
+""",
+    }
+
+    updated_files: list[str] = []
+    for raw_path in related_files:
+        path = repo_b_path / raw_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = payload_by_name.get(path.name)
+        if payload is None:
+            continue
+        path.write_text(payload if payload.endswith("\n") else payload + "\n", encoding="utf-8")
+        updated_files.append(str(path))
+    return updated_files
+
+
 def _write_json_artifacts(repo_b_path: Path, related_files: list[str], payload_map: dict[str, object]) -> list[str]:
     updated_files: list[str] = []
     for raw_path in related_files:
