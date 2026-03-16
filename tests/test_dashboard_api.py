@@ -253,6 +253,12 @@ class DashboardApiTestCase(unittest.TestCase):
                                 "commit": "abc123",
                                 "verified_at": "2026-03-16T11:00:00+08:00",
                                 "source": "versefina_business_validation",
+                                "repository": "versefina",
+                                "summary": "Validated real file type detection flow.",
+                                "evidence": [
+                                    "Validated csv detection",
+                                    "Validated mime mismatch rejection",
+                                ],
                             }
                         ]
                     },
@@ -274,6 +280,9 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(sprint_detail["epics"][0]["stories"][0]["status"], "done")
             self.assertEqual(story_detail["status"], "done")
             self.assertEqual(story_detail["latest_run"]["commit"], "abc123")
+            self.assertEqual(story_detail["latest_run"]["repository"], "versefina")
+            self.assertEqual(story_detail["latest_run"]["summary"], "Validated real file type detection flow.")
+            self.assertEqual(len(story_detail["latest_run"]["evidence"]), 2)
 
 
 if __name__ == "__main__":

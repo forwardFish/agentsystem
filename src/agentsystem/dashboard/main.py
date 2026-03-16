@@ -476,6 +476,8 @@ def _load_story_run_index() -> dict[str, dict[str, Any]]:
             "created_at": entry.get("verified_at"),
             "source": entry.get("source") or "business_validation",
             "summary": entry.get("summary"),
+            "repository": entry.get("repository"),
+            "evidence": entry.get("evidence") or [],
         }
     return index
 

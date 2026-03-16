@@ -36,10 +36,26 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
       white-space: nowrap;
     }
-    .pill.done, .pill.success { color: #d1fae5; background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.25); }
-    .pill.failed, .pill.blocking { color: #fecdd3; background: rgba(251, 113, 133, 0.12); border-color: rgba(251, 113, 133, 0.25); }
-    .pill.partial, .pill.running, .pill.important { color: #fde68a; background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.24); }
-    .pill.not_started, .pill.pending, .pill.nice_to_have, .pill.unknown { color: #dbeafe; background: rgba(125, 211, 252, 0.10); border-color: rgba(125, 211, 252, 0.22); }
+    .pill.done, .pill.success, .pill.verified {
+      color: #d1fae5;
+      background: rgba(52, 211, 153, 0.12);
+      border-color: rgba(52, 211, 153, 0.25);
+    }
+    .pill.failed, .pill.blocking {
+      color: #fecdd3;
+      background: rgba(251, 113, 133, 0.12);
+      border-color: rgba(251, 113, 133, 0.25);
+    }
+    .pill.partial, .pill.running, .pill.important {
+      color: #fde68a;
+      background: rgba(245, 158, 11, 0.14);
+      border-color: rgba(245, 158, 11, 0.24);
+    }
+    .pill.not_started, .pill.pending, .pill.nice_to_have, .pill.unknown {
+      color: #dbeafe;
+      background: rgba(125, 211, 252, 0.10);
+      border-color: rgba(125, 211, 252, 0.22);
+    }
     .tab-btn.active {
       background: #f8fafc;
       color: #0f172a;
@@ -188,6 +204,10 @@
           <div id="run-summary" class="space-y-3 text-sm text-slate-200"></div>
         </div>
         <div class="panel rounded-[28px] p-5">
+          <div class="section-label mb-3">Business Validation</div>
+          <div id="business-validation" class="space-y-3 text-sm text-slate-200"></div>
+        </div>
+        <div class="panel rounded-[28px] p-5">
           <div class="section-label mb-3">实时连接</div>
           <span id="socket-status" class="pill not_started">WebSocket 未连接</span>
         </div>
@@ -269,13 +289,13 @@
       container.scrollTop = container.scrollHeight;
     }
 
-    function connectSocket(taskId) {
+    function connectSocket(taskId, source) {
       if (socket) {
         socket.close();
         socket = null;
       }
-      if (!taskId) {
-        setSocketStatus("WebSocket 未连接", false);
+      if (!taskId || source !== "agentsystem_audit") {
+        setSocketStatus("无实时事件流", false);
         return;
       }
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -287,17 +307,18 @@
       socket.onmessage = (event) => appendLog(JSON.parse(event.data));
     }
 
-    function renderChecklist(acceptanceCriteria, completion) {
+    function renderChecklist(acceptanceCriteria, completion, businessValidated) {
       const items = Array.isArray(acceptanceCriteria) ? acceptanceCriteria : [];
       if (!items.length) {
         return `<div class="text-sm text-slate-400">任务卡里没有记录验收标准。</div>`;
       }
-      const passed = Boolean(completion?.acceptance_passed);
+      const passed = Boolean(completion?.acceptance_passed) || businessValidated;
+      const label = passed ? (businessValidated ? "已验证" : "已通过") : "待确认";
       return items.map((item) => `
         <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="text-sm leading-7 text-slate-100 break-words">${item}</div>
-            <span class="pill ${passed ? "done" : "partial"}">${passed ? "已通过" : "待确认"}</span>
+            <span class="pill ${passed ? "done" : "partial"}">${label}</span>
           </div>
         </div>
       `).join("");
@@ -362,9 +383,28 @@
             <span class="pill not_started">${item.type || "artifact"}</span>
           </div>
           <div class="text-sm leading-7 text-slate-200 break-words">${item.description || "-"}</div>
-          <div class="mt-2 text-xs text-slate-500 break-words">${item.path || "-"}</div>
+          <div class="mt-2 text-xs text-slate-500 break-words">${item.path || item.file_path || "-"}</div>
         </div>
       `).join("") : `<div class="text-sm text-slate-400">暂无交付物。</div>`;
+    }
+
+    function renderBusinessValidation(latestRun) {
+      if (!latestRun || latestRun.source !== "versefina_business_validation") {
+        return `<div class="text-sm text-slate-400">当前 Story 没有单独登记的业务验证记录。</div>`;
+      }
+      return `
+        ${renderKeyValues([
+          ["Source", latestRun.source],
+          ["Repository", latestRun.repository],
+          ["Commit", latestRun.commit],
+          ["Verified At", latestRun.created_at],
+          ["Validation Summary", latestRun.summary],
+        ])}
+        <div class="mt-4">
+          <div class="section-label mb-2">API Evidence</div>
+          ${renderList(latestRun.evidence, "暂无接口验证证据")}
+        </div>
+      `;
     }
 
     async function loadStoryDetail() {
@@ -379,13 +419,20 @@
       const latestRun = detail.latest_run || {};
       const taskDetail = detail.task_detail || {};
       const completion = taskDetail.completion || {};
+      const businessValidated = latestRun.source === "versefina_business_validation" && detail.status === "done";
 
       document.getElementById("detail-title").textContent = `${story.story_id || storyId} ${story.task_name || ""}`.trim();
-      document.getElementById("detail-meta").textContent = [story.sprint, story.epic, latestRun.branch ? `branch: ${latestRun.branch}` : null, latestRun.commit ? `commit: ${latestRun.commit}` : null].filter(Boolean).join(" | ");
+      document.getElementById("detail-meta").textContent = [
+        story.sprint,
+        story.epic,
+        latestRun.repository ? `repo: ${latestRun.repository}` : null,
+        latestRun.branch ? `branch: ${latestRun.branch}` : null,
+        latestRun.commit ? `commit: ${latestRun.commit}` : null,
+      ].filter(Boolean).join(" | ");
       document.getElementById("detail-status").textContent = detail.status || "not_started";
       document.getElementById("detail-status").className = `pill ${badgeClass(detail.status || "not_started")}`;
 
-      const metric = (value) => value ? "PASS" : "WAIT";
+      const metric = (value) => value ? "PASS" : (businessValidated ? "VERIFIED" : "WAIT");
       document.getElementById("metric-tests").textContent = metric(completion.tests_passed);
       document.getElementById("metric-review").textContent = metric(completion.review_passed);
       document.getElementById("metric-code-acceptance").textContent = metric(completion.code_acceptance_passed);
@@ -411,7 +458,7 @@
         <div><div class="section-label mb-2">Out of Scope</div>${renderList(story.out_of_scope || story.not_do, "暂无")}</div>
       `;
 
-      document.getElementById("story-checklist").innerHTML = renderChecklist(story.acceptance_criteria, completion);
+      document.getElementById("story-checklist").innerHTML = renderChecklist(story.acceptance_criteria, completion, businessValidated);
 
       document.getElementById("artifact-pr").innerHTML = marked.parse(taskDetail.artifacts?.pr_description || "_暂无 PR 描述_");
       document.getElementById("artifact-review").innerHTML = marked.parse(taskDetail.artifacts?.review_report || "_暂无审查报告_");
@@ -428,21 +475,24 @@
 
       document.getElementById("run-summary").innerHTML = renderKeyValues([
         ["Task ID", detail.latest_task_id],
+        ["Source", latestRun.source],
         ["Branch", latestRun.branch],
         ["Commit", latestRun.commit],
-        ["Success", latestRun.success === true ? "yes" : latestRun.success === false ? "no" : "-"],
+        ["Success", latestRun.success === true ? "yes" : latestRun.success === false ? "no" : businessValidated ? "verified" : "-"],
       ]);
+
+      document.getElementById("business-validation").innerHTML = renderBusinessValidation(latestRun);
 
       document.getElementById("standard-summary").innerHTML = renderList([
         "每个 Story 都必须产出 Story Completion Standard",
-        "必须通过 Tests / Review / Code Acceptance / Acceptance Gate",
+        "必须通过 Tests / Review / Code Acceptance / Acceptance Gate，或提供等价业务验证证据",
         "最终交付报告必须归档并可在面板中查看",
       ]);
 
       renderCollaboration(taskDetail);
       clearLogs();
       (taskDetail.events || []).forEach((event) => appendLog(event));
-      connectSocket(detail.latest_task_id);
+      connectSocket(detail.latest_task_id, latestRun.source);
       renderTabs();
     }
 

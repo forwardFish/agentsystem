@@ -1,49 +1,94 @@
 {
   "stories": [
     {
+      "story_id": "S1-002",
+      "task_id": "business-validation-s1-002",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "repository": "versefina",
+      "commit": "0a2b4af",
+      "verified_at": "2026-03-16T10:56:45+08:00",
+      "summary": "Implemented real statement status transitions and invalid-transition blocking via /api/v1/statements/{statement_id}/status.",
+      "evidence": [
+        "Added real status transition endpoint: POST /api/v1/statements/{statement_id}/status",
+        "Validated uploaded -> parsing -> parsed transitions",
+        "Validated invalid transition rejection with STATEMENT_INVALID_TRANSITION"
+      ]
+    },
+    {
       "story_id": "S1-003",
       "task_id": "business-validation-s1-003",
       "status": "done",
       "source": "versefina_business_validation",
+      "repository": "versefina",
       "commit": "0a2b4af",
       "verified_at": "2026-03-16T10:56:45+08:00",
-      "summary": "Implemented real file type detection with suffix and MIME consistency checks."
+      "summary": "Implemented real file type detection with suffix and MIME consistency checks.",
+      "evidence": [
+        "Validated .csv / .xls / .xlsx recognition",
+        "Validated content-type mismatch rejection with STATEMENT_FILE_TYPE_MISMATCH",
+        "Persisted detected_file_type and parser_key into statement metadata"
+      ]
     },
     {
       "story_id": "S1-004",
       "task_id": "business-validation-s1-004",
       "status": "done",
       "source": "versefina_business_validation",
+      "repository": "versefina",
       "commit": "0a2b4af",
       "verified_at": "2026-03-16T10:56:45+08:00",
-      "summary": "Implemented upload failure handling with rollback for object storage and metadata persistence failures."
+      "summary": "Implemented upload failure handling with rollback for object storage and metadata persistence failures.",
+      "evidence": [
+        "Validated empty file / oversize / unsupported suffix rejection paths",
+        "Validated object storage write failure returns 500 and leaves no metadata",
+        "Validated metadata persistence failure rolls back stored object"
+      ]
     },
     {
       "story_id": "S1-005",
       "task_id": "business-validation-s1-005",
       "status": "done",
       "source": "versefina_business_validation",
+      "repository": "versefina",
       "commit": "7abe118",
       "verified_at": "2026-03-16T11:16:56+08:00",
-      "summary": "Implemented broker field mapping rules for CN-style and EN-style statement columns."
+      "summary": "Implemented broker field mapping rules for CN-style and EN-style statement columns.",
+      "evidence": [
+        "Validated CN-style column mapping rule detection",
+        "Validated EN-style column mapping rule detection",
+        "Failed statements without supported columns return STATEMENT_MAPPING_RULE_NOT_FOUND"
+      ]
     },
     {
       "story_id": "S1-006",
       "task_id": "business-validation-s1-006",
       "status": "done",
       "source": "versefina_business_validation",
+      "repository": "versefina",
       "commit": "7abe118",
       "verified_at": "2026-03-16T11:16:56+08:00",
-      "summary": "Implemented TradeRecord normalization and persisted standardized trade records."
+      "summary": "Implemented TradeRecord normalization and persisted standardized trade records.",
+      "evidence": [
+        "Normalized trade side into buy/sell",
+        "Normalized qty, price, fee, tax into numeric TradeRecord fields",
+        "Persisted standardized trade records into trade_records/<statement_id>.json"
+      ]
     },
     {
       "story_id": "S1-007",
       "task_id": "business-validation-s1-007",
       "status": "done",
       "source": "versefina_business_validation",
+      "repository": "versefina",
       "commit": "7abe118",
       "verified_at": "2026-03-16T11:16:56+08:00",
-      "summary": "Implemented parse validation and structured parse report generation with failed-state transitions."
+      "summary": "Implemented parse validation and structured parse report generation with failed-state transitions.",
+      "evidence": [
+        "Generated parse report JSON with parsed_records, failed_records and issues",
+        "Transitioned statement status to parsed on clean parse",
+        "Transitioned statement status to failed with error_code on parse failure"
+      ]
     }
   ]
 }
