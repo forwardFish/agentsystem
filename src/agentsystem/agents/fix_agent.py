@@ -12,6 +12,7 @@ from agentsystem.agents.contract_artifacts import (
     materialize_core_db_schema_artifacts,
     materialize_error_state_spec_artifacts,
     materialize_profile_schema_artifacts,
+    materialize_statement_upload_api_artifacts,
     materialize_statement_storage_artifacts,
     materialize_world_state_schema_artifacts,
 )
@@ -56,7 +57,7 @@ def fix_node(state: DevState) -> DevState:
 
     repo_b_path = Path(state["repo_b_path"]).resolve()
     target_file = repo_b_path / related_files[0]
-    if not target_file.exists() and str(task_payload.get("story_id", "")).strip() not in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006"}:
+    if not target_file.exists() and str(task_payload.get("story_id", "")).strip() not in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006", "S0-007", "S1-001"}:
         state["fixer_success"] = False
         state["fix_result"] = f"Target file missing: {target_file}"
         state["error_message"] = state.get("test_failure_info") or state.get("error_message")
@@ -67,7 +68,7 @@ def fix_node(state: DevState) -> DevState:
     story_id = str(task_payload.get("story_id", "")).strip()
     failure_info = state.get("test_failure_info") or state.get("error_message") or "Unknown validation failure"
 
-    if story_id in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006", "S0-007"}:
+    if story_id in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006", "S0-007", "S1-001"}:
         regenerated_files = _regenerate_contract_story_artifacts(repo_b_path, task_payload)
     else:
         current_code = target_file.read_text(encoding="utf-8")
@@ -239,6 +240,8 @@ def _regenerate_contract_story_artifacts(repo_b_path: Path, task_payload: dict[s
         return materialize_statement_storage_artifacts(repo_b_path, related_files)
     if story_id == "S0-007":
         return materialize_audit_idempotency_artifacts(repo_b_path, related_files)
+    if story_id == "S1-001":
+        return materialize_statement_upload_api_artifacts(repo_b_path, related_files)
     return []
 
 

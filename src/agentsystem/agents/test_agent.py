@@ -194,6 +194,8 @@ def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, ob
         return _validate_statement_storage_story(repo_b_path, task_payload)
     if story_id == "S0-007":
         return _validate_audit_idempotency_story(repo_b_path, task_payload)
+    if story_id == "S1-001":
+        return _validate_statement_upload_api_story(repo_b_path, task_payload)
     return True, "No story-specific validation required."
 
 
@@ -450,3 +452,73 @@ def _validate_audit_idempotency_story(repo_b_path: Path, task_payload: dict[str,
         return False, f"Missing idempotency helper behavior: {', '.join(missing_idempotency)}"
 
     return True, "Audit and idempotency artifacts provide reusable write, lookup, insert, and evaluation helpers."
+
+
+def _validate_statement_upload_api_story(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
+    required_paths = {
+        "route": repo_b_path / "apps/api/src/api/command/routes.py",
+        "schema": repo_b_path / "apps/api/src/schemas/command.py",
+        "service": repo_b_path / "apps/api/src/domain/dna_engine/service.py",
+        "storage": repo_b_path / "apps/api/src/infra/storage/object_store.py",
+    }
+    for name, path in required_paths.items():
+        if not path.exists():
+            return False, f"Missing {name} artifact: {path}"
+
+    route_code = required_paths["route"].read_text(encoding="utf-8")
+    schema_code = required_paths["schema"].read_text(encoding="utf-8")
+    service_code = required_paths["service"].read_text(encoding="utf-8")
+    storage_code = required_paths["storage"].read_text(encoding="utf-8")
+    combined = "\n".join([route_code, schema_code, service_code, storage_code])
+
+    required_route_tokens = [
+        '@router.post("/api/v1/statements/upload")',
+        "StatementUploadRequest",
+        "container.dna_engine.ingest_statement(payload)",
+    ]
+    missing_route = [token for token in required_route_tokens if token not in route_code]
+    if missing_route:
+        return False, f"Upload route is missing required tokens: {', '.join(missing_route)}"
+
+    required_schema_tokens = [
+        "class StatementUploadRequest",
+        "file_name: str",
+        "content_type: str",
+        "byte_size: int",
+        "class StatementUploadResponse",
+        "upload_status: str",
+        "object_key: str",
+    ]
+    missing_schema = [token for token in required_schema_tokens if token not in schema_code]
+    if missing_schema:
+        return False, f"Statement upload schemas are missing tokens: {', '.join(missing_schema)}"
+
+    required_storage_tokens = [
+        "supported_statement_suffixes",
+        '".csv"',
+        '".xlsx"',
+        '".xls"',
+        "max_statement_upload_bytes",
+        "10 * 1024 * 1024",
+        "build_statement_object_key",
+    ]
+    missing_storage = [token for token in required_storage_tokens if token not in storage_code]
+    if missing_storage:
+        return False, f"Object storage helper is missing tokens: {', '.join(missing_storage)}"
+
+    required_service_tokens = [
+        "Unsupported statement file type",
+        "Statement file exceeds the 10MB upload limit.",
+        'upload_status="uploaded"',
+        'upload_status="rejected"',
+        "build_statement_object_key",
+        "object_store_bucket()",
+    ]
+    missing_service = [token for token in required_service_tokens if token not in service_code]
+    if missing_service:
+        return False, f"Statement upload service is missing tokens: {', '.join(missing_service)}"
+
+    if "statement_id" not in combined or "object_key" not in combined or "bucket" not in combined:
+        return False, "Statement upload artifacts do not expose the required reusable output fields."
+
+    return True, "Statement upload API artifacts validate route, schema, object-key generation, and failure-path handling."

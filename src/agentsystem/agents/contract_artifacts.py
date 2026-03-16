@@ -833,6 +833,180 @@ def evaluate_idempotency(existing_row: dict[str, Any] | None, idempotency_key: s
     return updated_files
 
 
+def materialize_statement_upload_api_artifacts(repo_b_path: Path, related_files: list[str] | None = None) -> list[str]:
+    related_files = list(related_files or [])
+    if not related_files:
+        related_files = [
+            "apps/api/src/api/command/routes.py",
+            "apps/api/src/schemas/command.py",
+            "apps/api/src/domain/dna_engine/service.py",
+            "apps/api/src/infra/storage/object_store.py",
+        ]
+
+    payload_by_path = {
+        "apps/api/src/api/command/routes.py": """from __future__ import annotations
+
+from infra.http import APIRouter
+from schemas.command import AgentRegisterRequest, HeartbeatRequest, StatementUploadRequest, SubmitActionRequest
+from services.container import ServiceContainer
+
+
+def build_command_router(container: ServiceContainer) -> APIRouter:
+    router = APIRouter(tags=["command"])
+
+    @router.post("/api/v1/statements/upload")
+    def upload_statement(payload: StatementUploadRequest):
+        return container.dna_engine.ingest_statement(payload)
+
+    @router.post("/api/v1/agents/register")
+    def register_agent(payload: AgentRegisterRequest):
+        return container.agent_registry.register(payload)
+
+    @router.post("/api/v1/agents/{agent_id}/heartbeat")
+    def heartbeat(agent_id: str, payload: HeartbeatRequest):
+        return container.agent_registry.heartbeat(agent_id, payload)
+
+    @router.post("/api/v1/actions/submit")
+    def submit_actions(payload: SubmitActionRequest):
+        return container.simulation_ledger.submit_actions(payload)
+
+    return router
+""",
+        "apps/api/src/schemas/command.py": """from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True, slots=True)
+class StatementUploadRequest:
+    statement_id: str
+    owner_id: str
+    file_name: str
+    content_type: str
+    byte_size: int
+    market: str = "CN_A"
+
+
+@dataclass(frozen=True, slots=True)
+class StatementUploadResponse:
+    statement_id: str
+    upload_status: str
+    object_key: str
+    bucket: str
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRegisterRequest:
+    agent_id: str
+    owner_id: str
+    source_runtime: str = "platform"
+
+
+@dataclass(frozen=True, slots=True)
+class HeartbeatRequest:
+    heartbeat_at: str
+    status: str = "ACTIVE"
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitActionRequest:
+    agent_id: str
+    world_id: str
+    actions: list[dict[str, str]] = field(default_factory=list)
+""",
+        "apps/api/src/domain/dna_engine/service.py": """from __future__ import annotations
+
+from dataclasses import dataclass
+
+from infra.storage.object_store import (
+    build_statement_object_key,
+    max_statement_upload_bytes,
+    object_store_bucket,
+    supported_statement_suffixes,
+)
+from schemas.command import StatementUploadRequest, StatementUploadResponse
+
+
+@dataclass(slots=True)
+class DNAEngineService:
+    def ingest_statement(self, payload: StatementUploadRequest) -> StatementUploadResponse:
+        normalized_name = payload.file_name.strip()
+        lower_name = normalized_name.lower()
+        allowed_suffixes = supported_statement_suffixes()
+        if not any(lower_name.endswith(suffix) for suffix in allowed_suffixes):
+            return StatementUploadResponse(
+                statement_id=payload.statement_id,
+                upload_status="rejected",
+                object_key="",
+                bucket=object_store_bucket(),
+                error_message="Unsupported statement file type. Allowed: csv, xls, xlsx.",
+            )
+        if payload.byte_size <= 0:
+            return StatementUploadResponse(
+                statement_id=payload.statement_id,
+                upload_status="rejected",
+                object_key="",
+                bucket=object_store_bucket(),
+                error_message="Statement file is empty.",
+            )
+        if payload.byte_size > max_statement_upload_bytes():
+            return StatementUploadResponse(
+                statement_id=payload.statement_id,
+                upload_status="rejected",
+                object_key="",
+                bucket=object_store_bucket(),
+                error_message="Statement file exceeds the 10MB upload limit.",
+            )
+
+        object_key = build_statement_object_key(
+            owner_id=payload.owner_id,
+            statement_id=payload.statement_id,
+            file_name=normalized_name,
+        )
+        return StatementUploadResponse(
+            statement_id=payload.statement_id,
+            upload_status="uploaded",
+            object_key=object_key,
+            bucket=object_store_bucket(),
+            error_message=None,
+        )
+""",
+        "apps/api/src/infra/storage/object_store.py": """from __future__ import annotations
+
+from pathlib import PurePosixPath
+
+
+def object_store_bucket() -> str:
+    return "versefina-artifacts"
+
+
+def supported_statement_suffixes() -> tuple[str, ...]:
+    return (".csv", ".xlsx", ".xls")
+
+
+def max_statement_upload_bytes() -> int:
+    return 10 * 1024 * 1024
+
+
+def build_statement_object_key(owner_id: str, statement_id: str, file_name: str) -> str:
+    return str(PurePosixPath("statements") / owner_id / statement_id / file_name)
+""",
+    }
+
+    updated_files: list[str] = []
+    for raw_path in related_files:
+        normalized = raw_path.replace("\\", "/")
+        path = repo_b_path / normalized
+        payload = payload_by_path.get(normalized)
+        if payload is None:
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload if payload.endswith("\n") else payload + "\n", encoding="utf-8")
+        updated_files.append(str(path))
+    return updated_files
+
+
 def _write_json_artifacts(repo_b_path: Path, related_files: list[str], payload_map: dict[str, object]) -> list[str]:
     updated_files: list[str] = []
     for raw_path in related_files:

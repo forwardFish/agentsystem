@@ -188,6 +188,10 @@ def _evaluate_criterion(
         evidence = _evaluate_s0_007_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
+    if story_id == "S1-001":
+        evidence = _evaluate_s1_001_criterion(criterion, repo_b_path)
+        if evidence is not None:
+            return evidence
 
     if "subtitle" in lowered or "副标题" in criterion:
         target_text = _infer_target_text(str(task_payload.get("goal", "")), subtitle=True)
@@ -409,6 +413,46 @@ def _evaluate_s0_007_criterion(criterion: str, repo_b_path: Path) -> tuple[bool,
         combined = audit_code + "\n" + idempotency_code
         missing = [token for token in required_tokens if token not in combined]
         return (not missing, "Helpers cover both write-path and duplicate/failure-path evaluation" if not missing else f"Missing normal/failure-path coverage tokens: {', '.join(missing)}")
+    return None
+
+
+def _evaluate_s1_001_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
+    lowered = criterion.lower()
+    route_path = repo_b_path / "apps/api/src/api/command/routes.py"
+    schema_path = repo_b_path / "apps/api/src/schemas/command.py"
+    service_path = repo_b_path / "apps/api/src/domain/dna_engine/service.py"
+    storage_path = repo_b_path / "apps/api/src/infra/storage/object_store.py"
+    route_code = route_path.read_text(encoding="utf-8") if route_path.exists() else ""
+    schema_code = schema_path.read_text(encoding="utf-8") if schema_path.exists() else ""
+    service_code = service_path.read_text(encoding="utf-8") if service_path.exists() else ""
+    storage_code = storage_path.read_text(encoding="utf-8") if storage_path.exists() else ""
+    combined = "\n".join([route_code, schema_code, service_code, storage_code])
+
+    if ("upload" in lowered and "object_key" in lowered) or ("statement_id" in lowered and "upload_status" in lowered):
+        required_tokens = [
+            '@router.post("/api/v1/statements/upload")',
+            "statement_id",
+            "upload_status",
+            "object_key",
+        ]
+        missing = [token for token in required_tokens if token not in combined]
+        return (not missing, "Upload route and response contract expose statement_id, upload_status, and object_key" if not missing else f"Missing upload contract tokens: {', '.join(missing)}")
+    if ("scope" in lowered and "parsing" in lowered) or ("不扩展到解析" in criterion) or ("只覆盖交割单上传" in criterion):
+        unexpected_tokens = ["parse_report", "normalize_statement", "profile_generation"]
+        hit = [token for token in unexpected_tokens if token in combined]
+        return (not hit, "Artifacts stay focused on upload validation and object-key preparation" if not hit else f"Unexpected downstream tokens found: {', '.join(hit)}")
+    if ("csv" in lowered and "xlsx" in lowered) or ("10mb" in lowered) or ("非法格式" in criterion) or ("超限" in criterion):
+        required_tokens = [".csv", ".xlsx", ".xls", "10 * 1024 * 1024", "Unsupported statement file type", "Statement file exceeds the 10MB upload limit."]
+        missing = [token for token in required_tokens if token not in combined]
+        return (not missing, "Upload validation covers allowed file types, size limit, and explainable failures" if not missing else f"Missing upload validation tokens: {', '.join(missing)}")
+    if ("reused" in lowered and "story" in lowered) or ("后续 Story" in criterion) or ("object_key" in lowered and "bucket" in lowered):
+        required_tokens = ["build_statement_object_key", "object_store_bucket", "bucket"]
+        missing = [token for token in required_tokens if token not in combined]
+        return (not missing, "Object-key and bucket helpers are reusable by downstream statement-processing stories" if not missing else f"Missing reusable upload helpers: {', '.join(missing)}")
+    if ("failure" in lowered and "result" in lowered) or ("正常路径" in criterion) or ("失败路径" in criterion):
+        required_tokens = ['upload_status="uploaded"', 'upload_status="rejected"', "error_message", "Statement file is empty."]
+        missing = [token for token in required_tokens if token not in service_code]
+        return (not missing, "Service covers both success and key failure-path outcomes" if not missing else f"Missing success/failure-path tokens: {', '.join(missing)}")
     return None
 
 

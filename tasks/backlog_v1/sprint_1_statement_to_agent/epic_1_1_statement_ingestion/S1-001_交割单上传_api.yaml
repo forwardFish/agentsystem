@@ -1,41 +1,59 @@
-task_id: S1-001
-task_name: 交割单上传 API
-sprint: Sprint 1
-epic: Epic 1.1 交割单摄入
-story_id: S1-001
-blast_radius: L2
-execution_mode: Safe
-mode: Safe
-goal: 实现 CSV/XLSX 文件上传并落对象存储。
-business_value: 让 交割单上传 API 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-001"
+task_name: "交割单上传 API"
+sprint: "Sprint 1"
+epic: "Epic 1.1 交割单摄入"
+story_id: "S1-001"
+blast_radius: "L2"
+execution_mode: "Safe"
+mode: "Safe"
+
+goal: "实现交割单上传入口，校验 CSV/XLS/XLSX 文件基础约束，生成 statement_id、upload_status、object_key，为后续解析链路提供稳定输入。"
+business_value: "让交割单上传 API 成为可独立验收、可直接进入 Agent 执行闭环的业务 Story。"
+
 entry_criteria:
-- 无前置依赖。
+  - "S0-006 已完成，Statement 元数据与对象存储命名规范已定义。"
+
 acceptance_criteria:
-- 交割单上传 API 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "上传 API 的核心输出可独立验收，返回 statement_id、upload_status、object_key。"
+  - "本 Story 只覆盖交割单上传与对象存储落盘准备，不扩展到解析或 DNA 生成链路。"
+  - "支持 csv/xls/xlsx，限制单文件最大 10MB，非法格式或超限返回可解释错误。"
+  - "生成的 object_key 与 bucket 信息可被后续 Story 直接复用。"
+  - "正常路径和关键失败路径都具备可验证的结果。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/routes/statements.py'
+  - "每个 Story 控制在 0.5 天到 1 天内完成。"
+  - "只修改当前 Story 相关文件，不跨多个大模块。"
+  - "优先修改这些 primary files: apps/api/src/api/command/routes.py, apps/api/src/schemas/command.py, apps/api/src/domain/dna_engine/service.py"
+
 out_of_scope:
-- 不在本 Story 中实现 交割单上传 API 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现交割单解析、标准化或 Agent DNA 生成。"
+  - "不实现真实对象存储客户端，只完成上传契约和 object_key 生成逻辑。"
+
 not_do:
-- 不在本 Story 中实现 交割单上传 API 之外的后续能力。
-- 不做架构级重构。
+  - "不新增额外 API 路由。"
+  - "不改动无关的 world、ledger、openclaw 模块。"
+
 dependencies:
-- 无
+  - "S0-006"
+
 related_files:
-- apps/api/src/routes/statements.py
-- apps/api/src/modules/statements/交割单上传_api.py
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/schemas/command.py"
+  - "apps/api/src/domain/dna_engine/service.py"
+  - "apps/api/src/infra/storage/object_store.py"
+
 primary_files:
-- apps/api/src/routes/statements.py
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/schemas/command.py"
+  - "apps/api/src/domain/dna_engine/service.py"
+
 secondary_files:
-- apps/api/src/modules/statements/交割单上传_api.py
+  - "apps/api/src/infra/storage/object_store.py"
+
 test_cases:
   normal:
-  - 正常路径：交割单上传 API 的核心场景可以完成。
+    - "正常路径：合法 csv 文件输入时，返回 uploaded 状态、statement_id、object_key 和 bucket。"
   exception:
-  - 异常路径：交割单上传 API 失败时返回可解释结果。
+    - "异常路径：非法扩展名时返回 rejected 和可解释错误。"
+    - "异常路径：超过 10MB 时返回 rejected 和可解释错误。"
+    - "异常路径：空文件时返回 rejected 和可解释错误。"

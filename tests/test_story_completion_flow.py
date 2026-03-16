@@ -780,6 +780,114 @@ COMMIT;
             self.assertTrue(ok)
             self.assertIn("Audit and idempotency artifacts", message)
 
+    def test_story_specific_validation_for_s1_001_statement_upload_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            route_path = repo_path / "apps" / "api" / "src" / "api" / "command" / "routes.py"
+            schema_path = repo_path / "apps" / "api" / "src" / "schemas" / "command.py"
+            service_path = repo_path / "apps" / "api" / "src" / "domain" / "dna_engine" / "service.py"
+            storage_path = repo_path / "apps" / "api" / "src" / "infra" / "storage" / "object_store.py"
+            route_path.parent.mkdir(parents=True, exist_ok=True)
+            schema_path.parent.mkdir(parents=True, exist_ok=True)
+            service_path.parent.mkdir(parents=True, exist_ok=True)
+            storage_path.parent.mkdir(parents=True, exist_ok=True)
+
+            route_path.write_text(
+                '@router.post("/api/v1/statements/upload")\n'
+                "def upload_statement(payload: StatementUploadRequest):\n"
+                "    return container.dna_engine.ingest_statement(payload)\n",
+                encoding="utf-8",
+            )
+            schema_path.write_text(
+                "class StatementUploadRequest:\n"
+                "    file_name: str\n"
+                "    content_type: str\n"
+                "    byte_size: int\n"
+                "    statement_id: str\n"
+                "\n"
+                "class StatementUploadResponse:\n"
+                "    upload_status: str\n"
+                "    object_key: str\n"
+                "    bucket: str\n",
+                encoding="utf-8",
+            )
+            service_path.write_text(
+                'upload_status="uploaded"\n'
+                'upload_status="rejected"\n'
+                "error_message = 'Statement file is empty.'\n"
+                "error_message = 'Unsupported statement file type'\n"
+                "error_message = 'Statement file exceeds the 10MB upload limit.'\n"
+                "build_statement_object_key\n"
+                "object_store_bucket()\n",
+                encoding="utf-8",
+            )
+            storage_path.write_text(
+                '".csv"\n".xlsx"\n".xls"\n10 * 1024 * 1024\n'
+                "def supported_statement_suffixes(): ...\n"
+                "def max_statement_upload_bytes(): ...\n"
+                "def build_statement_object_key(): ...\n",
+                encoding="utf-8",
+            )
+
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S1-001",
+                    "related_files": [
+                        "apps/api/src/api/command/routes.py",
+                        "apps/api/src/schemas/command.py",
+                        "apps/api/src/domain/dna_engine/service.py",
+                        "apps/api/src/infra/storage/object_store.py",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Statement upload API artifacts", message)
+
+    def test_fixer_rebuilds_story_artifacts_for_s1_001(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            broken = repo_path / "apps" / "api" / "src" / "api" / "command" / "routes.py"
+            broken.parent.mkdir(parents=True, exist_ok=True)
+            broken.write_text("pass\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S1-001",
+                    "related_files": [
+                        "apps/api/src/api/command/routes.py",
+                        "apps/api/src/schemas/command.py",
+                        "apps/api/src/domain/dna_engine/service.py",
+                        "apps/api/src/infra/storage/object_store.py",
+                    ],
+                },
+                "test_passed": False,
+                "test_failure_info": "Statement upload API contract is incomplete",
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            ok, message = _run_story_specific_validation(
+                repo_path,
+                {
+                    "story_id": "S1-001",
+                    "related_files": [
+                        "apps/api/src/api/command/routes.py",
+                        "apps/api/src/schemas/command.py",
+                        "apps/api/src/domain/dna_engine/service.py",
+                        "apps/api/src/infra/storage/object_store.py",
+                    ],
+                },
+            )
+            self.assertTrue(ok)
+            self.assertIn("Statement upload API artifacts", message)
+
     def test_fixer_routes_back_to_code_style_review_for_style_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_path = Path(tmp) / "repo"
