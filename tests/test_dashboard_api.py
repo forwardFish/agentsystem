@@ -215,6 +215,66 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(story_detail["status"], "done")
             self.assertTrue(story_detail["task_detail"]["completion"]["acceptance_passed"])
 
+    def test_story_status_registry_marks_story_done_without_audit_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            tasks_dir = base / "tasks"
+            runs_dir = base / "runs"
+            backlog_dir = tasks_dir / "backlog_v1"
+            sprint_dir = backlog_dir / "sprint_1_statement_to_agent"
+            epic_dir = sprint_dir / "epic_1_1_statement_ingestion"
+            epic_dir.mkdir(parents=True)
+            runs_dir.mkdir(parents=True)
+
+            (backlog_dir / "sprint_overview.md").write_text("# Backlog Overview", encoding="utf-8")
+            (sprint_dir / "sprint_plan.md").write_text("# Sprint Plan", encoding="utf-8")
+            (sprint_dir / "epic_1_1_statement_ingestion.md").write_text("# Epic", encoding="utf-8")
+            (epic_dir / "S1-003_file_detection.yaml").write_text(
+                "\n".join(
+                    [
+                        "task_id: S1-003",
+                        "task_name: File Type Detection",
+                        "story_id: S1-003",
+                        "sprint: Sprint 1",
+                        "epic: Epic 1.1 Statement Ingestion",
+                        "blast_radius: L1",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (tasks_dir / "story_status_registry.json").write_text(
+                json.dumps(
+                    {
+                        "stories": [
+                            {
+                                "story_id": "S1-003",
+                                "task_id": "business-validation-s1-003",
+                                "status": "done",
+                                "commit": "abc123",
+                                "verified_at": "2026-03-16T11:00:00+08:00",
+                                "source": "versefina_business_validation",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(dashboard_main, "TASKS_DIR", tasks_dir),
+                patch.object(dashboard_main, "RUNS_DIR", runs_dir),
+                patch.object(dashboard_main, "STORY_STATUS_REGISTRY", tasks_dir / "story_status_registry.json"),
+            ):
+                backlog_detail = dashboard_main.load_backlog_detail("backlog_v1")
+                sprint_detail = dashboard_main.load_sprint_detail("backlog_v1", "sprint_1_statement_to_agent")
+                story_detail = dashboard_main.load_story_detail("backlog_v1", "sprint_1_statement_to_agent", "S1-003")
+
+            self.assertEqual(backlog_detail["sprints"][0]["status"], "done")
+            self.assertEqual(sprint_detail["epics"][0]["stories"][0]["status"], "done")
+            self.assertEqual(story_detail["status"], "done")
+            self.assertEqual(story_detail["latest_run"]["commit"], "abc123")
+
 
 if __name__ == "__main__":
     unittest.main()

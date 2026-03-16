@@ -15,6 +15,7 @@ EVENTS_DIR = RUNS_DIR / "events"
 ARTIFACTS_DIR = RUNS_DIR / "artifacts"
 REPO_META_DIR = BASE_DIR / "repo-worktree" / ".meta"
 TASKS_DIR = BASE_DIR / "tasks"
+STORY_STATUS_REGISTRY = TASKS_DIR / "story_status_registry.json"
 
 
 class ConnectionManager:
@@ -437,24 +438,44 @@ def _build_sprint_summary(backlog_id: str, sprint_dir: Path) -> dict[str, Any]:
 
 def _load_story_run_index() -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
-    if not RUNS_DIR.exists():
-        return index
-    for run_file in sorted(RUNS_DIR.glob("prod_audit_*.json"), key=lambda item: item.stat().st_mtime):
-        try:
-            payload = json.loads(run_file.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        result = payload.get("result", {}) if isinstance(payload.get("result"), dict) else {}
-        task_payload = result.get("task_payload", {}) if isinstance(result.get("task_payload"), dict) else {}
-        story_id = task_payload.get("story_id") or task_payload.get("task_id")
+    if RUNS_DIR.exists():
+        for run_file in sorted(RUNS_DIR.glob("prod_audit_*.json"), key=lambda item: item.stat().st_mtime):
+            try:
+                payload = json.loads(run_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            result = payload.get("result", {}) if isinstance(payload.get("result"), dict) else {}
+            task_payload = result.get("task_payload", {}) if isinstance(result.get("task_payload"), dict) else {}
+            story_id = task_payload.get("story_id") or task_payload.get("task_id")
+            if not story_id:
+                continue
+            index[str(story_id)] = {
+                "task_id": payload.get("task_id"),
+                "success": bool(payload.get("success")),
+                "status": "done" if payload.get("success") else "failed",
+                "branch": payload.get("branch"),
+                "commit": payload.get("commit"),
+                "created_at": payload.get("created_at") or run_file.stat().st_mtime,
+                "source": "agentsystem_audit",
+            }
+    for entry in _load_story_status_registry():
+        story_id = entry.get("story_id")
         if not story_id:
             continue
+        current = index.get(str(story_id))
+        current_ts = _normalize_created_at(current.get("created_at")) if current else None
+        entry_ts = _normalize_created_at(entry.get("verified_at"))
+        if current_ts and entry_ts and current_ts > entry_ts:
+            continue
         index[str(story_id)] = {
-            "task_id": payload.get("task_id"),
-            "success": bool(payload.get("success")),
-            "branch": payload.get("branch"),
-            "commit": payload.get("commit"),
-            "created_at": payload.get("created_at") or run_file.stat().st_mtime,
+            "task_id": entry.get("task_id"),
+            "success": entry.get("status") == "done",
+            "status": entry.get("status") or "done",
+            "branch": entry.get("branch"),
+            "commit": entry.get("commit"),
+            "created_at": entry.get("verified_at"),
+            "source": entry.get("source") or "business_validation",
+            "summary": entry.get("summary"),
         }
     return index
 
@@ -462,7 +483,20 @@ def _load_story_run_index() -> dict[str, dict[str, Any]]:
 def _story_status_from_run(run_info: dict[str, Any] | None) -> str:
     if not run_info:
         return "not_started"
+    if run_info.get("status"):
+        return str(run_info.get("status"))
     return "done" if run_info.get("success") else "failed"
+
+
+def _load_story_status_registry() -> list[dict[str, Any]]:
+    if not STORY_STATUS_REGISTRY.exists():
+        return []
+    try:
+        payload = json.loads(STORY_STATUS_REGISTRY.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    entries = payload.get("stories") if isinstance(payload, dict) else []
+    return entries if isinstance(entries, list) else []
 
 
 def yaml_safe_load(path: Path | None) -> dict[str, Any]:

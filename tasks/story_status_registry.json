@@ -1,0 +1,49 @@
+{
+  "stories": [
+    {
+      "story_id": "S1-003",
+      "task_id": "business-validation-s1-003",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "commit": "0a2b4af",
+      "verified_at": "2026-03-16T10:56:45+08:00",
+      "summary": "Implemented real file type detection with suffix and MIME consistency checks."
+    },
+    {
+      "story_id": "S1-004",
+      "task_id": "business-validation-s1-004",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "commit": "0a2b4af",
+      "verified_at": "2026-03-16T10:56:45+08:00",
+      "summary": "Implemented upload failure handling with rollback for object storage and metadata persistence failures."
+    },
+    {
+      "story_id": "S1-005",
+      "task_id": "business-validation-s1-005",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "commit": "7abe118",
+      "verified_at": "2026-03-16T11:16:56+08:00",
+      "summary": "Implemented broker field mapping rules for CN-style and EN-style statement columns."
+    },
+    {
+      "story_id": "S1-006",
+      "task_id": "business-validation-s1-006",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "commit": "7abe118",
+      "verified_at": "2026-03-16T11:16:56+08:00",
+      "summary": "Implemented TradeRecord normalization and persisted standardized trade records."
+    },
+    {
+      "story_id": "S1-007",
+      "task_id": "business-validation-s1-007",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "commit": "7abe118",
+      "verified_at": "2026-03-16T11:16:56+08:00",
+      "summary": "Implemented parse validation and structured parse report generation with failed-state transitions."
+    }
+  ]
+}
