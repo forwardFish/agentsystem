@@ -49,6 +49,25 @@ secondary_files:
   - "apps/api/src/modules/statements/repository.py"
   - "apps/api/src/schemas/command.py"
 
+story_inputs:
+  - "已上传的交割单文件及其文件名、扩展名和 MIME 信息。"
+  - "不同券商和文件类型对应的 parser_key 规则。"
+  - "后续解析链路需要的 detected_file_type 输入。"
+
+story_process:
+  - "识别上传文件的扩展名和 MIME 类型。"
+  - "确定 detected_file_type 和 parser_key。"
+  - "把识别结果写回 statement 元数据，供解析链路使用。"
+
+story_outputs:
+  - "文件类型识别逻辑。"
+  - "带 detected_file_type 和 parser_key 的 statement 元数据。"
+
+verification_basis:
+  - "检查常见文件类型能被正确识别。"
+  - "检查识别结果会写回 statement 记录。"
+  - "检查后续解析链路可以直接使用 parser_key。"
+
 test_cases:
   normal:
     - "正常路径：csv 文件被识别为 csv，并写入 parser_key。"

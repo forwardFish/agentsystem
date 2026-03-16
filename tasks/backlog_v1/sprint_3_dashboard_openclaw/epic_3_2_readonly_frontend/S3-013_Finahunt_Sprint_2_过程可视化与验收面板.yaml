@@ -1,0 +1,51 @@
+task_id: S3-013
+task_name: Finahunt Sprint 2 过程可视化与验收面板
+sprint: Sprint 3
+epic: Epic 3.2 只读前端
+story_id: S3-013
+blast_radius: L2
+execution_mode: Safe
+mode: Safe
+goal: 在 agentsystem dashboard 中提供 Finahunt Sprint 2 的中间过程可视化、结果展示和验收入口，让用户可以看到每一步执行状态并校验真实产物。
+business_value: 让 Finahunt Sprint 2 不再只是“代码看起来完成”，而是成为可见、可核验、可复盘的真实交付结果。
+entry_criteria:
+- Finahunt Sprint 2 运行链路与结果仓库已经存在并可读取。
+acceptance_criteria:
+- dashboard 中可以查看 Finahunt Sprint 2 的 story 覆盖关系与对应真实输出。
+- dashboard 中可以查看从原始资讯到发酵题材 feed 的中间阶段过程与计数。
+- dashboard 中可以查看结构化结果卡、题材热度快照、发酵题材 feed、日报摘要与结果仓库清单。
+- 用户可以从 backlog/sprint/story 入口跳转到该展示页完成验收。
+constraints:
+- 保持只读展示，不新增写操作或运行控制入口。
+- 优先复用现有 agentsystem dashboard 架构与 Finahunt 产物目录。
+- 不修改 Finahunt 已完成的 Story 状态结论，只补展示与验收链路。
+out_of_scope:
+- 不在本 Story 中重做 Finahunt Sprint 2 运行逻辑。
+- 不在本 Story 中实现复杂权限系统或通知系统。
+not_do:
+- 不在本 Story 中重做 Finahunt Sprint 2 运行逻辑。
+- 不在本 Story 中实现复杂权限系统或通知系统。
+dependencies:
+- S3-006
+- S3-007
+related_files:
+- src/agentsystem/dashboard/main.py
+- src/agentsystem/dashboard/static/index.html
+- src/agentsystem/dashboard/static/story.html
+- src/agentsystem/dashboard/static/finahunt_runtime.html
+- tests/test_dashboard_api.py
+primary_files:
+- src/agentsystem/dashboard/main.py
+- src/agentsystem/dashboard/static/index.html
+- src/agentsystem/dashboard/static/story.html
+- src/agentsystem/dashboard/static/finahunt_runtime.html
+- tests/test_dashboard_api.py
+secondary_files:
+- ../finahunt/workspace/artifacts/runtime
+- ../finahunt/tasks/story_status_registry.json
+test_cases:
+  normal:
+  - 正常路径：dashboard 能显示最新 Finahunt Sprint 2 运行结果与阶段过程。
+  - 正常路径：用户能从 sprint 列表页和 S2 story 详情页进入展示页。
+  exception:
+  - 异常路径：当不存在 runtime 产物时，展示页返回空态而不是报错。

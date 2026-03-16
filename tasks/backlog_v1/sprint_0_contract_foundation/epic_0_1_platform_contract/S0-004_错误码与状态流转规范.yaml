@@ -35,6 +35,25 @@ primary_files:
   - docs/contracts/error_codes.md
   - docs/contracts/state_machine.md
 secondary_files: []
+story_inputs:
+  - "statement、agent、order、binding 等核心流程的状态流转需求。"
+  - "平台级错误码目录需要覆盖的业务与系统异常。"
+  - "S0-001 到 S0-003 已固定的契约边界。"
+
+story_process:
+  - "整理平台范围内的错误码目录。"
+  - "定义 statement、agent、order、binding 的状态机流转规则。"
+  - "明确允许跳转、禁止跳转和对应错误码。"
+
+story_outputs:
+  - "统一错误码规范。"
+  - "statement、agent、order、binding 的状态机规范。"
+
+verification_basis:
+  - "检查每个核心流程都有清晰的状态迁移规则。"
+  - "检查非法跳转能映射到明确错误码。"
+  - "检查后续实现能按规范统一返回状态与错误。"
+
 test_cases:
   normal:
     - error_codes.md includes upload, parsing, risk, matching, and permission sections.

@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/orders/风控规则校验.py
 secondary_files:
 - docs/contracts/agent_contract_schema.json
+story_inputs:
+  - "已通过基础结构校验的 actions。"
+  - "maxPositionPct、maxHoldDays、turnover 等风险规则。"
+  - "Agent profile 中的 riskControls 和当前组合状态。"
+
+story_process:
+  - "对 actions 执行风险规则校验。"
+  - "识别违反仓位、持有期和换手约束的动作。"
+  - "把风控判断结果传递给下游执行链路。"
+
+story_outputs:
+  - "风控通过的 actions。"
+  - "带拒绝原因的风控校验结果。"
+
+verification_basis:
+  - "检查违反 riskControls 的动作会被拦截。"
+  - "检查通过的动作可以继续进入下一步。"
+  - "检查拒绝结果包含可解释原因。"
+
 test_cases:
   normal:
   - 正常路径：风控规则校验 的核心场景可以完成。

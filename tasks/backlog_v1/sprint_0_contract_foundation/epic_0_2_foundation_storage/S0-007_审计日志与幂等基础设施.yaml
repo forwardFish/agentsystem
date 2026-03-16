@@ -48,6 +48,25 @@ primary_files:
 secondary_files:
   - "scripts/init_schema.sql"
 
+story_inputs:
+  - "订单、成交、运行日志链路需要的审计记录能力。"
+  - "提交动作和重复请求需要的幂等保护。"
+  - "核心 DB schema 中审计和幂等相关的基础表结构。"
+
+story_process:
+  - "实现统一的 audit write helper。"
+  - "实现统一的 idempotency check helper。"
+  - "让后续订单、成交和运行链路都能复用这套基础设施。"
+
+story_outputs:
+  - "审计日志写入基础设施。"
+  - "幂等检查与去重基础设施。"
+
+verification_basis:
+  - "检查关键链路可以写出审计日志。"
+  - "检查相同 idempotency key 不会重复处理。"
+  - "检查后续业务模块能够直接复用这两类 helper。"
+
 test_cases:
   normal:
     - "audit helper 能生成标准化写入 payload 和 SQL 查询。"

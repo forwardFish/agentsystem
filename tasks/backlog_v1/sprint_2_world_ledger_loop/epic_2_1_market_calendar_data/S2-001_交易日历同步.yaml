@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/world/交易日历同步.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "trade_cal 数据源与日历同步规则。"
+  - "world service 读取交易日历所需的数据结构。"
+  - "本地缓存和持久化交易日信息的目标格式。"
+
+story_process:
+  - "接入并拉取 trade_cal 交易日历。"
+  - "把交易日信息写入本地可复用存储。"
+  - "让 world service 能稳定读取交易日日历。"
+
+story_outputs:
+  - "已同步的交易日历数据。"
+  - "可供后续交易日推进直接使用的日历基础。"
+
+verification_basis:
+  - "检查交易日历可以成功同步。"
+  - "检查 world service 能读取同步结果。"
+  - "检查后续交易日推进链路可直接消费这些数据。"
+
 test_cases:
   normal:
   - 正常路径：交易日历同步 的核心场景可以完成。

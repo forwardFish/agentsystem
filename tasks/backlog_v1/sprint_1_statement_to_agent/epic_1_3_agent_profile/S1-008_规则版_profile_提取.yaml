@@ -47,6 +47,25 @@ secondary_files:
   - "apps/api/src/schemas/agent.py"
   - "apps/api/src/schemas/trade.py"
 
+story_inputs:
+  - "S1-007 产出的标准化 TradeRecord 和 parse report。"
+  - "TradingAgentProfile 契约中要求的基础字段。"
+  - "偏好标的、持仓倾向和交易节奏的规则提取逻辑。"
+
+story_process:
+  - "从标准化交易记录中提取基础交易画像。"
+  - "生成偏好标的、持仓倾向和交易节奏等 profile 字段。"
+  - "让输出结果满足 TradingAgentProfile 契约。"
+
+story_outputs:
+  - "基础 TradingAgentProfile 数据。"
+  - "可供风格标签和风控约束继续加工的 profile 结果。"
+
+verification_basis:
+  - "检查输出能覆盖 TradingAgentProfile 的基础字段。"
+  - "检查 profile 字段能从 TradeRecord 中被解释和回溯。"
+  - "检查下游风格标签生成可直接消费该结果。"
+
 test_cases:
   normal:
     - "正常路径：输入标准化 TradeRecord 后生成基础 Profile 摘要。"

@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/orders/actions_payload_校验.py
 secondary_files:
 - docs/contracts/agent_contract_schema.json
+story_inputs:
+  - "Agent 生成的 actions payload。"
+  - "submit-actions 协议约束。"
+  - "订单校验前需要满足的基础结构规则。"
+
+story_process:
+  - "校验 actions payload 的字段结构和类型。"
+  - "拒绝缺字段、错类型或格式不合法的输入。"
+  - "为后续风控和撮合提供干净动作集。"
+
+story_outputs:
+  - "已通过基础格式校验的 actions。"
+  - "明确的 payload 校验错误结果。"
+
+verification_basis:
+  - "检查合法 actions payload 可以通过。"
+  - "检查不合法输入会被明确拒绝。"
+  - "检查风控链路接收到的是结构正确的动作集。"
+
 test_cases:
   normal:
   - 正常路径：actions payload 校验 的核心场景可以完成。

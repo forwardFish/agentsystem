@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finahunt Sprint 2 验收台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 20%),
+        radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 24%),
+        linear-gradient(160deg, #07121f, #0d1628 42%, #091120 100%);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .panel {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(17, 27, 43, 0.95), rgba(10, 16, 30, 0.94));
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(10px);
+    }
+    .section-label {
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .pill.done, .pill.success, .pill.approved {
+      color: #d1fae5;
+      background: rgba(52, 211, 153, 0.12);
+      border-color: rgba(52, 211, 153, 0.28);
+    }
+    .pill.failed, .pill.rejected {
+      color: #fecdd3;
+      background: rgba(251, 113, 133, 0.12);
+      border-color: rgba(251, 113, 133, 0.28);
+    }
+    .pill.not_started, .pill.pending, .pill.pending_signoff, .pill.missing {
+      color: #dbeafe;
+      background: rgba(125, 211, 252, 0.10);
+      border-color: rgba(125, 211, 252, 0.22);
+    }
+    .pill.partial, .pill.running, .pill.needs_followup, .pill.needs_attention, .pill.ready {
+      color: #fde68a;
+      background: rgba(245, 158, 11, 0.14);
+      border-color: rgba(245, 158, 11, 0.24);
+    }
+    .asset-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #dbeafe;
+      border: 1px solid rgba(125, 211, 252, 0.18);
+      background: rgba(125, 211, 252, 0.08);
+    }
+    .data-card {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(4, 10, 20, 0.45);
+    }
+    .table-row:nth-child(odd) {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .json-block {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(2, 6, 14, 0.8);
+      border-radius: 18px;
+      padding: 14px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #dbeafe;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-100">
+  <div class="mx-auto max-w-[1600px] px-5 py-6 lg:px-8">
+    <header class="panel mb-6 rounded-[28px] p-6 lg:p-8">
+      <div class="flex flex-wrap items-start justify-between gap-6">
+        <div class="max-w-5xl">
+          <div class="section-label mb-3">Finahunt Sprint 2</div>
+          <h1 class="text-2xl font-bold tracking-tight text-white lg:text-4xl">Sprint 2 验收台</h1>
+          <p class="mt-4 max-w-4xl text-sm leading-7 text-slate-300">
+            这不是一个只看最终结果的汇总页，而是给最终检验者使用的验收台。
+            你可以直接检查首个输入、最后输出、每一步中间过程，以及每条 Sprint 2 story 的输入输出样本，
+            再判断这个 sprint 是否真正完成。
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <a href="/?project=finahunt" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-emerald-300/50 hover:bg-white/10">返回项目总览</a>
+          <select id="run-select" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100"></select>
+          <button id="refresh-button" class="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-50 transition hover:border-emerald-200/40 hover:bg-emerald-300/15">刷新运行结果</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div class="panel rounded-[24px] p-5"><div class="section-label">Story 数</div><div id="metric-stories" class="mt-3 text-3xl font-bold text-white">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">原始资讯</div><div id="metric-raw" class="mt-3 text-3xl font-bold text-cyan-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">归一事件</div><div id="metric-events" class="mt-3 text-3xl font-bold text-sky-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">结果卡</div><div id="metric-cards" class="mt-3 text-3xl font-bold text-emerald-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">热度快照</div><div id="metric-heat" class="mt-3 text-3xl font-bold text-amber-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">发酵题材流</div><div id="metric-feed" class="mt-3 text-3xl font-bold text-rose-300">0</div></div>
+    </section>
+
+    <section class="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      <div class="space-y-6">
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">验收主线</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">首个输入与最终输出</h2>
+          </div>
+          <div id="acceptance-spine" class="grid gap-4 xl:grid-cols-2"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4 flex items-center justify-between">
+            <div>
+              <div class="section-label">Story 验收</div>
+              <h2 class="mt-1 text-xl font-semibold text-white">逐条 Story 查看输入与输出</h2>
+            </div>
+            <div id="run-meta" class="text-sm text-slate-400"></div>
+          </div>
+          <div id="story-coverage" class="space-y-4"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">运行链路</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">中间过程</h2>
+          </div>
+          <div id="pipeline-view" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">结果仓库</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">已落盘产物</h2>
+          </div>
+          <div id="warehouse-summary" class="grid gap-4 md:grid-cols-2"></div>
+          <div id="warehouse-artifacts" class="mt-4 space-y-3"></div>
+        </div>
+      </div>
+
+      <div class="space-y-6">
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">验收提示</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">你可以重点检查什么</h2>
+          </div>
+          <div id="validation-points" class="space-y-3 text-sm leading-7 text-slate-200"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">日终复盘</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">重点输出</h2>
+          </div>
+          <div id="daily-review" class="space-y-4"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div class="space-y-6">
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">结构化结果卡</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">催化结果卡片</h2>
+          </div>
+          <div id="structured-cards" class="grid gap-4 md:grid-cols-2"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">发酵题材流</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">值得继续观察的题材</h2>
+          </div>
+          <div id="fermenting-feed" class="space-y-4"></div>
+        </div>
+      </div>
+
+      <div class="panel rounded-[28px] p-5">
+        <div class="mb-4">
+          <div class="section-label">题材热度</div>
+          <h2 class="mt-1 text-xl font-semibold text-white">快照表</h2>
+        </div>
+        <div class="overflow-hidden rounded-[22px] border border-white/8">
+          <table class="min-w-full text-sm text-slate-200">
+            <thead class="bg-white/5 text-xs uppercase tracking-[0.16em] text-slate-400">
+              <tr>
+                <th class="px-4 py-3 text-left">题材</th>
+                <th class="px-4 py-3 text-left">热度</th>
+                <th class="px-4 py-3 text-left">速度</th>
+                <th class="px-4 py-3 text-left">阶段</th>
+              </tr>
+            </thead>
+            <tbody id="heat-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    let selectedRunId = params.get("run_id") || "";
+    const STATUS_LABELS = {
+      done: "已完成",
+      success: "已通过",
+      approved: "已签收",
+      passed: "已通过",
+      failed: "失败",
+      rejected: "已拒绝",
+      not_started: "未开始",
+      pending: "待执行",
+      pending_signoff: "待人工签收",
+      partial: "部分完成",
+      running: "进行中",
+      needs_followup: "待跟进",
+      needs_attention: "需关注",
+      ready: "已就绪",
+      missing: "缺失",
+    };
+
+    function badgeClass(status) {
+      return (status || "not_started").toLowerCase();
+    }
+
+    function statusText(status) {
+      return STATUS_LABELS[(status || "").toLowerCase()] || status || "-";
+    }
+
+    async function fetchJson(path) {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }
+
+    function renderAssets(items) {
+      const assets = Array.isArray(items) ? items : [];
+      if (!assets.length) {
+        return `<div class="text-sm text-slate-400">暂无关联资产。</div>`;
+      }
+      return assets.map((asset) => `
+        <span class="asset-pill">${asset.asset_type || "资产"}：${asset.asset_name || asset.asset_id || "-"}</span>
+      `).join("");
+    }
+
+    function renderEvidence(items) {
+      const entries = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (!entries.length) {
+        return `<div class="text-sm text-slate-400">暂无记录。</div>`;
+      }
+      return `<ul class="list-disc space-y-2 pl-5 text-sm leading-7 text-slate-200">${entries.map((item) => `<li>${item}</li>`).join("")}</ul>`;
+    }
+
+    function renderHumanReviewSummary(review) {
+      if (!review) {
+        return `
+          <div class="rounded-[16px] border border-white/8 bg-white/5 p-3">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <div class="text-sm font-semibold text-white">待人工签收</div>
+              <span class="pill pending_signoff">${statusText("pending_signoff")}</span>
+            </div>
+            <div class="text-sm leading-7 text-slate-200">还没有记录最终检验结论。</div>
+          </div>
+        `;
+      }
+      return `
+        <div class="rounded-[16px] border border-white/8 bg-white/5 p-3">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${review.summary || "已记录人工签收结论"}</div>
+            <span class="pill ${badgeClass(review.verdict || "pending_signoff")}">${statusText(review.verdict || "pending_signoff")}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-200">${review.notes || "暂无补充说明。"}</div>
+          <div class="mt-2 text-xs text-slate-400">${review.reviewer || "-"} | ${review.checked_at || "-"}</div>
+        </div>
+      `;
+    }
+
+    function syncUrl() {
+      const next = new URL(window.location.href);
+      if (selectedRunId) {
+        next.searchParams.set("run_id", selectedRunId);
+      } else {
+        next.searchParams.delete("run_id");
+      }
+      window.history.replaceState({}, "", next);
+    }
+
+    function populateRunSelector(runs) {
+      const select = document.getElementById("run-select");
+      select.innerHTML = "";
+      runs.forEach((run) => {
+        const option = document.createElement("option");
+        option.value = run.run_id;
+        option.textContent = `${run.run_id} | 结果卡 ${run.structured_result_card_count} | 发酵题材 ${run.fermenting_theme_count}`;
+        option.selected = run.run_id === selectedRunId;
+        select.appendChild(option);
+      });
+      if (runs.length && !runs.some((run) => run.run_id === selectedRunId)) {
+        selectedRunId = runs[0].run_id;
+      }
+      select.value = selectedRunId;
+      syncUrl();
+    }
+
+    function renderStoryCoverage(stories) {
+      const container = document.getElementById("story-coverage");
+      container.innerHTML = stories.length ? stories.map((story) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold text-white">${story.story_id} ${story.task_name || ""}</div>
+              <div class="mt-1 text-xs tracking-[0.16em] text-slate-500">${story.input_label || "-"} -> ${story.output_label || "-"}</div>
+            </div>
+            <span class="pill ${badgeClass(story.status)}">${statusText(story.status || "not_started")}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-200">${story.summary || "暂无验收摘要。"}</div>
+          <div class="mt-4 grid gap-4 xl:grid-cols-2">
+            <div>
+              <div class="section-label mb-2">输入</div>
+              <div class="mb-2 flex flex-wrap gap-2">
+                <span class="pill not_started">${story.input_label || "-"}</span>
+                <span class="pill not_started">${story.input_count || 0} 条</span>
+              </div>
+              <div class="json-block">${story.input_sample ? JSON.stringify(story.input_sample, null, 2) : "暂无输入样本。"}</div>
+            </div>
+            <div>
+              <div class="section-label mb-2">输出</div>
+              <div class="mb-2 flex flex-wrap gap-2">
+                <span class="pill ${story.output_ready ? "done" : "partial"}">${story.output_label || "-"}</span>
+                <span class="pill ${story.output_ready ? "done" : "partial"}">${story.output_count || 0} 条</span>
+              </div>
+              <div class="json-block">${story.output_sample ? JSON.stringify(story.output_sample, null, 2) : "暂无输出样本。"}</div>
+            </div>
+          </div>
+          <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
+            <div>
+              <div class="section-label mb-2">验收模板</div>
+              <div class="grid gap-3 xl:grid-cols-2">
+                <div>
+                  <div class="text-xs tracking-[0.16em] text-slate-500">1. 输入检查</div>
+                  ${renderEvidence(story.story_inputs || [])}
+                </div>
+                <div>
+                  <div class="text-xs tracking-[0.16em] text-slate-500">2. 过程检查</div>
+                  ${renderEvidence(story.story_process || [])}
+                </div>
+                <div>
+                  <div class="text-xs tracking-[0.16em] text-slate-500">3. 输出检查</div>
+                  ${renderEvidence(story.story_outputs || [])}
+                </div>
+                <div>
+                  <div class="text-xs tracking-[0.16em] text-slate-500">4. 验收依据检查</div>
+                  ${renderEvidence((story.verification_basis || []).concat(story.acceptance_criteria || []))}
+                </div>
+              </div>
+              <div class="section-label mb-2">如何校验</div>
+              <div class="text-sm leading-7 text-slate-200">${story.validation_hint || "暂无校验提示。"}</div>
+              <div class="mt-3">
+                <div class="section-label mb-2">5. 人工签收</div>
+                ${renderHumanReviewSummary(story.human_review)}
+              </div>
+            </div>
+            <div class="flex flex-wrap items-start gap-2">
+              <span class="pill ${badgeClass((story.human_review || {}).verdict || "pending_signoff")}">${statusText((story.human_review || {}).verdict || "pending_signoff")}</span>
+              <a href="/story?project=finahunt&backlog=backlog_v1&sprint=sprint_2_catalyst_mining_core&story=${encodeURIComponent(story.story_id)}" class="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-emerald-300/50 hover:bg-white/10">进入 Story 验收页</a>
+            </div>
+          </div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">暂无 Sprint 2 Story 验收数据。</div>`;
+    }
+
+    function renderAcceptanceSpine(inspection) {
+      const container = document.getElementById("acceptance-spine");
+      container.innerHTML = `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex items-center gap-2">
+            <span class="pill not_started">输入</span>
+            <div class="text-sm font-semibold text-white">${inspection.first_input_label || "-"}</div>
+          </div>
+          <div class="json-block">${inspection.first_input_sample ? JSON.stringify(inspection.first_input_sample, null, 2) : "暂无输入样本。"}</div>
+        </div>
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex items-center gap-2">
+            <span class="pill done">输出</span>
+            <div class="text-sm font-semibold text-white">${inspection.last_output_label || "-"}</div>
+          </div>
+          <div class="json-block">${inspection.last_output_sample ? JSON.stringify(inspection.last_output_sample, null, 2) : "暂无输出样本。"}</div>
+        </div>
+      `;
+    }
+
+    function renderPipeline(items) {
+      const container = document.getElementById("pipeline-view");
+      container.innerHTML = items.length ? items.map((item, index) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <span class="pill not_started">第 ${index + 1} 步</span>
+            <span class="pill ${item.count > 0 ? "done" : "partial"}">${item.count}</span>
+          </div>
+          <div class="text-sm font-semibold text-white">${item.label}</div>
+          <div class="mt-2 text-xs tracking-[0.16em] text-slate-500">${item.stage}</div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">暂无中间过程数据。</div>`;
+    }
+
+    function renderWarehouse(summary, artifactDir) {
+      document.getElementById("warehouse-summary").innerHTML = `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="section-label mb-2">产物目录</div>
+          <div class="break-all text-sm text-slate-200">${artifactDir || "-"}</div>
+        </div>
+        <div class="data-card rounded-[22px] p-4">
+          <div class="section-label mb-2">Manifest 引用</div>
+          <div class="break-all text-sm text-slate-200">${summary.manifest_ref || "-"}</div>
+        </div>
+      `;
+
+      const items = summary.saved_artifacts || [];
+      document.getElementById("warehouse-artifacts").innerHTML = items.length ? items.map((item) => `
+        <div class="data-card rounded-[18px] p-4">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${item.filename || "-"}</div>
+            <span class="pill done">${item.record_count ?? 0}</span>
+          </div>
+          <div class="break-all text-xs text-slate-400">${item.artifact_ref || "-"}</div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">暂无已保存产物。</div>`;
+    }
+
+    function renderValidation() {
+      document.getElementById("validation-points").innerHTML = `
+        <div class="data-card rounded-[18px] p-4">先看 story 验收卡，确认每条 Sprint 2 story 都有输入、输出、验收依据和可见结果。</div>
+        <div class="data-card rounded-[18px] p-4">再看中间过程的计数，确认 runtime 在每个阶段都产出了数据，而不是只写了最终文件。</div>
+        <div class="data-card rounded-[18px] p-4">再看结果仓库 manifest 和产物列表，确认结果已经落盘，而不是只停留在内存里。</div>
+        <div class="data-card rounded-[18px] p-4">最后把结构化结果卡、题材热度快照、发酵题材流和日终复盘一起对照，检查叙事是否闭环。</div>
+      `;
+    }
+
+    function renderDailyReview(dailyReview) {
+      const focus = dailyReview.today_focus_page || [];
+      const report = dailyReview.daily_review_report || {};
+      document.getElementById("daily-review").innerHTML = `
+        <div class="data-card rounded-[20px] p-4">
+          <div class="section-label mb-2">日终摘要</div>
+          <div class="text-sm leading-7 text-slate-200">${(report.summary || []).join(" / ") || "暂无摘要。"}</div>
+          <div class="mt-3 text-xs text-slate-400">${report.generated_at || "-"}</div>
+          <div class="mt-3 rounded-[16px] border border-amber-300/15 bg-amber-400/10 p-3 text-sm leading-7 text-amber-50">${report.risk_notice || "暂无风险提示。"}</div>
+        </div>
+        <div class="space-y-3">
+          ${focus.map((item) => `
+            <div class="data-card rounded-[20px] p-4">
+              <div class="mb-2 flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-white">${item.theme_name || "-"}</div>
+                <span class="pill ${badgeClass(item.fermentation_stage || "not_started")}">${statusText(item.fermentation_stage || "-")}</span>
+              </div>
+              <div class="text-sm leading-7 text-slate-200">${item.catalyst_summary || "-"}</div>
+            </div>
+          `).join("") || `<div class="text-sm text-slate-400">暂无今日重点输出。</div>`}
+        </div>
+      `;
+    }
+
+    function renderStructuredCards(cards) {
+      const container = document.getElementById("structured-cards");
+      container.innerHTML = cards.length ? cards.map((card) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div class="text-base font-semibold text-white">${card.theme_name || "-"}</div>
+              <div class="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">${card.card_id || "-"}</div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="pill not_started">${card.strength_level || "-"}</span>
+              <span class="pill done">${card.timeliness_level || "-"}</span>
+            </div>
+          </div>
+          <div class="text-sm leading-7 text-slate-200">${card.catalyst_summary || "-"}</div>
+          <div class="mt-4 flex flex-wrap gap-2">${renderAssets(card.linked_assets || [])}</div>
+          <div class="mt-4 rounded-[16px] border border-white/8 bg-white/5 p-3 text-sm leading-7 text-slate-200">${card.risk_notice || "暂无风险提示。"}</div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">暂无结构化结果卡。</div>`;
+    }
+
+    function renderFermentingFeed(items) {
+      const container = document.getElementById("fermenting-feed");
+      container.innerHTML = items.length ? items.map((item) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div class="text-base font-semibold text-white">${item.theme_name || "-"}</div>
+              <div class="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">${item.theme_candidate_id || "-"}</div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="pill done">${item.theme_heat_score ?? 0}</span>
+              <span class="pill ${badgeClass(item.fermentation_stage || "not_started")}">${statusText(item.fermentation_stage || "-")}</span>
+            </div>
+          </div>
+          <div class="text-sm leading-7 text-slate-200">${item.catalyst_summary || "-"}</div>
+          <div class="mt-4 flex flex-wrap gap-2">${renderAssets(item.linked_assets || [])}</div>
+          <div class="mt-4 text-xs text-slate-400">仅观察：${Boolean(item.watch_only) ? "是" : "否"}</div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">暂无发酵题材结果流。</div>`;
+    }
+
+    function renderHeatTable(items) {
+      const container = document.getElementById("heat-table");
+      container.innerHTML = items.length ? items.map((item) => `
+        <tr class="table-row">
+          <td class="px-4 py-3 font-medium text-white">${item.theme_name || "-"}</td>
+          <td class="px-4 py-3">${item.theme_heat_score ?? 0}</td>
+          <td class="px-4 py-3">${item.velocity_score ?? 0}</td>
+          <td class="px-4 py-3"><span class="pill ${badgeClass(item.fermentation_stage || "not_started")}">${statusText(item.fermentation_stage || "-")}</span></td>
+        </tr>
+      `).join("") : `<tr><td colspan="4" class="px-4 py-4 text-sm text-slate-400">暂无题材热度快照。</td></tr>`;
+    }
+
+    async function loadShowcase() {
+      const query = selectedRunId ? `?run_id=${encodeURIComponent(selectedRunId)}` : "";
+      const payload = await fetchJson(`/api/finahunt/runtime/showcase${query}`);
+      populateRunSelector(payload.runs || []);
+      selectedRunId = payload.run_id || selectedRunId;
+      syncUrl();
+
+      document.getElementById("metric-stories").textContent = payload.stats?.story_count ?? 0;
+      document.getElementById("metric-raw").textContent = payload.stats?.raw_document_count ?? 0;
+      document.getElementById("metric-events").textContent = payload.stats?.canonical_event_count ?? 0;
+      document.getElementById("metric-cards").textContent = payload.stats?.structured_result_card_count ?? 0;
+      document.getElementById("metric-heat").textContent = payload.stats?.theme_heat_snapshot_count ?? 0;
+      document.getElementById("metric-feed").textContent = payload.stats?.fermenting_theme_count ?? 0;
+      document.getElementById("run-meta").textContent = `运行批次：${payload.run_id || "-"} | 时间：${payload.manifest?.updated_at || payload.manifest?.created_at || "-"}`;
+
+      renderAcceptanceSpine(payload.inspection || {});
+      renderStoryCoverage(payload.stories || []);
+      renderPipeline(payload.pipeline || []);
+      renderWarehouse(payload.result_warehouse_summary || {}, payload.artifact_dir || "");
+      renderValidation();
+      renderDailyReview(payload.daily_review || {});
+      renderStructuredCards(payload.structured_result_cards || []);
+      renderFermentingFeed(payload.fermenting_theme_feed || []);
+      renderHeatTable(payload.theme_heat_snapshots || []);
+    }
+
+    document.getElementById("run-select").addEventListener("change", async (event) => {
+      selectedRunId = event.target.value;
+      await loadShowcase();
+    });
+    document.getElementById("refresh-button").addEventListener("click", () => loadShowcase().catch(console.error));
+
+    loadShowcase().catch((error) => {
+      console.error(error);
+      document.getElementById("story-coverage").innerHTML = `<div class="text-sm text-rose-300">加载验收台失败：${String(error)}</div>`;
+    });
+  </script>
+</body>
+</html>

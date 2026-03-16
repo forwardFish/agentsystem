@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/orders/现金_仓位_lot_size_校验.py
 secondary_files:
 - docs/contracts/agent_contract_schema.json
+story_inputs:
+  - "风控通过后的 actions。"
+  - "当前现金、仓位、lot size 和持仓状态。"
+  - "下单前必须满足的资金与持仓约束。"
+
+story_process:
+  - "校验是否有足够现金、可卖仓位和正确 lot size。"
+  - "过滤掉无法真实执行的动作。"
+  - "把可执行动作集交给撮合链路。"
+
+story_outputs:
+  - "通过现金、仓位、lot size 校验的 actions。"
+  - "带失败原因的可执行性校验结果。"
+
+verification_basis:
+  - "检查超现金、超仓位或 lot size 不合法的动作会被拦截。"
+  - "检查合法动作可继续进入撮合。"
+  - "检查失败结果能说明是哪一类约束触发。"
+
 test_cases:
   normal:
   - 正常路径：现金 / 仓位 / lot size 校验 的核心场景可以完成。

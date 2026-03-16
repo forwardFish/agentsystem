@@ -50,6 +50,25 @@ primary_files:
 secondary_files:
   - "apps/api/src/infra/storage/object_store.py"
 
+story_inputs:
+  - "用户上传的 CSV/XLS/XLSX 交割单文件。"
+  - "文件大小、扩展名、MIME 类型等基础校验规则。"
+  - "S0-006 提供的对象存储和 statement 元数据契约。"
+
+story_process:
+  - "校验上传文件的基础约束。"
+  - "生成 statement_id、upload_status 和 object_key。"
+  - "把交割单原件和元数据写入稳定存储。"
+
+story_outputs:
+  - "交割单上传 API。"
+  - "一条带 statement_id、upload_status、object_key 的 statement 记录。"
+
+verification_basis:
+  - "检查合法文件可以上传成功并返回 statement_id。"
+  - "检查返回结果包含 upload_status 和 object_key。"
+  - "检查对象存储与元数据写入一致。"
+
 test_cases:
   normal:
     - "正常路径：合法 csv 文件输入时，返回 uploaded 状态、statement_id、object_key 和 bucket。"

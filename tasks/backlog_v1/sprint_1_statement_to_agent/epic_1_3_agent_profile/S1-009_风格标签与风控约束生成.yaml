@@ -46,6 +46,25 @@ primary_files:
 secondary_files:
   - "apps/api/src/schemas/trade.py"
 
+story_inputs:
+  - "S1-008 产出的基础 TradingAgentProfile。"
+  - "styleTags、riskControls 和 cadence 的生成规则。"
+  - "Agent 创建前需要固定的风险边界。"
+
+story_process:
+  - "基于基础 profile 生成 styleTags。"
+  - "生成 riskControls 和 cadence。"
+  - "把基础画像补齐为可创建 Agent 的完整 profile。"
+
+story_outputs:
+  - "带 styleTags、riskControls 和 cadence 的完整 profile。"
+  - "可直接进入 Agent 创建 API 的 profile 结果。"
+
+verification_basis:
+  - "检查输出包含 styleTags、riskControls 和 cadence。"
+  - "检查风控约束与基础画像保持一致。"
+  - "检查 Agent 创建链路可直接使用这份结果。"
+
 test_cases:
   normal:
     - "正常路径：基础 Profile 输入后生成 styleTags 和 riskControls。"

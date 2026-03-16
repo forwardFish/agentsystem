@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/matching/fill_生成与结算.py
 secondary_files:
 - apps/api/src/modules/orders/service.py
+story_inputs:
+  - "带费用与滑点的撮合结果。"
+  - "当前现金账户状态。"
+  - "fill 记录与结算更新规则。"
+
+story_process:
+  - "为撮合成功的动作生成 fills。"
+  - "按成交结果更新现金。"
+  - "把 fill 和结算结果写入可追踪记录。"
+
+story_outputs:
+  - "fill 记录。"
+  - "更新后的现金结算结果。"
+
+verification_basis:
+  - "检查成功撮合的动作会生成 fill。"
+  - "检查现金会按成交结果正确更新。"
+  - "检查 fill 结果可被后续持仓更新复用。"
+
 test_cases:
   normal:
   - 正常路径：fill 生成与结算 的核心场景可以完成。

@@ -146,6 +146,10 @@ class DevState(TypedDict, total=False):
     requirement_spec: str | None
     parsed_goal: str | None
     acceptance_checklist: list[str] | None
+    story_inputs: list[str] | None
+    story_process: list[str] | None
+    story_outputs: list[str] | None
+    verification_basis: list[str] | None
     primary_files: list[str] | None
     secondary_files: list[str] | None
     parsed_constraints: list[str] | None

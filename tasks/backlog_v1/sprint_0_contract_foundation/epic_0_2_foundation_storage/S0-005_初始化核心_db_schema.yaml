@@ -52,6 +52,25 @@ secondary_files:
   - "docs/contracts/marketworldstate_schema.schema.json"
   - "docs/contracts/agent_register.schema.json"
 
+story_inputs:
+  - "MVP 写模型需要的核心对象和关系。"
+  - "TradingAgentProfile、MarketWorldState、Agent Contract 等上游契约。"
+  - "agents、statements、orders、fills、positions 等表结构需求。"
+
+story_process:
+  - "设计核心数据表、主键、索引和必要约束。"
+  - "编写初始化 schema 脚本，覆盖 MVP 写模型主链路。"
+  - "确保后续存储和运行链路可以在这套基础表上继续实现。"
+
+story_outputs:
+  - "核心 DB schema 初始化脚本。"
+  - "agents、statements、trade_records、orders、fills 等基础表结构。"
+
+verification_basis:
+  - "检查 schema 脚本可执行且能创建全部核心表。"
+  - "检查表结构覆盖 MVP 主链路需要的对象。"
+  - "检查关键字段与上游契约保持一致。"
+
 test_cases:
   normal:
     - "scripts/init_schema.sql 包含全部核心表定义。"

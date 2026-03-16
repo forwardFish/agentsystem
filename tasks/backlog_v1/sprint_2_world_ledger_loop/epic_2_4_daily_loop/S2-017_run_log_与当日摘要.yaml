@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/loop/run_log_与当日摘要.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "daily loop 全链路的运行结果和阶段状态。"
+  - "审计日志、对账结果和当日决策概览。"
+  - "用户和内部验收需要查看的每日摘要信息。"
+
+story_process:
+  - "记录 daily loop 各阶段运行日志。"
+  - "生成当日摘要和审计结果。"
+  - "把运行结果整理成可供 dashboard 查看的输出。"
+
+story_outputs:
+  - "run log。"
+  - "当日摘要与审计信息。"
+
+verification_basis:
+  - "检查 daily loop 会产出完整 run log。"
+  - "检查摘要包含关键运行结果和异常信息。"
+  - "检查 dashboard 或 query 链路能读取这些产物。"
+
 test_cases:
   normal:
   - 正常路径：Run Log 与当日摘要 的核心场景可以完成。

@@ -46,6 +46,25 @@ secondary_files:
   - docs/contracts/examples/agent_heartbeat.example.json
   - docs/contracts/examples/agent_submit_actions.example.json
   - docs/contracts/examples/agent_submit_actions.invalid.json
+story_inputs:
+  - "外部 runtime 接入平台时需要使用的 register、heartbeat、submit-actions 交互。"
+  - "平台内部对 Agent 注册、心跳和动作提交的字段边界。"
+  - "示例 payload 与非法示例需要覆盖的协议场景。"
+
+story_process:
+  - "定义 register、heartbeat、submit-actions 的请求与响应契约。"
+  - "明确必填字段、状态字段和错误边界。"
+  - "补齐有效示例和无效示例，固定集成协议。"
+
+story_outputs:
+  - "Agent 接入契约 schema。"
+  - "register、heartbeat、submit-actions 的示例 payload。"
+
+verification_basis:
+  - "检查有效示例可以通过契约校验。"
+  - "检查无效 submit-actions 请求会被正确拒绝。"
+  - "检查外部 runtime 可以按该契约接入平台。"
+
 test_cases:
   normal:
     - The register example validates against the register schema.

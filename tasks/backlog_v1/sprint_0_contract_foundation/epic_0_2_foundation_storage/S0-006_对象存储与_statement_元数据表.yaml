@@ -48,6 +48,25 @@ primary_files:
 secondary_files:
   - "scripts/init_schema.sql"
 
+story_inputs:
+  - "交割单上传链路需要的对象存储路径规范。"
+  - "statement 元数据读写和状态跟踪需求。"
+  - "对象存储与数据库元数据之间的对应关系。"
+
+story_process:
+  - "定义交割单原件的对象存储命名与落盘规则。"
+  - "建立 statement 元数据表和读写契约。"
+  - "让上传结果同时具备对象存储引用和数据库元数据。"
+
+story_outputs:
+  - "对象存储路径规范与基础存储实现。"
+  - "Statement 元数据表及其读写契约。"
+
+verification_basis:
+  - "检查上传后能得到稳定 object_key。"
+  - "检查 statement 元数据可以被写入并查询。"
+  - "检查对象存储记录与数据库元数据保持一致。"
+
 test_cases:
   normal:
     - "storage.py 能生成 statements/{owner_id}/{statement_id}/{filename} 形式的 object key。"

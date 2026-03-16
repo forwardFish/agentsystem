@@ -343,6 +343,40 @@ def _default_acceptance(task_name: str) -> list[str]:
     ]
 
 
+def _default_story_inputs(task_name: str, primary_files: list[str], previous_story_id: str | None) -> list[str]:
+    inputs = [f"Upstream context for {task_name} is ready to consume."]
+    if previous_story_id:
+        inputs.append(f"Outputs from dependency story {previous_story_id} are available.")
+    if primary_files:
+        inputs.append(f"Current in-scope implementation: {', '.join(primary_files[:3])}")
+    return inputs
+
+
+def _default_story_process(task_name: str, primary_files: list[str]) -> list[str]:
+    scoped_files = ", ".join(primary_files[:3]) if primary_files else "the declared primary files"
+    return [
+        f"Inspect {scoped_files} and understand the current implementation for {task_name}.",
+        f"Implement only the logic required to make {task_name} independently executable.",
+        "Run story-specific checks and archive acceptance evidence for final review.",
+    ]
+
+
+def _default_story_outputs(task_name: str, primary_files: list[str]) -> list[str]:
+    outputs = [f"A reusable output for {task_name} is produced and ready for downstream stories."]
+    if primary_files:
+        outputs.append(f"Updated scope files: {', '.join(primary_files[:3])}")
+    outputs.append("Delivery evidence is archived for acceptance and replay.")
+    return outputs
+
+
+def _default_verification_basis(task_name: str) -> list[str]:
+    return [
+        f"Review the story acceptance criteria for {task_name}.",
+        "Confirm the story-specific validation passes.",
+        "Confirm the delivery report contains explicit evidence for the outcome.",
+    ]
+
+
 def _default_constraints(primary_files: list[str]) -> list[str]:
     joined = ", ".join(primary_files[:3])
     return [
@@ -395,8 +429,25 @@ def _build_story(
         "related_files": list(dict.fromkeys(primary_files + secondary_files)),
         "primary_files": primary_files,
         "secondary_files": secondary_files,
+        "story_inputs": _default_story_inputs(task_name, primary_files, previous_story_id),
+        "story_process": _default_story_process(task_name, primary_files),
+        "story_outputs": _default_story_outputs(task_name, primary_files),
+        "verification_basis": _default_verification_basis(task_name),
         "test_cases": _default_tests(task_name),
     }
+
+
+def _ensure_story_contract(story: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(story)
+    task_name = str(payload.get("task_name") or payload.get("goal") or "this story")
+    primary_files = [str(item) for item in payload.get("primary_files", []) if str(item).strip()]
+    dependencies = [str(item) for item in payload.get("dependencies", []) if str(item).strip()]
+    previous_story_id = next((item for item in dependencies if item.lower() not in {"none", "n/a", "无"}), None)
+    payload.setdefault("story_inputs", _default_story_inputs(task_name, primary_files, previous_story_id))
+    payload.setdefault("story_process", _default_story_process(task_name, primary_files))
+    payload.setdefault("story_outputs", _default_story_outputs(task_name, primary_files))
+    payload.setdefault("verification_basis", _default_verification_basis(task_name))
+    return payload
 
 
 class RequirementsAnalystAgent:
@@ -506,6 +557,7 @@ class RequirementsAnalystAgent:
                 epic_dir = sprint_dir / f"epic_{epic['code']}_{epic['slug']}"
                 epic_dir.mkdir(parents=True, exist_ok=True)
                 for story in epic.get("stories", []):
+                    story = _ensure_story_contract(story)
                     _write_yaml(epic_dir / _story_filename(story), story)
                     story_cards.append(story)
         return {
@@ -587,6 +639,10 @@ Return strict JSON with this shape:
               "business_value": "...",
               "entry_criteria": ["..."],
               "acceptance_criteria": ["..."],
+              "story_inputs": ["..."],
+              "story_process": ["..."],
+              "story_outputs": ["..."],
+              "verification_basis": ["..."],
               "constraints": ["..."],
               "out_of_scope": ["..."],
               "dependencies": ["无"],

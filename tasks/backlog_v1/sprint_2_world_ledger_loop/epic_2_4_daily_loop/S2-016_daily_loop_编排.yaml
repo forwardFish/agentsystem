@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/loop/daily_loop_编排.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "context、actions、风险校验、撮合和结算各阶段能力。"
+  - "daily loop 需要串联的主链路节点。"
+  - "每日运行应保留的阶段结果和错误边界。"
+
+story_process:
+  - "串起 context -> decide -> risk -> match -> settle。"
+  - "让各阶段按固定顺序执行并传递结果。"
+  - "在运行失败时保留可追踪阶段信息。"
+
+story_outputs:
+  - "完整 daily loop 运行编排。"
+  - "一条可回放、可审计的每日运行主链路。"
+
+verification_basis:
+  - "检查主链路能按顺序执行。"
+  - "检查阶段输出会被传给下游。"
+  - "检查失败场景能保留明确阶段信息。"
+
 test_cases:
   normal:
   - 正常路径：Daily Loop 编排 的核心场景可以完成。

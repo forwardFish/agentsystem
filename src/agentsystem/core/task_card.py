@@ -5,6 +5,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+def _clean_string_list(values: list[str] | tuple[str, ...] | None) -> list[str]:
+    return [str(item).strip() for item in (values or []) if str(item).strip()]
+
+
 class TaskCard(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -30,6 +34,10 @@ class TaskCard(BaseModel):
     secondary_files: list[str] = Field(default_factory=list)
     test_cases: dict[str, list[str]] = Field(default_factory=dict)
     test_failure_info: str | None = None
+    story_inputs: list[str] = Field(default_factory=list)
+    story_process: list[str] = Field(default_factory=list)
+    story_outputs: list[str] = Field(default_factory=list)
+    verification_basis: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def normalize_fields(self) -> "TaskCard":
@@ -38,17 +46,17 @@ class TaskCard(BaseModel):
             raise ValueError("goal must not be empty")
         self.goal = goal
 
-        self.acceptance_criteria = [item.strip() for item in self.acceptance_criteria if item and item.strip()]
+        self.acceptance_criteria = _clean_string_list(self.acceptance_criteria)
         if not self.acceptance_criteria:
             raise ValueError("acceptance_criteria must contain at least one non-empty item")
 
-        self.constraints = [item.strip() for item in self.constraints if item and item.strip()]
-        self.entry_criteria = [item.strip() for item in self.entry_criteria if item and item.strip()]
-        self.related_files = [item.strip() for item in self.related_files if item and item.strip()]
+        self.constraints = _clean_string_list(self.constraints)
+        self.entry_criteria = _clean_string_list(self.entry_criteria)
+        self.related_files = _clean_string_list(self.related_files)
         if not self.related_files:
             raise ValueError("related_files must contain at least one file path")
-        self.primary_files = [item.strip() for item in self.primary_files if item and item.strip()]
-        self.secondary_files = [item.strip() for item in self.secondary_files if item and item.strip()]
+        self.primary_files = _clean_string_list(self.primary_files)
+        self.secondary_files = _clean_string_list(self.secondary_files)
         if not self.primary_files:
             self.primary_files = list(self.related_files)
 
@@ -58,19 +66,23 @@ class TaskCard(BaseModel):
             self.execution_mode = self.mode
 
         if not self.explicitly_not_doing and self.not_do:
-            self.explicitly_not_doing = [item.strip() for item in self.not_do if item and item.strip()]
+            self.explicitly_not_doing = _clean_string_list(self.not_do)
         if not self.explicitly_not_doing and self.out_of_scope:
-            self.explicitly_not_doing = [item.strip() for item in self.out_of_scope if item and item.strip()]
+            self.explicitly_not_doing = _clean_string_list(self.out_of_scope)
         if not self.not_do and self.out_of_scope:
-            self.not_do = [item.strip() for item in self.out_of_scope if item and item.strip()]
-        self.out_of_scope = [item.strip() for item in self.out_of_scope if item and item.strip()]
-        self.dependencies = [item.strip() for item in self.dependencies if item and item.strip()]
+            self.not_do = _clean_string_list(self.out_of_scope)
+        self.out_of_scope = _clean_string_list(self.out_of_scope)
+        self.dependencies = _clean_string_list(self.dependencies)
         cleaned_test_cases: dict[str, list[str]] = {}
         for case_type, items in self.test_cases.items():
             cleaned = [str(item).strip() for item in items if str(item).strip()]
             if cleaned:
                 cleaned_test_cases[str(case_type)] = cleaned
         self.test_cases = cleaned_test_cases
+        self.story_inputs = _clean_string_list(self.story_inputs) or self._default_story_inputs()
+        self.story_process = _clean_string_list(self.story_process) or self._default_story_process()
+        self.story_outputs = _clean_string_list(self.story_outputs) or self._default_story_outputs()
+        self.verification_basis = _clean_string_list(self.verification_basis) or list(self.acceptance_criteria)
 
         return self
 
@@ -79,3 +91,31 @@ class TaskCard(BaseModel):
         payload["mode"] = self.mode or self.execution_mode
         payload["execution_mode"] = self.execution_mode or self.mode
         return payload
+
+    def _default_story_inputs(self) -> list[str]:
+        inputs: list[str] = []
+        inputs.extend(self.entry_criteria)
+        scoped_files = self.primary_files or self.related_files
+        if scoped_files:
+            inputs.append(f"In-scope files: {', '.join(scoped_files)}")
+        dependencies = [item for item in self.dependencies if item.lower() not in {"none", "n/a", "无"}]
+        if dependencies:
+            inputs.append(f"Dependency outputs available from: {', '.join(dependencies)}")
+        if not inputs:
+            inputs.append("Use the current story goal and declared in-scope files as the execution input.")
+        return inputs
+
+    def _default_story_process(self) -> list[str]:
+        return [
+            "Inspect the declared scope and understand the current implementation before editing.",
+            "Implement only the change required for this story goal and keep the blast radius within the card.",
+            "Run story-specific validation and record reusable evidence for acceptance.",
+        ]
+
+    def _default_story_outputs(self) -> list[str]:
+        outputs: list[str] = []
+        scoped_files = self.primary_files or self.related_files
+        if scoped_files:
+            outputs.append(f"Updated story artifacts in: {', '.join(scoped_files)}")
+        outputs.append("Validation evidence and delivery artifacts archived for this story.")
+        return outputs

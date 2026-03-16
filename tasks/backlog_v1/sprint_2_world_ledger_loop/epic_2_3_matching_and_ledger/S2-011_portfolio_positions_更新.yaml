@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/matching/portfolio_positions_更新.py
 secondary_files:
 - apps/api/src/modules/orders/service.py
+story_inputs:
+  - "S2-010 生成的 fills 与结算结果。"
+  - "当前 portfolio 和 positions 状态。"
+  - "持仓更新和组合汇总规则。"
+
+story_process:
+  - "基于 fills 更新 positions。"
+  - "同步更新 portfolio 汇总值。"
+  - "让 world/query 链路能读到最新组合状态。"
+
+story_outputs:
+  - "更新后的 positions。"
+  - "更新后的 portfolio。"
+
+verification_basis:
+  - "检查买卖成交后 positions 被正确更新。"
+  - "检查 portfolio 汇总与 positions 结果一致。"
+  - "检查 query 链路可查询到最新状态。"
+
 test_cases:
   normal:
   - 正常路径：portfolio / positions 更新 的核心场景可以完成。

@@ -47,6 +47,25 @@ primary_files:
 secondary_files:
   - "apps/api/src/modules/statements/mappers/rules.py"
 
+story_inputs:
+  - "S1-005 产出的统一字段映射结果。"
+  - "平台内部的 TradeRecord 结构定义。"
+  - "交易方向、价格、数量、时间等标准化规则。"
+
+story_process:
+  - "把映射后的原始记录转换成 TradeRecord。"
+  - "统一方向、数量、价格、时间和标的字段。"
+  - "为后续解析校验和 profile 提取提供稳定输入。"
+
+story_outputs:
+  - "标准化后的 TradeRecord 列表。"
+  - "可供 parse report 和 profile 提取复用的交易记录结果。"
+
+verification_basis:
+  - "检查输出符合 TradeRecord 结构。"
+  - "检查方向、价格、数量等关键字段被正确标准化。"
+  - "检查 profile 提取链路可直接消费这些记录。"
+
 test_cases:
   normal:
     - "正常路径：有效记录会生成完整的标准化 TradeRecord。"

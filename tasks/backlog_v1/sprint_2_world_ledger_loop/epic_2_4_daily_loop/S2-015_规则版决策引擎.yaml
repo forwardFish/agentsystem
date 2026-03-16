@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/loop/规则版决策引擎.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "S2-014 产出的 context pack。"
+  - "MVP 阶段 rule-based 的决策规则。"
+  - "submit-actions 需要的动作结构。"
+
+story_process:
+  - "基于 context pack 运行规则版决策。"
+  - "生成买卖或持有动作。"
+  - "保证输出动作满足 submit-actions 契约。"
+
+story_outputs:
+  - "rule-based 产生的 actions。"
+  - "可进入校验、撮合和结算链路的动作集。"
+
+verification_basis:
+  - "检查 context pack 能产生规则动作。"
+  - "检查动作结果符合 submit-actions 契约。"
+  - "检查后续校验链路可以继续消费这些 actions。"
+
 test_cases:
   normal:
   - 正常路径：规则版决策引擎 的核心场景可以完成。

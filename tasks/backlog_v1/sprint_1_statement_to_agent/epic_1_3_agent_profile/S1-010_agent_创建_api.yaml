@@ -49,6 +49,25 @@ secondary_files:
   - "apps/api/src/api/query/routes.py"
   - "apps/api/src/schemas/agent.py"
 
+story_inputs:
+  - "statement 元数据、完整 TradingAgentProfile 和初始资金。"
+  - "Agent 创建需要写入的 agents、profiles、关联状态等对象。"
+  - "query API 后续需要查询的 agent_id 和基础信息。"
+
+story_process:
+  - "基于 statement、profile 和初始资金创建 Agent。"
+  - "写入 Agent 记录并建立必要关联。"
+  - "返回可供查询链路使用的 agent_id。"
+
+story_outputs:
+  - "Agent 创建 API。"
+  - "一条可查询的 agent 记录和 agent_id。"
+
+verification_basis:
+  - "检查创建成功后能返回 agent_id。"
+  - "检查 query API 可以查询到新建 Agent。"
+  - "检查创建结果关联到 statement 和 profile。"
+
 test_cases:
   normal:
     - "正常路径：基于有效 statement 和 Profile 创建 Agent，返回 agent_id。"

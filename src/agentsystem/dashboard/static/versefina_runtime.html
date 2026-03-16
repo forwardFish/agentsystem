@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Versefina 验收台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(14, 165, 233, 0.12), transparent 24%),
+        radial-gradient(circle at top right, rgba(249, 115, 22, 0.10), transparent 26%),
+        linear-gradient(160deg, #08111f, #0d1728 44%, #09111f 100%);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .panel { border: 1px solid rgba(255,255,255,0.08); background: linear-gradient(180deg, rgba(18,28,44,0.96), rgba(10,17,31,0.94)); box-shadow: 0 20px 48px rgba(0,0,0,0.28); backdrop-filter: blur(10px); }
+    .section-label { color: #94a3b8; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .data-card { border: 1px solid rgba(255,255,255,0.08); background: rgba(4,10,20,0.45); }
+    .pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 10px; font-size: 12px; line-height: 1; white-space: nowrap; border: 1px solid rgba(255,255,255,0.08); }
+    .pill.done, .pill.success, .pill.real, .pill.approved { color: #d1fae5; background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.28); }
+    .pill.placeholder, .pill.partial, .pill.needs_followup, .pill.needs_attention { color: #fde68a; background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.24); }
+    .pill.registry_only, .pill.pending_signoff, .pill.pending, .pill.ready { color: #dbeafe; background: rgba(125, 211, 252, 0.10); border-color: rgba(125, 211, 252, 0.22); }
+    .pill.failed, .pill.rejected, .pill.missing { color: #fecdd3; background: rgba(251, 113, 133, 0.12); border-color: rgba(251, 113, 133, 0.28); }
+    .json-block { border: 1px solid rgba(255,255,255,0.08); background: rgba(2,6,14,0.8); border-radius: 18px; padding: 14px; font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 1.6; color: #dbeafe; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-100">
+  <div class="mx-auto max-w-[1650px] px-5 py-6 lg:px-8">
+    <header class="panel mb-6 rounded-[28px] p-6 lg:p-8">
+      <div class="flex flex-wrap items-start justify-between gap-6">
+        <div class="max-w-5xl">
+          <div class="section-label mb-3">Versefina Runtime Acceptance</div>
+          <h1 class="text-2xl font-bold tracking-tight text-white lg:text-4xl">Versefina 验收台</h1>
+          <p class="mt-4 max-w-4xl text-sm leading-7 text-slate-300">
+            这不是一个只看“有没有代码”的页面，而是一个给最终检验者使用的验收台。
+            你可以直接看到每条 Story 的计划输入、实际输入样本、实际输出样本、验收依据，以及它目前到底是“真实完成”、“只有登记”还是“仍是占位实现”。
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <a href="/?project=versefina" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10">返回项目总览</a>
+          <button id="refresh-button" class="rounded-full border border-cyan-300/25 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-50 transition hover:border-cyan-200/40 hover:bg-cyan-300/15">刷新验收数据</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div class="panel rounded-[24px] p-5"><div class="section-label">交割单</div><div id="metric-statements" class="mt-3 text-3xl font-bold text-white">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">解析报告</div><div id="metric-reports" class="mt-3 text-3xl font-bold text-sky-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">TradeRecord</div><div id="metric-trades" class="mt-3 text-3xl font-bold text-emerald-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">Agent</div><div id="metric-agents" class="mt-3 text-3xl font-bold text-amber-300">0</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-label">真实证据 Story</div><div id="metric-real-stories" class="mt-3 text-3xl font-bold text-rose-300">0</div></div>
+    </section>
+
+    <section class="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+      <div class="space-y-6">
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">验收主线</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">Sprint 主链输入与输出</h2>
+          </div>
+          <div id="acceptance-lines" class="grid gap-4 xl:grid-cols-2"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">运行链路</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">当前已落盘的 artifact 阶段</h2>
+          </div>
+          <div id="pipeline-view" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">Story 验收</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">逐条 Story 看计划与结果</h2>
+          </div>
+          <div id="story-groups" class="space-y-6"></div>
+        </div>
+      </div>
+
+      <div class="space-y-6">
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">样本信息</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">当前 runtime 样本</h2>
+          </div>
+          <div id="runtime-meta" class="space-y-3 text-sm text-slate-200"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">关键产物</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">实际 artifact 样本</h2>
+          </div>
+          <div id="artifact-samples" class="space-y-4"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">验证样本包</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">独立样本目录</h2>
+          </div>
+          <div id="validation-packs" class="space-y-4"></div>
+        </div>
+
+        <div class="panel rounded-[28px] p-5">
+          <div class="mb-4">
+            <div class="section-label">验收提醒</div>
+            <h2 class="mt-1 text-xl font-semibold text-white">当前结论</h2>
+          </div>
+          <div id="evidence-notes" class="space-y-3 text-sm leading-7 text-slate-200"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const STATUS_LABELS = {
+      done: "已完成", success: "已通过", approved: "已签收", passed: "已通过", failed: "失败",
+      rejected: "已拒绝", not_started: "未开始", pending: "待执行", pending_signoff: "待人工签收",
+      partial: "部分完成", needs_followup: "待跟进", needs_attention: "需关注", ready: "已就绪",
+      placeholder: "占位输出", registry_only: "仅有登记", missing: "缺少证据", real: "真实结果"
+    };
+
+    function badgeClass(status) { return (status || "not_started").toLowerCase(); }
+    function statusText(status) { return STATUS_LABELS[(status || "").toLowerCase()] || status || "-"; }
+    async function fetchJson(path) { const response = await fetch(path); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); }
+    function jsonBlock(value, empty = "暂无样本。") { return `<div class="json-block">${value ? JSON.stringify(value, null, 2) : empty}</div>`; }
+    function renderList(items, empty = "暂无记录。") { const rows = Array.isArray(items) ? items.filter(Boolean) : []; return rows.length ? `<ul class="list-disc space-y-2 pl-5 text-sm leading-7 text-slate-200">${rows.map((item) => `<li>${item}</li>`).join("")}</ul>` : `<div class="text-sm text-slate-400">${empty}</div>`; }
+
+    function renderAcceptanceLines(items) {
+      document.getElementById("acceptance-lines").innerHTML = items.map((item) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="text-sm font-semibold text-white">${item.title}</div>
+            <div class="mt-1 text-sm text-slate-300">${item.summary || ""}</div>
+          </div>
+          <div class="grid gap-4">
+            <div>
+              <div class="mb-2 flex items-center gap-2"><span class="pill registry_only">输入</span><div class="text-sm text-white">${item.input_label || "-"}</div></div>
+              ${jsonBlock(item.input_sample)}
+            </div>
+            <div>
+              <div class="mb-2 flex items-center gap-2"><span class="pill real">输出</span><div class="text-sm text-white">${item.output_label || "-"}</div></div>
+              ${jsonBlock(item.output_sample)}
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderPipeline(items) {
+      document.getElementById("pipeline-view").innerHTML = items.map((item, index) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <span class="pill registry_only">第 ${index + 1} 步</span>
+            <span class="pill ${badgeClass(item.mode)}">${statusText(item.mode)}</span>
+          </div>
+          <div class="text-sm font-semibold text-white">${item.label}</div>
+          <div class="mt-2 text-xs tracking-[0.16em] text-slate-500">${item.stage}</div>
+          <div class="mt-3 text-2xl font-bold text-white">${item.count}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderHumanReview(review) {
+      if (!review) {
+        return `<div class="rounded-[16px] border border-white/8 bg-white/5 p-3 text-sm text-slate-300">还没有人工签收记录。</div>`;
+      }
+      return `
+        <div class="rounded-[16px] border border-white/8 bg-white/5 p-3">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${review.summary || "已记录人工结论"}</div>
+            <span class="pill ${badgeClass(review.verdict || "pending_signoff")}">${statusText(review.verdict || "pending_signoff")}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-200">${review.notes || "暂无补充说明。"}</div>
+          <div class="mt-2 text-xs text-slate-400">${review.reviewer || "-"} | ${review.checked_at || "-"}</div>
+        </div>
+      `;
+    }
+
+    function renderStoryGroups(groups) {
+      document.getElementById("story-groups").innerHTML = groups.map((group) => `
+        <section class="space-y-4">
+          <div>
+            <div class="text-lg font-semibold text-white">${group.title}</div>
+            <div class="mt-1 text-sm text-slate-400">${group.summary || ""}</div>
+          </div>
+          ${(group.stories || []).map((story) => `
+            <div class="data-card rounded-[22px] p-4">
+              <div class="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-sm font-semibold text-white">${story.story_id} ${story.task_name || ""}</div>
+                  <div class="mt-1 text-xs tracking-[0.16em] text-slate-500">${story.input_label || "-"} -> ${story.output_label || "-"}</div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <span class="pill ${badgeClass(story.status)}">${statusText(story.status)}</span>
+                  <span class="pill ${badgeClass(story.evidence_status)}">${statusText(story.evidence_status)}</span>
+                </div>
+              </div>
+              <div class="grid gap-4 xl:grid-cols-2">
+                <div><div class="section-label mb-2">实际输入</div>${jsonBlock(story.input_sample)}</div>
+                <div><div class="section-label mb-2">实际输出</div>${jsonBlock(story.output_sample, "当前没有可展示的输出样本。")}</div>
+              </div>
+              <div class="mt-4 grid gap-4 xl:grid-cols-2">
+                <div>
+                  <div class="section-label mb-2">计划合同</div>
+                  <div class="grid gap-3 md:grid-cols-2">
+                    <div><div class="text-xs tracking-[0.16em] text-slate-500">输入</div>${renderList(story.story_inputs, "暂无定义。")}</div>
+                    <div><div class="text-xs tracking-[0.16em] text-slate-500">过程</div>${renderList(story.story_process, "暂无定义。")}</div>
+                    <div><div class="text-xs tracking-[0.16em] text-slate-500">输出</div>${renderList(story.story_outputs, "暂无定义。")}</div>
+                    <div><div class="text-xs tracking-[0.16em] text-slate-500">验收依据</div>${renderList((story.verification_basis || []).concat(story.acceptance_criteria || []), "暂无定义。")}</div>
+                  </div>
+                </div>
+                <div class="space-y-3">
+                  <div><div class="section-label mb-2">当前说明</div><div class="text-sm leading-7 text-slate-200">${story.evidence_note || "暂无说明。"}</div></div>
+                  <div><div class="section-label mb-2">如何校验</div><div class="text-sm leading-7 text-slate-200">${story.validation_hint || "暂无提示。"}</div></div>
+                  <div><div class="section-label mb-2">业务验证登记</div>${renderList(story.registry_evidence || [], story.registry_summary || "暂无业务验证登记。")}</div></div>
+                  <div><div class="section-label mb-2">人工签收</div>${renderHumanReview(story.human_review)}</div></div>
+                  <div class="pt-2">
+                    <a href="/story?project=versefina&backlog=backlog_v1&sprint=${encodeURIComponent(group.sprint_id)}&story=${encodeURIComponent(story.story_id)}" class="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10">进入 Story 验收页</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </section>
+      `).join("");
+    }
+
+    function renderArtifactSamples(items) {
+      document.getElementById("artifact-samples").innerHTML = items.map((item) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${item.label}</div>
+            <span class="pill ${badgeClass(item.status)}">${statusText(item.status)}</span>
+          </div>
+          <div class="mb-3 text-xs text-slate-400 break-all">${item.path || "-"}</div>
+          ${jsonBlock(item.sample)}
+        </div>
+      `).join("");
+    }
+
+    function renderValidationPacks(items) {
+      document.getElementById("validation-packs").innerHTML = items.length ? items.map((item) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${item.label}</div>
+            <span class="pill registry_only">${(item.focus_story_ids || []).join(" / ") || "-"}</span>
+          </div>
+          <div class="mb-3 text-xs text-slate-400 break-all">${item.artifact_dir}</div>
+          <div class="mb-3 flex flex-wrap gap-2">
+            <span class="pill registry_only">statement ${item.statement_count ?? 0}</span>
+            <span class="pill registry_only">parse ${item.parse_report_count ?? 0}</span>
+            <span class="pill registry_only">trade ${item.trade_record_file_count ?? 0}</span>
+            <span class="pill registry_only">profile ${item.profile_count ?? 0}</span>
+            <span class="pill registry_only">agent ${item.agent_count ?? 0}</span>
+          </div>
+          <div class="grid gap-3 xl:grid-cols-2">
+            <div><div class="section-label mb-2">输入样本</div>${jsonBlock(item.input_sample)}</div>
+            <div><div class="section-label mb-2">输出样本</div>${jsonBlock(item.output_sample)}</div>
+          </div>
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">当前没有找到独立样本目录。</div>`;
+    }
+
+    function renderNotes(items) {
+      document.getElementById("evidence-notes").innerHTML = items.map((item) => `<div class="data-card rounded-[18px] p-4">${item}</div>`).join("");
+    }
+
+    async function loadShowcase() {
+      const payload = await fetchJson("/api/versefina/runtime/showcase");
+      document.getElementById("metric-statements").textContent = payload.stats?.statement_count ?? 0;
+      document.getElementById("metric-reports").textContent = payload.stats?.parse_report_count ?? 0;
+      document.getElementById("metric-trades").textContent = payload.stats?.trade_record_count ?? 0;
+      document.getElementById("metric-agents").textContent = payload.stats?.agent_count ?? 0;
+      document.getElementById("metric-real-stories").textContent = payload.stats?.real_evidence_story_count ?? 0;
+      document.getElementById("runtime-meta").innerHTML = `
+        <div><span class="section-label">Runtime Root</span><div class="mt-1 break-all">${payload.runtime_root || "-"}</div></div>
+        <div><span class="section-label">示例 Statement</span><div class="mt-1">${payload.sample_ids?.statement_id || "-"}</div></div>
+        <div><span class="section-label">示例 Agent</span><div class="mt-1">${payload.sample_ids?.agent_id || "-"}</div></div>
+        <div><span class="section-label">示例 World</span><div class="mt-1">${payload.sample_ids?.world_id || "-"}</div></div>
+      `;
+      renderAcceptanceLines(payload.acceptance_lines || []);
+      renderPipeline(payload.pipeline || []);
+      renderStoryGroups(payload.story_groups || []);
+      renderArtifactSamples(payload.artifact_samples || []);
+      renderValidationPacks(payload.validation_packs || []);
+      renderNotes(payload.evidence_notes || []);
+    }
+
+    document.getElementById("refresh-button").addEventListener("click", () => loadShowcase().catch(console.error));
+    loadShowcase().catch((error) => {
+      console.error(error);
+      document.getElementById("story-groups").innerHTML = `<div class="text-sm text-rose-300">加载 Versefina 验收台失败：${String(error)}</div>`;
+    });
+  </script>
+</body>
+</html>

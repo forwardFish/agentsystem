@@ -47,6 +47,25 @@ secondary_files:
   - "apps/api/src/modules/statements/mappers/__init__.py"
   - "apps/api/src/modules/statements/parser_service.py"
 
+story_inputs:
+  - "不同券商交割单的原始列头与原始字段。"
+  - "平台内部统一字段模型。"
+  - "S1-003 提供的 parser_key 和文件类型识别结果。"
+
+story_process:
+  - "定义券商列头到平台统一字段的映射规则。"
+  - "按 parser_key 识别并应用对应映射。"
+  - "把原始字段结果整理为后续标准化可消费的中间结构。"
+
+story_outputs:
+  - "券商字段映射规则。"
+  - "映射后的统一字段记录。"
+
+verification_basis:
+  - "检查不同券商列头能映射到统一字段。"
+  - "检查未知列头会触发明确错误或报告。"
+  - "检查标准化阶段可直接消费映射结果。"
+
 test_cases:
   normal:
     - "正常路径：中文列头样例能识别并映射到统一字段。"

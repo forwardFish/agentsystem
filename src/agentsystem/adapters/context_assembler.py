@@ -54,12 +54,20 @@ class ContextAssembler:
         context_parts: list[str] = []
         goal = str(task_payload.get("goal", "")).strip()
         acceptance = task_payload.get("acceptance_criteria", [])
+        story_inputs = task_payload.get("story_inputs", [])
+        story_process = task_payload.get("story_process", [])
+        story_outputs = task_payload.get("story_outputs", [])
+        verification_basis = task_payload.get("verification_basis", [])
         constraints = task_payload.get("constraints", [])
         related_files = [str(path) for path in task_payload.get("related_files", [])]
 
         context_parts.append("# Task Card")
         context_parts.append(f"Goal: {goal or 'n/a'}")
         context_parts.append(f"Acceptance Criteria: {json.dumps(acceptance, ensure_ascii=False)}")
+        context_parts.append(f"Story Inputs: {json.dumps(story_inputs, ensure_ascii=False)}")
+        context_parts.append(f"Story Process: {json.dumps(story_process, ensure_ascii=False)}")
+        context_parts.append(f"Story Outputs: {json.dumps(story_outputs, ensure_ascii=False)}")
+        context_parts.append(f"Verification Basis: {json.dumps(verification_basis, ensure_ascii=False)}")
         context_parts.append(f"Constraints: {json.dumps(constraints, ensure_ascii=False)}")
         context_parts.append("")
 

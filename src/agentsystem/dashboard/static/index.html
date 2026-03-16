@@ -90,6 +90,8 @@
         </div>
         <div class="flex flex-wrap items-center gap-3">
           <select id="project-select" class="input rounded-full px-4 py-2 text-sm"></select>
+          <a id="versefina-showcase-link" href="/versefina/runtime" class="hidden rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-300/15">打开 Versefina 验收台</a>
+          <a id="finahunt-showcase-link" href="/finahunt/runtime" class="hidden rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-300/15">打开 Finahunt 验收台</a>
           <button id="refresh-button" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10">刷新数据</button>
         </div>
       </div>
@@ -149,6 +151,7 @@
           </div>
           <div id="story-count" class="text-sm text-slate-400">0</div>
         </div>
+        <div id="sprint-action-bar" class="mb-5 hidden rounded-[22px] border border-emerald-300/15 bg-emerald-400/10 p-4 text-sm text-emerald-50"></div>
         <div id="sprint-plan" class="markdown mb-5 rounded-[22px] border border-white/8 bg-black/20 p-5"></div>
         <div id="sprint-quality-report" class="markdown mb-5 rounded-[22px] border border-white/8 bg-black/20 p-5"></div>
         <div id="story-list" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
@@ -213,6 +216,13 @@
       window.history.replaceState({}, "", next);
     }
 
+    function updateProjectActions() {
+      const versefinaLink = document.getElementById("versefina-showcase-link");
+      const link = document.getElementById("finahunt-showcase-link");
+      versefinaLink.classList.toggle("hidden", selectedProjectId !== "versefina");
+      link.classList.toggle("hidden", selectedProjectId !== "finahunt");
+    }
+
     async function loadProjects() {
       const payload = await fetchJson("/api/projects");
       const select = document.getElementById("project-select");
@@ -229,6 +239,7 @@
       }
       select.value = selectedProjectId;
       syncUrl();
+      updateProjectActions();
     }
 
     async function loadMetrics() {
@@ -315,8 +326,35 @@
       selectedSprintId = sprintId;
       setActiveCard("sprint-list", sprintId, "sprint");
       const detail = await fetchJson(`/api/backlogs/${backlogId}/sprints/${sprintId}?project=${encodeURIComponent(selectedProjectId)}`);
+      const actionBar = document.getElementById("sprint-action-bar");
       document.getElementById("sprint-plan").innerHTML = marked.parse(detail.sprint_plan_markdown || "_暂无 sprint 规划_");
       document.getElementById("sprint-quality-report").innerHTML = marked.parse(detail.quality_report_markdown || "_暂无 sprint 质量报告_");
+      if (selectedProjectId === "finahunt" && sprintId === "sprint_2_catalyst_mining_core") {
+        actionBar.classList.remove("hidden");
+        actionBar.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="text-base font-semibold text-white">Sprint 2 runtime outputs are available</div>
+              <div class="mt-1 text-sm leading-6 text-emerald-50/85">Open the showcase to inspect structured result cards, theme heat snapshots, fermenting theme feed, and daily review from real runtime artifacts.</div>
+            </div>
+            <a href="/finahunt/runtime" class="rounded-full border border-emerald-200/30 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-50 transition hover:border-emerald-100/50 hover:bg-emerald-200/20">View Showcase</a>
+          </div>
+        `;
+      } else if (selectedProjectId === "versefina" && (sprintId === "sprint_1_statement_to_agent" || sprintId === "sprint_2_world_ledger_loop")) {
+        actionBar.classList.remove("hidden");
+        actionBar.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="text-base font-semibold text-white">Versefina 验收台已开放</div>
+              <div class="mt-1 text-sm leading-6 text-cyan-50/85">可以直接检查交割单上传、解析、画像、Agent 创建以及市场世界缓存的实际输入、实际输出和 Story 验收依据。</div>
+            </div>
+            <a href="/versefina/runtime" class="rounded-full border border-cyan-200/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition hover:border-cyan-100/50 hover:bg-cyan-200/20">打开验收台</a>
+          </div>
+        `;
+      } else {
+        actionBar.classList.add("hidden");
+        actionBar.innerHTML = "";
+      }
       const list = document.getElementById("story-list");
       list.innerHTML = "";
       const stories = [];

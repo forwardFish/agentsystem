@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Story Detail</title>
+  <title>Story 验收详情</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
@@ -36,22 +36,22 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
       white-space: nowrap;
     }
-    .pill.done, .pill.success, .pill.verified {
+    .pill.done, .pill.success, .pill.verified, .pill.approved {
       color: #d1fae5;
       background: rgba(52, 211, 153, 0.12);
       border-color: rgba(52, 211, 153, 0.25);
     }
-    .pill.failed, .pill.blocking {
+    .pill.failed, .pill.blocking, .pill.rejected {
       color: #fecdd3;
       background: rgba(251, 113, 133, 0.12);
       border-color: rgba(251, 113, 133, 0.25);
     }
-    .pill.partial, .pill.running, .pill.important {
+    .pill.partial, .pill.running, .pill.important, .pill.needs_followup, .pill.needs_attention {
       color: #fde68a;
       background: rgba(245, 158, 11, 0.14);
       border-color: rgba(245, 158, 11, 0.24);
     }
-    .pill.not_started, .pill.pending, .pill.nice_to_have, .pill.unknown {
+    .pill.not_started, .pill.pending, .pill.nice_to_have, .pill.unknown, .pill.pending_signoff, .pill.ready, .pill.missing {
       color: #dbeafe;
       background: rgba(125, 211, 252, 0.10);
       border-color: rgba(125, 211, 252, 0.22);
@@ -83,6 +83,21 @@
       line-height: 1.7;
       overflow-wrap: anywhere;
     }
+    .field {
+      width: 100%;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(2, 6, 14, 0.7);
+      color: #e2e8f0;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .field:focus {
+      outline: none;
+      border-color: rgba(52, 211, 153, 0.45);
+      box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.25);
+    }
   </style>
 </head>
 <body class="min-h-screen text-slate-100">
@@ -90,12 +105,13 @@
     <header class="panel mb-6 rounded-[28px] p-6 lg:p-8">
       <div class="flex flex-wrap items-start justify-between gap-6">
         <div class="max-w-5xl">
-          <div class="section-label mb-3">Story Detail</div>
-          <h1 id="detail-title" class="text-2xl font-bold tracking-tight text-white lg:text-4xl">Loading...</h1>
+          <div class="section-label mb-3">Story 验收详情</div>
+          <h1 id="detail-title" class="text-2xl font-bold tracking-tight text-white lg:text-4xl">加载中...</h1>
           <p id="detail-meta" class="mt-4 max-w-4xl text-sm leading-7 text-slate-300">正在读取 story 详情与协作状态。</p>
         </div>
         <div class="flex flex-wrap items-center gap-3">
           <span id="detail-status" class="pill not_started">not_started</span>
+          <a id="showcase-link" href="/finahunt/runtime" class="hidden rounded-full border border-emerald-300/25 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-50 transition hover:border-emerald-200/40 hover:bg-emerald-300/15">返回 Sprint 2 验收台</a>
           <a id="back-link" href="/" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-emerald-300/50 hover:bg-white/10">返回列表页</a>
         </div>
       </div>
@@ -106,19 +122,19 @@
         <div class="panel rounded-[28px] p-5">
           <div class="grid gap-4 md:grid-cols-4">
             <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
-              <div class="section-label mb-2">Tests</div>
+              <div class="section-label mb-2">测试</div>
               <div id="metric-tests" class="text-lg font-semibold text-white">-</div>
             </div>
             <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
-              <div class="section-label mb-2">Review</div>
+              <div class="section-label mb-2">审查</div>
               <div id="metric-review" class="text-lg font-semibold text-white">-</div>
             </div>
             <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
-              <div class="section-label mb-2">Code Acceptance</div>
+              <div class="section-label mb-2">代码验收</div>
               <div id="metric-code-acceptance" class="text-lg font-semibold text-white">-</div>
             </div>
             <div class="rounded-[20px] border border-white/8 bg-black/20 p-4">
-              <div class="section-label mb-2">Acceptance Gate</div>
+              <div class="section-label mb-2">最终验收</div>
               <div id="metric-acceptance" class="text-lg font-semibold text-white">-</div>
             </div>
           </div>
@@ -141,11 +157,59 @@
               <div class="mb-4 text-lg font-semibold text-white">验收清单</div>
               <div id="story-checklist" class="space-y-3"></div>
             </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-4 text-lg font-semibold text-white">Story 合同</div>
+              <div id="story-contract" class="space-y-5"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-4 text-lg font-semibold text-white">验收模板</div>
+              <div id="story-acceptance-template" class="grid gap-4 md:grid-cols-2"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-4 text-lg font-semibold text-white">人工签收</div>
+              <div id="human-signoff-summary" class="space-y-4"></div>
+              <form id="human-signoff-form" class="mt-5 space-y-4">
+                <div class="grid gap-4 md:grid-cols-2">
+                  <label class="block">
+                    <div class="section-label mb-2">检验人</div>
+                    <input id="signoff-reviewer" class="field" type="text" placeholder="填写检验人姓名" />
+                  </label>
+                  <label class="block">
+                    <div class="section-label mb-2">结论</div>
+                    <select id="signoff-verdict" class="field">
+                      <option value="approved">已签收</option>
+                      <option value="needs_followup">待跟进</option>
+                      <option value="rejected">已拒绝</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="block">
+                  <div class="section-label mb-2">结论摘要</div>
+                  <input id="signoff-summary" class="field" type="text" placeholder="用一句话写下这条 story 的验收结论" />
+                </label>
+                <label class="block">
+                  <div class="section-label mb-2">补充说明</div>
+                  <textarea id="signoff-notes" class="field min-h-[120px]" placeholder="可选：记录补充说明、后续事项或风险提示"></textarea>
+                </label>
+                <div class="flex flex-wrap items-center gap-3">
+                  <button id="signoff-submit" type="submit" class="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-50 transition hover:border-emerald-200/40 hover:bg-emerald-300/15">保存人工签收</button>
+                  <div id="signoff-message" class="text-sm text-slate-400"></div>
+                </div>
+              </form>
+            </div>
           </div>
 
           <div id="panel-reports" class="hidden space-y-6">
             <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
               <div class="mb-3 text-lg font-semibold text-white">PR 描述</div>
+              <div id="artifact-intent" class="markdown"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">需求解析</div>
+              <div id="artifact-parsed-requirement" class="markdown"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">PR 鎻忚堪</div>
               <div id="artifact-pr" class="markdown"></div>
             </div>
             <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
@@ -153,16 +217,20 @@
               <div id="artifact-review" class="markdown"></div>
             </div>
             <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
-              <div class="mb-3 text-lg font-semibold text-white">Code Style Review</div>
+              <div class="mb-3 text-lg font-semibold text-white">代码风格审查</div>
               <div id="artifact-code-style" class="markdown"></div>
             </div>
             <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
-              <div class="mb-3 text-lg font-semibold text-white">Code Acceptance</div>
+              <div class="mb-3 text-lg font-semibold text-white">代码验收</div>
               <div id="artifact-code-acceptance" class="markdown"></div>
             </div>
             <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
-              <div class="mb-3 text-lg font-semibold text-white">Delivery Report</div>
+              <div class="mb-3 text-lg font-semibold text-white">交付报告</div>
               <div id="artifact-delivery" class="markdown"></div>
+            </div>
+            <div class="rounded-[22px] border border-white/8 bg-black/20 p-5">
+              <div class="mb-3 text-lg font-semibold text-white">结果报告</div>
+              <div id="artifact-result" class="markdown"></div>
             </div>
           </div>
 
@@ -227,6 +295,7 @@
     const storyId = params.get("story");
     let activeTab = "summary";
     let socket = null;
+    let currentStoryDetail = null;
 
     document.getElementById("back-link").href = `/?project=${encodeURIComponent(projectId)}`;
 
@@ -236,8 +305,40 @@
       return response.json();
     }
 
+    async function postJson(path, payload) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }
+
     function badgeClass(status) {
       return (status || "not_started").toLowerCase();
+    }
+
+    function statusText(status) {
+      const labels = {
+        done: "已完成",
+        success: "已通过",
+        approved: "已签收",
+        passed: "已通过",
+        failed: "失败",
+        rejected: "已拒绝",
+        not_started: "未开始",
+        pending: "待执行",
+        pending_signoff: "待人工签收",
+        partial: "部分完成",
+        running: "进行中",
+        needs_followup: "待跟进",
+        needs_attention: "需关注",
+        ready: "已就绪",
+        missing: "缺失",
+        verified: "已核验",
+      };
+      return labels[(status || "").toLowerCase()] || status || "-";
     }
 
     function renderList(items, emptyText = "暂无") {
@@ -325,6 +426,88 @@
           </div>
         </div>
       `).join("");
+    }
+
+    function renderStoryContract(story) {
+      return `
+        <div class="grid gap-4 md:grid-cols-2">
+          <div><div class="section-label mb-2">Planned Input</div>${renderList(story.story_inputs, "No planned input recorded.")}</div>
+          <div><div class="section-label mb-2">Planned Output</div>${renderList(story.story_outputs, "No planned output recorded.")}</div>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <div><div class="section-label mb-2">Planned Process</div>${renderList(story.story_process, "No planned process recorded.")}</div>
+          <div><div class="section-label mb-2">Verification Basis</div>${renderList(story.verification_basis, "No verification basis recorded.")}</div>
+        </div>
+      `;
+    }
+
+    function renderAcceptanceTemplate(template) {
+      const cards = Array.isArray(template?.cards) ? template.cards : [];
+      if (!cards.length) {
+        return `<div class="text-sm text-slate-400">No acceptance template available.</div>`;
+      }
+      return cards.map((card) => `
+        <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
+          <div class="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold text-white">${card.title || "-"}</div>
+              <div class="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">${card.key || "-"}</div>
+            </div>
+            <span class="pill ${badgeClass(card.status || "not_started")}">${card.status || "pending"}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-200">${card.prompt || "-"}</div>
+          <div class="mt-3">${renderList(card.items, "No evidence loaded yet.")}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderHumanSignoff(review, latestRun) {
+      if (!review) {
+        return `
+          <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <div class="text-sm font-semibold text-white">Pending Human Review</div>
+              <span class="pill not_started">pending_signoff</span>
+            </div>
+            <div class="text-sm leading-7 text-slate-200">No human sign-off has been recorded yet. Use the form below after checking the acceptance template.</div>
+            <div class="mt-3 text-xs text-slate-500">Current run reference: ${latestRun?.task_id || latestRun?.run_id || latestRun?.commit || "-"}</div>
+          </div>
+        `;
+      }
+      return `
+        <div class="rounded-[18px] border border-white/6 bg-slate-950/70 p-4">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${review.summary || "Human sign-off recorded"}</div>
+            <span class="pill ${badgeClass(review.verdict || "pending_signoff")}">${review.verdict || "pending_signoff"}</span>
+          </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <div>
+              <div class="section-label mb-1">Reviewer</div>
+              <div class="text-sm text-slate-200">${review.reviewer || "-"}</div>
+            </div>
+            <div>
+              <div class="section-label mb-1">Checked At</div>
+              <div class="text-sm text-slate-200">${review.checked_at || "-"}</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="section-label mb-1">Notes</div>
+            <div class="text-sm leading-7 text-slate-200">${review.notes || "No extra notes."}</div>
+          </div>
+          <div class="mt-3 text-xs text-slate-500">Run reference: ${review.run_id || latestRun?.task_id || latestRun?.run_id || latestRun?.commit || "-"}</div>
+        </div>
+      `;
+    }
+
+    function renderTextArtifact(value, fallbackText) {
+      return marked.parse(value || fallbackText);
+    }
+
+    function renderJsonArtifact(value, fallbackText) {
+      if (!value) {
+        return marked.parse(fallbackText);
+      }
+      return marked.parse(["```json", value, "```"].join("\n"));
     }
 
     function renderCollaboration(taskDetail) {
@@ -418,11 +601,35 @@
       }
 
       const detail = await fetchJson(`/api/backlogs/${backlogId}/sprints/${sprintId}/stories/${storyId}?project=${encodeURIComponent(projectId)}`);
+      currentStoryDetail = detail;
       const story = detail.story || {};
       const latestRun = detail.latest_run || {};
       const taskDetail = detail.task_detail || {};
       const completion = taskDetail.completion || {};
       const businessValidated = latestRun.source && latestRun.source !== "agentsystem_audit" && detail.status === "done";
+      const showcaseLink = document.getElementById("showcase-link");
+      let showcaseHref = "";
+      let showcaseText = "";
+      if (projectId === "finahunt" && String(story.story_id || storyId).startsWith("S2-")) {
+        showcaseHref = "/finahunt/runtime";
+        showcaseText = "返回 Finahunt 验收台";
+      } else if (projectId === "versefina" && ["sprint_1_statement_to_agent", "sprint_2_world_ledger_loop"].includes(sprintId)) {
+        showcaseHref = "/versefina/runtime";
+        showcaseText = "返回 Versefina 验收台";
+      }
+      showcaseLink.classList.toggle("hidden", !showcaseHref);
+      if (showcaseHref) {
+        showcaseLink.href = showcaseHref;
+        showcaseLink.textContent = showcaseText;
+      }
+      document.getElementById("artifact-intent").previousElementSibling.textContent = "Intent Confirmation";
+      document.getElementById("artifact-parsed-requirement").previousElementSibling.textContent = "Parsed Requirement";
+      document.getElementById("artifact-pr").previousElementSibling.textContent = "PR Description";
+      document.getElementById("artifact-review").previousElementSibling.textContent = "Review Report";
+      document.getElementById("artifact-code-style").previousElementSibling.textContent = "Code Style Review";
+      document.getElementById("artifact-code-acceptance").previousElementSibling.textContent = "Code Acceptance";
+      document.getElementById("artifact-delivery").previousElementSibling.textContent = "Delivery Report";
+      document.getElementById("artifact-result").previousElementSibling.textContent = "Result Report";
 
       document.getElementById("detail-title").textContent = `${story.story_id || storyId} ${story.task_name || ""}`.trim();
       document.getElementById("detail-meta").textContent = [
@@ -463,16 +670,22 @@
       `;
 
       document.getElementById("story-checklist").innerHTML = renderChecklist(story.acceptance_criteria, completion, businessValidated);
-      document.getElementById("artifact-pr").innerHTML = marked.parse(taskDetail.artifacts?.pr_description || "_暂无 PR 描述_");
-      document.getElementById("artifact-review").innerHTML = marked.parse(taskDetail.artifacts?.review_report || "_暂无审查报告_");
-      document.getElementById("artifact-code-style").innerHTML = marked.parse(taskDetail.artifacts?.code_style_review_report || "_暂无 Code Style Review 报告_");
+      document.getElementById("story-contract").innerHTML = renderStoryContract(story);
+      document.getElementById("story-acceptance-template").innerHTML = renderAcceptanceTemplate(detail.acceptance_template || {});
+      document.getElementById("human-signoff-summary").innerHTML = renderHumanSignoff(detail.human_review, detail.latest_run || {});
+      document.getElementById("artifact-intent").innerHTML = renderTextArtifact(taskDetail.artifacts?.intent_confirmation, "_No intent confirmation yet._");
+      document.getElementById("artifact-parsed-requirement").innerHTML = renderJsonArtifact(taskDetail.artifacts?.parsed_requirement, "_No parsed requirement yet._");
+      document.getElementById("artifact-pr").innerHTML = renderTextArtifact(taskDetail.artifacts?.pr_description, "_暂无 PR 描述_");
+      document.getElementById("artifact-review").innerHTML = renderTextArtifact(taskDetail.artifacts?.review_report, "_暂无审查报告_");
+      document.getElementById("artifact-code-style").innerHTML = renderTextArtifact(taskDetail.artifacts?.code_style_review_report, "_暂无 Code Style Review 报告_");
       document.getElementById("artifact-code-acceptance").innerHTML = marked.parse([
         taskDetail.artifacts?.code_acceptance_report || "_暂无 Code Acceptance 报告_",
         "",
         "## Story Completion Standard",
         taskDetail.artifacts?.completion_standard || "_暂无标准文档_",
       ].join("\n"));
-      document.getElementById("artifact-delivery").innerHTML = marked.parse(taskDetail.artifacts?.delivery_report || "_暂无交付报告_");
+      document.getElementById("artifact-delivery").innerHTML = renderTextArtifact(taskDetail.artifacts?.delivery_report, "_暂无交付报告_");
+      document.getElementById("artifact-result").innerHTML = renderTextArtifact(taskDetail.artifacts?.result_report, "_No result report yet._");
 
       document.getElementById("run-summary").innerHTML = renderKeyValues([
         ["Task ID", detail.latest_task_id],
@@ -489,6 +702,13 @@
         "交付报告和验证证据应能支持团队复盘。",
       ]);
 
+      const existingReview = detail.human_review || {};
+      document.getElementById("signoff-reviewer").value = existingReview.reviewer || "";
+      document.getElementById("signoff-verdict").value = existingReview.verdict || "approved";
+      document.getElementById("signoff-summary").value = existingReview.summary || "";
+      document.getElementById("signoff-notes").value = existingReview.notes || "";
+      document.getElementById("signoff-message").textContent = existingReview.updated_at ? `Last saved at ${existingReview.updated_at}` : "";
+
       renderCollaboration(taskDetail);
       clearLogs();
       (taskDetail.events || []).forEach((event) => appendLog(event));
@@ -496,10 +716,58 @@
       renderTabs();
     }
 
+    async function submitHumanSignoff(event) {
+      event.preventDefault();
+      if (!backlogId || !sprintId || !storyId) return;
+      const button = document.getElementById("signoff-submit");
+      const message = document.getElementById("signoff-message");
+      button.disabled = true;
+      message.textContent = "Saving...";
+      try {
+        const payload = {
+          reviewer: document.getElementById("signoff-reviewer").value.trim(),
+          verdict: document.getElementById("signoff-verdict").value,
+          summary: document.getElementById("signoff-summary").value.trim(),
+          notes: document.getElementById("signoff-notes").value.trim(),
+          run_id: currentStoryDetail?.latest_task_id || currentStoryDetail?.latest_run?.run_id || currentStoryDetail?.latest_run?.commit || null,
+        };
+        if (!payload.reviewer || !payload.summary) {
+          throw new Error("Reviewer and summary are required.");
+        }
+        const response = await postJson(
+          `/api/backlogs/${backlogId}/sprints/${sprintId}/stories/${storyId}/acceptance-review?project=${encodeURIComponent(projectId)}`,
+          payload,
+        );
+        if (currentStoryDetail) {
+          currentStoryDetail.human_review = response;
+          currentStoryDetail.acceptance_template = currentStoryDetail.acceptance_template || {};
+          currentStoryDetail.acceptance_template.human_signoff_status = response.verdict;
+          const cards = Array.isArray(currentStoryDetail.acceptance_template.cards) ? currentStoryDetail.acceptance_template.cards : [];
+          const signoffCard = cards.find((card) => card.key === "human_signoff");
+          if (signoffCard) {
+            signoffCard.items = [
+              `Automation gate: ${currentStoryDetail.acceptance_template.automation_status || "pending"}`,
+              `Current human verdict: ${response.verdict}`,
+            ];
+            signoffCard.status = response.verdict;
+          }
+          document.getElementById("story-acceptance-template").innerHTML = renderAcceptanceTemplate(currentStoryDetail.acceptance_template || {});
+          document.getElementById("human-signoff-summary").innerHTML = renderHumanSignoff(response, currentStoryDetail.latest_run || {});
+        }
+        message.textContent = `Saved at ${response.updated_at || response.checked_at || "-"}`;
+      } catch (error) {
+        console.error(error);
+        message.textContent = `Save failed: ${String(error)}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     document.getElementById("tab-summary").addEventListener("click", () => switchTab("summary"));
     document.getElementById("tab-reports").addEventListener("click", () => switchTab("reports"));
     document.getElementById("tab-events").addEventListener("click", () => switchTab("events"));
     document.getElementById("tab-collab").addEventListener("click", () => switchTab("collab"));
+    document.getElementById("human-signoff-form").addEventListener("submit", submitHumanSignoff);
 
     renderTabs();
     loadStoryDetail().catch((error) => {

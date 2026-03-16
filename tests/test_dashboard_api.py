@@ -511,6 +511,300 @@ class DashboardApiTestCase(unittest.TestCase):
 
             self.assertEqual(sprint_detail["epics"][0]["stories"][0]["status"], "not_started")
 
+    def test_load_finahunt_runtime_showcase_reads_runtime_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            runtime_dir = base / "runtime"
+            run_dir = runtime_dir / "run-demo"
+            run_dir.mkdir(parents=True)
+            (run_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "run-demo",
+                        "trace_id": "trace-demo",
+                        "created_at": "2026-03-16T10:00:00+00:00",
+                        "updated_at": "2026-03-16T10:05:00+00:00",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "result_warehouse_summary.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "run-demo",
+                        "artifact_batch_dir": str(run_dir),
+                        "saved_artifacts": [
+                            {"filename": "raw_documents.json", "artifact_ref": "artifact://raw", "record_count": 2},
+                            {"filename": "structured_result_cards.json", "artifact_ref": "artifact://cards", "record_count": 1},
+                        ],
+                        "manifest_ref": "artifact://manifest",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "raw_documents.json").write_text(json.dumps([{"id": 1}, {"id": 2}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "normalized_documents.json").write_text(json.dumps([{"id": 1}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "canonical_events.json").write_text(json.dumps([{"event_id": "evt-1"}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "theme_candidates.json").write_text(json.dumps([{"theme_name": "AI"}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "structured_result_cards.json").write_text(
+                json.dumps([{"card_id": "card-1", "theme_name": "AI"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (run_dir / "theme_heat_snapshots.json").write_text(
+                json.dumps([{"theme_name": "AI", "theme_heat_score": 42}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (run_dir / "fermenting_theme_feed.json").write_text(
+                json.dumps([{"theme_name": "AI", "fermentation_stage": "emerging"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (run_dir / "daily_review.json").write_text(
+                json.dumps(
+                    {
+                        "today_focus_page": [{"theme_name": "AI"}],
+                        "watchlist_event_page": [{"theme_name": "AI"}],
+                        "daily_review_report": {"summary": ["AI"]},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            finahunt_registry = base / "finahunt_story_status_registry.json"
+            finahunt_registry.write_text(
+                json.dumps(
+                    {
+                        "stories": [
+                            {
+                                "story_id": "S2-006",
+                                "status": "done",
+                                "project": "finahunt",
+                                "validation_summary": "structured cards validated",
+                            },
+                            {
+                                "story_id": "S2-009",
+                                "status": "done",
+                                "project": "finahunt",
+                                "validation_summary": "feed validated",
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(dashboard_main, "FINAHUNT_RUNTIME_DIR", runtime_dir),
+                patch.object(dashboard_main, "FINAHUNT_STORY_STATUS_REGISTRY", finahunt_registry),
+            ):
+                showcase = dashboard_main.load_finahunt_runtime_showcase()
+
+            self.assertEqual(showcase["run_id"], "run-demo")
+            self.assertEqual(showcase["stats"]["raw_document_count"], 2)
+            self.assertEqual(showcase["stats"]["structured_result_card_count"], 1)
+            self.assertEqual(showcase["pipeline"][0]["label"], "资讯源运行时")
+            self.assertEqual(showcase["pipeline"][0]["count"], 2)
+            self.assertEqual(showcase["stories"][5]["story_id"], "S2-006")
+            self.assertTrue(showcase["stories"][5]["output_ready"])
+            self.assertEqual(showcase["stories"][8]["story_id"], "S2-009")
+            self.assertEqual(showcase["fermenting_theme_feed"][0]["theme_name"], "AI")
+
+    def test_load_finahunt_runtime_showcase_handles_empty_runtime_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            runtime_dir = base / "runtime"
+            finahunt_registry = base / "finahunt_story_status_registry.json"
+            finahunt_registry.write_text(json.dumps({"stories": []}, ensure_ascii=False), encoding="utf-8")
+
+            with (
+                patch.object(dashboard_main, "FINAHUNT_RUNTIME_DIR", runtime_dir),
+                patch.object(dashboard_main, "FINAHUNT_STORY_STATUS_REGISTRY", finahunt_registry),
+            ):
+                showcase = dashboard_main.load_finahunt_runtime_showcase()
+
+            self.assertIsNone(showcase["run_id"])
+            self.assertEqual(showcase["stats"]["structured_result_card_count"], 0)
+            self.assertEqual(len(showcase["stories"]), 9)
+
+    def test_load_versefina_runtime_showcase_reads_runtime_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            tasks_dir = base / "tasks"
+            runtime_dir = base / "versefina_runtime"
+            registry_path = tasks_dir / "story_status_registry.json"
+            review_path = tasks_dir / "story_acceptance_reviews.json"
+
+            sprint_1_dir = tasks_dir / "backlog_v1" / "sprint_1_statement_to_agent" / "epic_demo"
+            sprint_2_dir = tasks_dir / "backlog_v1" / "sprint_2_world_ledger_loop" / "epic_demo"
+            sprint_1_dir.mkdir(parents=True)
+            sprint_2_dir.mkdir(parents=True)
+
+            for path, story_id, task_name in [
+                (sprint_1_dir / "S1-001_demo.yaml", "S1-001", "Upload"),
+                (sprint_1_dir / "S1-010_demo.yaml", "S1-010", "Create Agent"),
+                (sprint_2_dir / "S2-001_demo.yaml", "S2-001", "Calendar Sync"),
+                (sprint_2_dir / "S2-005_demo.yaml", "S2-005", "Action Validation"),
+            ]:
+                path.write_text(
+                    "\n".join(
+                        [
+                            f"task_id: {story_id}",
+                            f"story_id: {story_id}",
+                            f"task_name: {task_name}",
+                            "story_inputs:",
+                            "  - input",
+                            "story_process:",
+                            "  - process",
+                            "story_outputs:",
+                            "  - output",
+                            "verification_basis:",
+                            "  - verify",
+                            "acceptance_criteria:",
+                            "  - criteria",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "stories": [
+                            {"story_id": "S1-010", "status": "done", "summary": "agent created", "evidence": ["agent persisted"]},
+                            {"story_id": "S2-001", "status": "done", "summary": "calendar synced", "evidence": ["calendar cached"]},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "backlog_id": "backlog_v1",
+                                "sprint_id": "sprint_1_statement_to_agent",
+                                "story_id": "S1-010",
+                                "verdict": "approved",
+                                "summary": "人工确认通过",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            for directory in ["statement_meta", "statement_parse_reports", "trade_records", "agent_profiles", "agents", "market_world"]:
+                (runtime_dir / directory).mkdir(parents=True)
+            (runtime_dir / "statement_meta" / "stmt-demo.json").write_text(
+                json.dumps(
+                    {
+                        "statement_id": "stmt-demo",
+                        "owner_id": "demo-user",
+                        "market": "CN_A",
+                        "file_name": "demo.csv",
+                        "content_type": "text/csv",
+                        "byte_size": 128,
+                        "object_key": "statements/demo/stmt-demo/demo.csv",
+                        "upload_status": "parsed",
+                        "detected_file_type": "csv",
+                        "parser_key": "statement_csv_parser",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (runtime_dir / "statement_parse_reports" / "stmt-demo.json").write_text(
+                json.dumps(
+                    {"statement_id": "stmt-demo", "broker": "demo_broker", "parsed_records": 2, "failed_records": 0, "parser_key": "statement_csv_parser"},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (runtime_dir / "trade_records" / "stmt-demo.json").write_text(
+                json.dumps([{"symbol": "600519.SH", "side": "buy", "qty": 100}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (runtime_dir / "agent_profiles" / "stmt-demo.json").write_text(
+                json.dumps(
+                    {"statement_id": "stmt-demo", "styleTags": ["trend"], "riskControls": {"maxPositionPct": 0.3}},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (runtime_dir / "agents" / "agt_stmt-demo.json").write_text(
+                json.dumps(
+                    {"agent_id": "agt_stmt-demo", "statement_id": "stmt-demo", "world_id": "cn-a", "init_cash": 100000, "profile_path": "profile.json"},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (runtime_dir / "market_world" / "cn-a.calendar.json").write_text(
+                json.dumps(
+                    {
+                        "world_id": "cn-a",
+                        "market": "CN_A",
+                        "start_date": "2026-03-13",
+                        "end_date": "2026-03-18",
+                        "trading_days": ["2026-03-13", "2026-03-16", "2026-03-17"],
+                        "closed_days": ["2026-03-14", "2026-03-15"],
+                        "source": "fallback_cn_calendar",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(dashboard_main, "TASKS_DIR", tasks_dir),
+                patch.object(dashboard_main, "STORY_STATUS_REGISTRY", registry_path),
+                patch.object(dashboard_main, "STORY_ACCEPTANCE_REVIEW_REGISTRY", review_path),
+                patch.object(dashboard_main, "VERSEFINA_RUNTIME_DIR", runtime_dir),
+            ):
+                showcase = dashboard_main.load_versefina_runtime_showcase()
+
+            self.assertEqual(showcase["stats"]["statement_count"], 1)
+            self.assertEqual(showcase["stats"]["trade_record_count"], 1)
+            self.assertEqual(len(showcase["story_groups"]), 2)
+            sprint_1_story = next(item for item in showcase["story_groups"][0]["stories"] if item["story_id"] == "S1-010")
+            sprint_2_story = next(item for item in showcase["story_groups"][1]["stories"] if item["story_id"] == "S2-005")
+            self.assertEqual(sprint_1_story["evidence_status"], "real")
+            self.assertEqual((sprint_1_story["human_review"] or {}).get("verdict"), "approved")
+            self.assertEqual(sprint_2_story["evidence_status"], "placeholder")
+
+    def test_load_versefina_runtime_showcase_handles_empty_runtime_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            tasks_dir = base / "tasks"
+            runtime_dir = base / "versefina_runtime"
+            registry_path = tasks_dir / "story_status_registry.json"
+            review_path = tasks_dir / "story_acceptance_reviews.json"
+            sprint_dir = tasks_dir / "backlog_v1" / "sprint_1_statement_to_agent" / "epic_demo"
+            sprint_dir.mkdir(parents=True)
+            (sprint_dir / "S1-001_demo.yaml").write_text(
+                "task_id: S1-001\nstory_id: S1-001\ntask_name: Upload\nstory_inputs:\n  - input\n",
+                encoding="utf-8",
+            )
+            registry_path.write_text(json.dumps({"stories": []}, ensure_ascii=False), encoding="utf-8")
+            review_path.write_text(json.dumps({"reviews": []}, ensure_ascii=False), encoding="utf-8")
+
+            with (
+                patch.object(dashboard_main, "TASKS_DIR", tasks_dir),
+                patch.object(dashboard_main, "STORY_STATUS_REGISTRY", registry_path),
+                patch.object(dashboard_main, "STORY_ACCEPTANCE_REVIEW_REGISTRY", review_path),
+                patch.object(dashboard_main, "VERSEFINA_RUNTIME_DIR", runtime_dir),
+            ):
+                showcase = dashboard_main.load_versefina_runtime_showcase()
+
+            self.assertEqual(showcase["stats"]["statement_count"], 0)
+            self.assertEqual(showcase["stats"]["real_evidence_story_count"], 0)
+            self.assertEqual(showcase["story_groups"][0]["stories"][0]["evidence_status"], "missing")
+
 
 if __name__ == "__main__":
     unittest.main()

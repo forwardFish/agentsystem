@@ -39,6 +39,25 @@ primary_files:
 secondary_files:
   - "docs/contracts/examples/trading_agent_profile.example.json"
   - "docs/contracts/examples/trading_agent_profile.invalid.json"
+story_inputs:
+  - "TradingAgentProfile 需要承载的交易风格、风险约束与节奏信息。"
+  - "后续 profile 生成、Agent 创建和 OpenClaw context 对统一契约的要求。"
+  - "合法示例与非法示例需要覆盖的边界场景。"
+
+story_process:
+  - "定义 TradingAgentProfile 的统一 JSON Schema。"
+  - "明确必填字段、枚举范围、嵌套结构和校验规则。"
+  - "补齐合法示例与非法示例，作为后续实现和验收基线。"
+
+story_outputs:
+  - "TradingAgentProfile Schema 文件。"
+  - "一组合法示例与非法示例。"
+
+verification_basis:
+  - "检查合法示例可以通过 Schema 校验。"
+  - "检查非法示例会在预期字段上失败。"
+  - "检查后续 profile、agent 创建链路能直接复用这份契约。"
+
 test_cases:
   normal:
     - "合法示例能通过 schema 校验。"

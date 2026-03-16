@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/matching/收盘价撮合.py
 secondary_files:
 - apps/api/src/modules/orders/service.py
+story_inputs:
+  - "可执行 actions 集合。"
+  - "收盘价行情数据。"
+  - "MVP 阶段 close price 撮合规则。"
+
+story_process:
+  - "按 close price 执行动作撮合。"
+  - "为每个可执行动作生成初步撮合结果。"
+  - "把撮合结果传递给费用、滑点和结算链路。"
+
+story_outputs:
+  - "基于收盘价的撮合结果。"
+  - "可继续计算费用和生成 fills 的中间结果。"
+
+verification_basis:
+  - "检查动作按收盘价被正确撮合。"
+  - "检查无行情或不可执行时不会错误生成撮合。"
+  - "检查下游费用与 fill 生成可复用这些结果。"
+
 test_cases:
   normal:
   - 正常路径：收盘价撮合 的核心场景可以完成。

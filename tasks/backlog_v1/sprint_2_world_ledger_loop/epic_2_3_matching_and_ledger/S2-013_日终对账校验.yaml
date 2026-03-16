@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/matching/日终对账校验.py
 secondary_files:
 - apps/api/src/modules/orders/service.py
+story_inputs:
+  - "更新后的现金、持仓和组合数据。"
+  - "equity = cash + 持仓市值 的对账规则。"
+  - "日终结算后需要输出的对账结果。"
+
+story_process:
+  - "根据现金和持仓市值计算 equity。"
+  - "校验组合结果是否满足对账公式。"
+  - "把对账失败场景显式记录下来。"
+
+story_outputs:
+  - "日终对账结果。"
+  - "可供 run log 和 daily summary 使用的对账状态。"
+
+verification_basis:
+  - "检查 equity 与 cash、持仓市值满足对账关系。"
+  - "检查不一致场景会被明确标记。"
+  - "检查对账结果可被后续摘要与审计复用。"
+
 test_cases:
   normal:
   - 正常路径：日终对账校验 的核心场景可以完成。

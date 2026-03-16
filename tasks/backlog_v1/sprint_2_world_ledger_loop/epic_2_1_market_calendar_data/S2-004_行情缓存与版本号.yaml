@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/world/行情缓存与版本号.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "S2-003 拉取的日线行情结果。"
+  - "world snapshot 对缓存和 dataVersion 的要求。"
+  - "同一交易日多次读取行情的复用需求。"
+
+story_process:
+  - "为行情结果建立缓存。"
+  - "生成可追踪的 dataVersion。"
+  - "把缓存和版本号注入 world snapshot。"
+
+story_outputs:
+  - "带缓存和 dataVersion 的行情快照。"
+  - "可供后续决策和调试复盘使用的版本信息。"
+
+verification_basis:
+  - "检查同一批行情可被缓存复用。"
+  - "检查 world snapshot 包含 dataVersion。"
+  - "检查版本号可用于区分不同数据批次。"
+
 test_cases:
   normal:
   - 正常路径：行情缓存与版本号 的核心场景可以完成。

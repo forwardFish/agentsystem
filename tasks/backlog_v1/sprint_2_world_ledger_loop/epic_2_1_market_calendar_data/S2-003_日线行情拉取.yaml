@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/world/日线行情拉取.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "交易日推进结果和目标交易标的列表。"
+  - "daily 行情数据源与拉取规则。"
+  - "world service 需要的基础行情字段。"
+
+story_process:
+  - "按交易日拉取日线行情数据。"
+  - "把行情整理成 world service 可消费的结构。"
+  - "为后续快照与撮合保留价格数据。"
+
+story_outputs:
+  - "已拉取的日线行情数据。"
+  - "可供 world snapshot 和撮合模块复用的价格输入。"
+
+verification_basis:
+  - "检查目标标的可以拉取到 daily 行情。"
+  - "检查输出包含撮合所需关键价格字段。"
+  - "检查 world service 能读取这些行情。"
+
 test_cases:
   normal:
   - 正常路径：日线行情拉取 的核心场景可以完成。

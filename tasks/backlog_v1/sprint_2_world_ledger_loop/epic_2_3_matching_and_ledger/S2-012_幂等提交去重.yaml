@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/matching/幂等提交去重.py
 secondary_files:
 - apps/api/src/modules/orders/service.py
+story_inputs:
+  - "submit-actions 请求中的 idempotency_key。"
+  - "已生成的 fills、订单和结算记录。"
+  - "避免重复入账的幂等规则。"
+
+story_process:
+  - "识别重复提交的 idempotency_key。"
+  - "阻止相同请求重复生成账务结果。"
+  - "保留可追踪的去重与复用行为。"
+
+story_outputs:
+  - "幂等去重后的提交结果。"
+  - "防止重复入账的幂等保护行为。"
+
+verification_basis:
+  - "检查相同 idempotency_key 不会重复入账。"
+  - "检查重复请求返回稳定结果。"
+  - "检查幂等去重行为可被审计。"
+
 test_cases:
   normal:
   - 正常路径：幂等提交去重 的核心场景可以完成。

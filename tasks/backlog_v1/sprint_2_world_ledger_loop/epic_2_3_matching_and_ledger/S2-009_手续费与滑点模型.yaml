@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/matching/手续费与滑点模型.py
 secondary_files:
 - apps/api/src/modules/orders/service.py
+story_inputs:
+  - "S2-008 的撮合结果。"
+  - "feePct、slipPct 等费用与滑点参数。"
+  - "结算阶段需要的实际成交成本信息。"
+
+story_process:
+  - "根据撮合结果计算手续费和滑点。"
+  - "把费用和滑点合并到成交成本中。"
+  - "让下游 fill 生成能够基于真实成本结算。"
+
+story_outputs:
+  - "带手续费和滑点的撮合结果。"
+  - "可供 fill 生成与现金更新使用的成本数据。"
+
+verification_basis:
+  - "检查 feePct、slipPct 被正确应用。"
+  - "检查成交成本包含费用和滑点。"
+  - "检查结算链路可读取这些结果。"
+
 test_cases:
   normal:
   - 正常路径：手续费与滑点模型 的核心场景可以完成。

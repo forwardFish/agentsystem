@@ -49,6 +49,25 @@ secondary_files:
   - "apps/api/src/infra/storage/object_store.py"
   - "apps/api/src/api/command/routes.py"
 
+story_inputs:
+  - "上传阶段可能出现的对象存储失败、元数据写入失败和校验失败场景。"
+  - "statement 上传主链路当前的成功路径。"
+  - "需要避免脏数据残留的对象存储与元数据状态。"
+
+story_process:
+  - "覆盖上传阶段关键失败路径。"
+  - "在失败时清理对象存储或回滚元数据。"
+  - "确保 statement 状态和底层存储不留脏数据。"
+
+story_outputs:
+  - "上传失败处理逻辑。"
+  - "可复用的失败清理与错误返回行为。"
+
+verification_basis:
+  - "检查上传失败时不会留下脏 object_key 或脏元数据。"
+  - "检查失败状态会被正确记录。"
+  - "检查用户能收到明确错误信息。"
+
 test_cases:
   normal:
     - "正常路径：合法文件上传后 metadata 和对象文件都成功写入。"

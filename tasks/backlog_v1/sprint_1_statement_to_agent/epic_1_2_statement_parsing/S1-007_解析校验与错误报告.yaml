@@ -49,6 +49,25 @@ secondary_files:
   - "apps/api/src/api/command/routes.py"
   - "apps/api/src/modules/statements/service.py"
 
+story_inputs:
+  - "标准化后的 TradeRecord 列表。"
+  - "解析成功、解析失败和局部异常需要产出的报告结构。"
+  - "statement 最终状态更新规则。"
+
+story_process:
+  - "对标准化 TradeRecord 执行解析校验。"
+  - "生成结构化 parse report。"
+  - "根据解析结果更新 statement 最终状态为 parsed 或 failed。"
+
+story_outputs:
+  - "结构化 parse report。"
+  - "更新后的 statement 最终状态。"
+
+verification_basis:
+  - "检查解析成功时会生成完整 parse report 并更新为 parsed。"
+  - "检查解析失败时会记录错误并更新为 failed。"
+  - "检查 report 能作为 profile 提取和人工验收依据。"
+
 test_cases:
   normal:
     - "正常路径：解析成功后生成 parse report，statement 状态变为 parsed。"

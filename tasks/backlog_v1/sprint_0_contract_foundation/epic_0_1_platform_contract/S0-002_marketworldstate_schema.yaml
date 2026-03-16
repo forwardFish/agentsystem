@@ -36,6 +36,25 @@ primary_files:
 secondary_files:
   - "docs/contracts/examples/marketworldstate_schema.example.json"
   - "docs/contracts/examples/marketworldstate_schema.invalid.json"
+story_inputs:
+  - "世界快照、上下文构建和 Agent 决策需要读取的市场状态信息。"
+  - "OpenClaw 接入对统一世界状态契约的要求。"
+  - "合法示例与非法示例需要覆盖的边界场景。"
+
+story_process:
+  - "定义统一的 MarketWorldState Schema。"
+  - "明确交易日、行情、版本号和上下文字段的结构。"
+  - "补齐合法示例与非法示例，固定后续世界快照边界。"
+
+story_outputs:
+  - "MarketWorldState Schema 文件。"
+  - "一组合法示例与非法示例。"
+
+verification_basis:
+  - "检查合法示例可以通过 Schema 校验。"
+  - "检查非法示例会在预期字段上失败。"
+  - "检查世界快照和上下文构建逻辑可直接复用这份契约。"
+
 test_cases:
   normal:
     - "合法示例能够通过 schema 校验。"

@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/loop/context_pack_构建.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "最新 world snapshot、portfolio、positions 和 agent profile。"
+  - "每日决策需要的市场、账户和画像上下文。"
+  - "规则版决策引擎需要消费的统一输入格式。"
+
+story_process:
+  - "聚合世界状态、账户状态和 agent profile。"
+  - "整理成每日决策需要的 context pack。"
+  - "保证决策引擎读取的是统一上下文。"
+
+story_outputs:
+  - "每日决策 context pack。"
+  - "规则版决策引擎的统一输入。"
+
+verification_basis:
+  - "检查 context pack 包含市场、账户和画像关键信息。"
+  - "检查决策引擎可直接消费该输入。"
+  - "检查上下文字段稳定可回放。"
+
 test_cases:
   normal:
   - 正常路径：Context Pack 构建 的核心场景可以完成。

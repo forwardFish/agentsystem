@@ -20,6 +20,10 @@ def requirement_analysis_node(state: DevState) -> DevState:
         related_files = list(primary_files)
     secondary_files = [str(path) for path in task_payload.get("secondary_files", [])]
     acceptance_checklist = [str(item).strip() for item in task_payload.get("acceptance_criteria", []) if str(item).strip()]
+    story_inputs = [str(item).strip() for item in task_payload.get("story_inputs", []) if str(item).strip()]
+    story_process = [str(item).strip() for item in task_payload.get("story_process", []) if str(item).strip()]
+    story_outputs = [str(item).strip() for item in task_payload.get("story_outputs", []) if str(item).strip()]
+    verification_basis = [str(item).strip() for item in task_payload.get("verification_basis", []) if str(item).strip()]
     constraints = [str(item).strip() for item in task_payload.get("constraints", []) if str(item).strip()]
     not_do = [
         str(item).strip()
@@ -127,6 +131,10 @@ def requirement_analysis_node(state: DevState) -> DevState:
     state["requirement_spec"] = f"Decomposed the request into {len(subtasks)} implementation subtasks."
     state["parsed_goal"] = str(task_payload.get("goal", "")).strip() or str(state.get("user_requirement", "")).strip()
     state["acceptance_checklist"] = acceptance_checklist
+    state["story_inputs"] = story_inputs
+    state["story_process"] = story_process
+    state["story_outputs"] = story_outputs
+    state["verification_basis"] = verification_basis
     state["primary_files"] = primary_files or related_files
     state["secondary_files"] = secondary_files
     state["parsed_constraints"] = constraints
@@ -135,6 +143,10 @@ def requirement_analysis_node(state: DevState) -> DevState:
     state["shared_blackboard"] = {
         "current_goal": state["parsed_goal"],
         "acceptance_checklist": acceptance_checklist,
+        "story_inputs": story_inputs,
+        "story_process": story_process,
+        "story_outputs": story_outputs,
+        "verification_basis": verification_basis,
         "primary_files": state["primary_files"],
         "secondary_files": secondary_files,
         "constraints": constraints,
@@ -193,6 +205,10 @@ def _write_requirement_artifacts(repo_b_path: Path, state: DevState) -> None:
     parsed_payload = {
         "parsed_goal": state.get("parsed_goal"),
         "acceptance_checklist": state.get("acceptance_checklist") or [],
+        "story_inputs": state.get("story_inputs") or [],
+        "story_process": state.get("story_process") or [],
+        "story_outputs": state.get("story_outputs") or [],
+        "verification_basis": state.get("verification_basis") or [],
         "primary_files": state.get("primary_files") or [],
         "secondary_files": state.get("secondary_files") or [],
         "constraints": state.get("parsed_constraints") or [],
@@ -203,6 +219,10 @@ def _write_requirement_artifacts(repo_b_path: Path, state: DevState) -> None:
         encoding="utf-8",
     )
     acceptance_lines = [f"- {item}" for item in (state.get("acceptance_checklist") or [])] or ["- None"]
+    story_input_lines = [f"- {item}" for item in (state.get("story_inputs") or [])] or ["- None"]
+    story_process_lines = [f"- {item}" for item in (state.get("story_process") or [])] or ["- None"]
+    story_output_lines = [f"- {item}" for item in (state.get("story_outputs") or [])] or ["- None"]
+    verification_lines = [f"- {item}" for item in (state.get("verification_basis") or [])] or ["- None"]
     file_scope_lines = [f"- {item}" for item in (state.get("primary_files") or [])] or ["- None"]
     lines = [
         "# Requirement Intent Confirmation",
@@ -211,6 +231,18 @@ def _write_requirement_artifacts(repo_b_path: Path, state: DevState) -> None:
         "",
         "## Acceptance Checklist",
         *acceptance_lines,
+        "",
+        "## Planned Input",
+        *story_input_lines,
+        "",
+        "## Planned Process",
+        *story_process_lines,
+        "",
+        "## Planned Output",
+        *story_output_lines,
+        "",
+        "## Verification Basis",
+        *verification_lines,
         "",
         "## File Scope",
         *file_scope_lines,

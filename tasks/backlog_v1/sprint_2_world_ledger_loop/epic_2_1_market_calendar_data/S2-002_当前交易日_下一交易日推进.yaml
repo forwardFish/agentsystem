@@ -34,6 +34,25 @@ primary_files:
 - apps/api/src/modules/world/当前交易日_下一交易日推进.py
 secondary_files:
 - apps/api/src/modules/world/service.py
+story_inputs:
+  - "S2-001 同步后的交易日历数据。"
+  - "当前日期与最近交易日的判断规则。"
+  - "MarketWorldState 需要的 tradingDay 和 nextTradingDay 字段。"
+
+story_process:
+  - "根据交易日历推导当前交易日。"
+  - "生成 nextTradingDay 并写入 world state。"
+  - "保证非交易日场景也能得到稳定结果。"
+
+story_outputs:
+  - "tradingDay 和 nextTradingDay。"
+  - "可供行情、决策和 daily loop 使用的交易日上下文。"
+
+verification_basis:
+  - "检查在交易日和非交易日场景都能得到正确推进结果。"
+  - "检查 world state 中写入了 tradingDay 和 nextTradingDay。"
+  - "检查后续日线行情拉取可以直接依赖这些字段。"
+
 test_cases:
   normal:
   - 正常路径：当前交易日 / 下一交易日推进 的核心场景可以完成。
