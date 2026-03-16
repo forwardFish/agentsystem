@@ -69,6 +69,11 @@
     .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown strong {
       color: #fff;
     }
+    .input {
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.05);
+      color: #e2e8f0;
+    }
   </style>
 </head>
 <body class="min-h-screen text-slate-100">
@@ -77,13 +82,14 @@
       <div class="flex flex-wrap items-start justify-between gap-6">
         <div class="max-w-4xl">
           <div class="section-title mb-3">Agentic Delivery Console</div>
-          <h1 class="text-2xl font-bold tracking-tight text-white lg:text-4xl">Backlog / Sprint / Story 列表总览</h1>
+          <h1 class="text-2xl font-bold tracking-tight text-white lg:text-4xl">Project / Backlog / Sprint / Story 总览</h1>
           <p class="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
-            这个页面负责看全局状态：有哪些 backlog、每个 sprint 的推进情况、每个 story 的状态。
-            点击 story 后进入详情页查看交付物、协作链、代码验收和实时事件。
+            在同一个控制台里切换不同项目，查看 backlog、sprint、story 的规划状态与执行状态。
+            当前支持 <code>versefina</code> 和 <code>finahunt</code> 两个项目。
           </p>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <select id="project-select" class="input rounded-full px-4 py-2 text-sm"></select>
           <button id="refresh-button" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10">刷新数据</button>
         </div>
       </div>
@@ -91,7 +97,7 @@
 
     <section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <div class="panel rounded-[24px] p-5"><div class="section-title">任务总数</div><div id="metric-total" class="mt-3 text-3xl font-bold text-white">0</div></div>
-      <div class="panel rounded-[24px] p-5"><div class="section-title">首次交付通过率</div><div id="metric-first-pass" class="mt-3 text-3xl font-bold text-cyan-300">0%</div></div>
+      <div class="panel rounded-[24px] p-5"><div class="section-title">首次通过率</div><div id="metric-first-pass" class="mt-3 text-3xl font-bold text-cyan-300">0%</div></div>
       <div class="panel rounded-[24px] p-5"><div class="section-title">平均回修轮次</div><div id="metric-retries" class="mt-3 text-3xl font-bold text-amber-300">0</div></div>
       <div class="panel rounded-[24px] p-5"><div class="section-title">验收命中率</div><div id="metric-acceptance" class="mt-3 text-3xl font-bold text-emerald-300">0%</div></div>
     </section>
@@ -151,6 +157,8 @@
   </div>
 
   <script>
+    const params = new URLSearchParams(window.location.search);
+    let selectedProjectId = params.get("project") || "versefina";
     let selectedBacklogId = null;
     let selectedSprintId = null;
     let successChart = null;
@@ -199,24 +207,48 @@
       });
     }
 
+    function syncUrl() {
+      const next = new URL(window.location.href);
+      next.searchParams.set("project", selectedProjectId);
+      window.history.replaceState({}, "", next);
+    }
+
+    async function loadProjects() {
+      const payload = await fetchJson("/api/projects");
+      const select = document.getElementById("project-select");
+      select.innerHTML = "";
+      (payload.projects || []).forEach((project) => {
+        const option = document.createElement("option");
+        option.value = project.id;
+        option.textContent = `${project.name} (${project.backlog_count})`;
+        option.selected = project.id === selectedProjectId;
+        select.appendChild(option);
+      });
+      if (![...select.options].some((item) => item.value === selectedProjectId) && select.options.length) {
+        selectedProjectId = select.options[0].value;
+      }
+      select.value = selectedProjectId;
+      syncUrl();
+    }
+
     async function loadMetrics() {
-      const metrics = await fetchJson("/api/metrics");
+      const metrics = await fetchJson(`/api/metrics?project=${encodeURIComponent(selectedProjectId)}`);
       document.getElementById("metric-total").textContent = metrics.total_tasks;
       document.getElementById("metric-first-pass").textContent = `${metrics.first_pass_rate}%`;
       document.getElementById("metric-retries").textContent = metrics.avg_retry_rounds;
       document.getElementById("metric-acceptance").textContent = `${metrics.acceptance_hit_rate}%`;
       const labels = metrics.trend?.labels || [];
-      successChart = updateChart(successChart, "success-chart", labels, metrics.trend?.success_rate || [], "成功率", "#7dd3fc");
-      retryChart = updateChart(retryChart, "retry-chart", labels, metrics.trend?.avg_retry_rounds || [], "回修轮次", "#f59e0b");
-      acceptanceChart = updateChart(acceptanceChart, "acceptance-chart", labels, metrics.trend?.acceptance_hit_rate || [], "验收命中率", "#34d399");
+      successChart = updateChart(successChart, "success-chart", labels, metrics.trend?.success_rate || [], "Success Rate", "#7dd3fc");
+      retryChart = updateChart(retryChart, "retry-chart", labels, metrics.trend?.avg_retry_rounds || [], "Repair Rounds", "#f59e0b");
+      acceptanceChart = updateChart(acceptanceChart, "acceptance-chart", labels, metrics.trend?.acceptance_hit_rate || [], "Acceptance Hit Rate", "#34d399");
     }
 
     async function loadBacklogs() {
-      const payload = await fetchJson("/api/backlogs");
+      const payload = await fetchJson(`/api/backlogs?project=${encodeURIComponent(selectedProjectId)}`);
       const list = document.getElementById("backlog-list");
       list.innerHTML = "";
       const backlogs = payload.backlogs || [];
-      document.getElementById("backlog-count").textContent = `${backlogs.length} 个 backlog`;
+      document.getElementById("backlog-count").textContent = `${backlogs.length} backlogs`;
       backlogs.forEach((backlog) => {
         const button = document.createElement("button");
         button.dataset.backlog = backlog.id;
@@ -231,18 +263,27 @@
         button.onclick = () => loadBacklogDetail(backlog.id);
         list.appendChild(button);
       });
-      if (!selectedBacklogId && backlogs.length) await loadBacklogDetail(backlogs[0].id);
+      if (!backlogs.length) {
+        document.getElementById("backlog-overview").innerHTML = marked.parse("_当前项目还没有 backlog_");
+        document.getElementById("sprint-list").innerHTML = "";
+        document.getElementById("story-list").innerHTML = "";
+        document.getElementById("sprint-count").textContent = "0";
+        document.getElementById("story-count").textContent = "0";
+        return;
+      }
+      const candidate = backlogs.find((item) => item.id === selectedBacklogId) || backlogs[0];
+      await loadBacklogDetail(candidate.id);
     }
 
     async function loadBacklogDetail(backlogId) {
       selectedBacklogId = backlogId;
       setActiveCard("backlog-list", backlogId, "backlog");
-      const detail = await fetchJson(`/api/backlogs/${backlogId}`);
+      const detail = await fetchJson(`/api/backlogs/${backlogId}?project=${encodeURIComponent(selectedProjectId)}`);
       document.getElementById("backlog-overview").innerHTML = marked.parse(detail.overview_markdown || "_暂无 backlog 概览_");
       const list = document.getElementById("sprint-list");
       list.innerHTML = "";
       const sprints = detail.sprints || [];
-      document.getElementById("sprint-count").textContent = `${sprints.length} 个 sprint`;
+      document.getElementById("sprint-count").textContent = `${sprints.length} sprints`;
       sprints.forEach((sprint) => {
         const button = document.createElement("button");
         button.dataset.sprint = sprint.id;
@@ -251,7 +292,7 @@
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="truncate-two text-sm font-semibold leading-6 text-white">${sprint.name}</div>
-              <div class="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">${sprint.done_count}/${sprint.story_count} 完成 · ${sprint.failed_count} 失败</div>
+              <div class="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">${sprint.done_count}/${sprint.story_count} done · ${sprint.failed_count} failed</div>
             </div>
             <span class="pill ${badgeClass(sprint.status)}">${sprint.status}</span>
           </div>
@@ -260,19 +301,20 @@
         list.appendChild(button);
       });
       if (sprints.length) {
-        await loadSprintDetail(backlogId, sprints[0].id);
+        const candidate = sprints.find((item) => item.id === selectedSprintId) || sprints[0];
+        await loadSprintDetail(backlogId, candidate.id);
       } else {
         document.getElementById("sprint-plan").innerHTML = marked.parse("_暂无 sprint 规划_");
         document.getElementById("sprint-quality-report").innerHTML = marked.parse("_暂无 sprint 质量报告_");
         document.getElementById("story-list").innerHTML = "";
-        document.getElementById("story-count").textContent = "0 个 story";
+        document.getElementById("story-count").textContent = "0 stories";
       }
     }
 
     async function loadSprintDetail(backlogId, sprintId) {
       selectedSprintId = sprintId;
       setActiveCard("sprint-list", sprintId, "sprint");
-      const detail = await fetchJson(`/api/backlogs/${backlogId}/sprints/${sprintId}`);
+      const detail = await fetchJson(`/api/backlogs/${backlogId}/sprints/${sprintId}?project=${encodeURIComponent(selectedProjectId)}`);
       document.getElementById("sprint-plan").innerHTML = marked.parse(detail.sprint_plan_markdown || "_暂无 sprint 规划_");
       document.getElementById("sprint-quality-report").innerHTML = marked.parse(detail.quality_report_markdown || "_暂无 sprint 质量报告_");
       const list = document.getElementById("story-list");
@@ -296,21 +338,30 @@
             </div>
             <div class="mt-4 flex items-center justify-between">
               <span class="text-xs uppercase tracking-[0.16em] text-slate-500">${story.blast_radius || "-"}</span>
-              <a class="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10" href="/story?backlog=${encodeURIComponent(backlogId)}&sprint=${encodeURIComponent(sprintId)}&story=${encodeURIComponent(story.story_id)}">查看详情</a>
+              <a class="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10" href="/story?project=${encodeURIComponent(selectedProjectId)}&backlog=${encodeURIComponent(backlogId)}&sprint=${encodeURIComponent(sprintId)}&story=${encodeURIComponent(story.story_id)}">查看详情</a>
             </div>
           `;
           list.appendChild(card);
         });
       });
-      document.getElementById("story-count").textContent = `${stories.length} 个 story`;
+      document.getElementById("story-count").textContent = `${stories.length} stories`;
     }
 
     async function refreshAll() {
+      syncUrl();
+      await loadProjects();
       await loadMetrics();
       await loadBacklogs();
     }
 
     document.getElementById("refresh-button").addEventListener("click", () => refreshAll().catch(console.error));
+    document.getElementById("project-select").addEventListener("change", async (event) => {
+      selectedProjectId = event.target.value;
+      selectedBacklogId = null;
+      selectedSprintId = null;
+      await refreshAll();
+    });
+
     refreshAll().catch(console.error);
   </script>
 </body>
