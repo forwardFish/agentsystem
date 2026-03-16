@@ -1,41 +1,55 @@
-task_id: S1-005
-task_name: 券商字段映射规则
-sprint: Sprint 1
-epic: Epic 1.2 交割单解析与标准化
-story_id: S1-005
-blast_radius: L1
-execution_mode: Fast
-mode: Fast
-goal: 定义原始列名到统一字段的映射规则。
-business_value: 让 券商字段映射规则 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-005"
+task_name: "券商字段映射规则"
+sprint: "Sprint 1"
+epic: "Epic 1.2 交割单解析与标准化"
+story_id: "S1-005"
+blast_radius: "L1"
+execution_mode: "Fast"
+mode: "Fast"
+
+goal: "定义并识别券商交割单列头映射规则，把原始列名映射到平台统一字段。"
+business_value: "让不同来源的交割单能进入同一套解析链路，为标准化和 Agent 建模提供统一输入。"
+
 entry_criteria:
-- 无前置依赖。
+  - "S1-003 已完成，文件类型和 parser_key 已能识别。"
+
 acceptance_criteria:
-- 券商字段映射规则 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "至少支持一套中文列头和一套英文列头的映射规则。"
+  - "能识别 traded_at、symbol、side、qty、price、fee、tax 等关键字段。"
+  - "缺失关键列时返回统一错误码。"
+  - "映射规则可被解析服务直接复用。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/modules/statements/券商字段映射规则.py'
+  - "只修改 mapping rules 和解析入口相关文件。"
+  - "规则必须可单测，不依赖外部服务。"
+  - "不得把字段映射逻辑散落到多个无关模块。"
+
 out_of_scope:
-- 不在本 Story 中实现 券商字段映射规则 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现 TradeRecord 标准化。"
+  - "不实现券商格式自动学习。"
+
 not_do:
-- 不在本 Story 中实现 券商字段映射规则 之外的后续能力。
-- 不做架构级重构。
+  - "不改动上传链路。"
+  - "不改动 Agent Profile 模块。"
+
 dependencies:
-- 无
+  - "S1-003"
+
 related_files:
-- apps/api/src/modules/statements/券商字段映射规则.py
-- apps/api/src/modules/statements/mappers/__init__.py
+  - "apps/api/src/modules/statements/mappers/rules.py"
+  - "apps/api/src/modules/statements/mappers/__init__.py"
+  - "apps/api/src/modules/statements/parser_service.py"
+
 primary_files:
-- apps/api/src/modules/statements/券商字段映射规则.py
+  - "apps/api/src/modules/statements/mappers/rules.py"
+
 secondary_files:
-- apps/api/src/modules/statements/mappers/__init__.py
+  - "apps/api/src/modules/statements/mappers/__init__.py"
+  - "apps/api/src/modules/statements/parser_service.py"
+
 test_cases:
   normal:
-  - 正常路径：券商字段映射规则 的核心场景可以完成。
+    - "正常路径：中文列头样例能识别并映射到统一字段。"
+    - "正常路径：英文列头样例能识别并映射到统一字段。"
   exception:
-  - 异常路径：券商字段映射规则 失败时返回可解释结果。
+    - "异常路径：缺失关键列时返回 STATEMENT_MAPPING_RULE_NOT_FOUND。"

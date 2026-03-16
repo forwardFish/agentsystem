@@ -1,41 +1,58 @@
-task_id: S1-003
-task_name: 文件类型识别
-sprint: Sprint 1
-epic: Epic 1.1 交割单摄入
-story_id: S1-003
-blast_radius: L1
-execution_mode: Fast
-mode: Fast
-goal: 识别 csv/xlsx 并路由到正确解析器。
-business_value: 让 文件类型识别 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-003"
+task_name: "文件类型识别"
+sprint: "Sprint 1"
+epic: "Epic 1.1 交割单摄入"
+story_id: "S1-003"
+blast_radius: "L1"
+execution_mode: "Fast"
+mode: "Fast"
+
+goal: "识别上传文件的扩展名和 MIME 类型，确定 detected_file_type 和 parser_key。"
+business_value: "让上传链路在进入解析前就能明确文件类型，避免错误文件进入下游。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S1-001 和 S1-002 已完成，上传接口和状态机可用。"
+
 acceptance_criteria:
-- 文件类型识别 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "支持 csv、xls、xlsx 三种文件类型识别。"
+  - "扩展名和 MIME 类型冲突时会拒绝处理并返回统一错误码。"
+  - "识别结果会持久化到 statement metadata，包括 detected_file_type 和 parser_key。"
+  - "不支持的格式会被明确拒绝。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/routes/statements.py'
+  - "只修改文件识别和 metadata 写入相关代码。"
+  - "不实现具体解析器逻辑。"
+  - "必须复用现有上传服务链路。"
+
 out_of_scope:
-- 不在本 Story 中实现 文件类型识别 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现 CSV/XLSX 内容解析。"
+  - "不增加更多文件格式支持。"
+
 not_do:
-- 不在本 Story 中实现 文件类型识别 之外的后续能力。
-- 不做架构级重构。
+  - "不修改状态机定义。"
+  - "不引入外部文件识别服务。"
+
 dependencies:
-- S1-002
+  - "S1-002"
+
 related_files:
-- apps/api/src/routes/statements.py
-- apps/api/src/modules/statements/文件类型识别.py
+  - "apps/api/src/modules/statements/file_detection.py"
+  - "apps/api/src/modules/statements/service.py"
+  - "apps/api/src/modules/statements/repository.py"
+  - "apps/api/src/schemas/command.py"
+
 primary_files:
-- apps/api/src/routes/statements.py
+  - "apps/api/src/modules/statements/file_detection.py"
+  - "apps/api/src/modules/statements/service.py"
+
 secondary_files:
-- apps/api/src/modules/statements/文件类型识别.py
+  - "apps/api/src/modules/statements/repository.py"
+  - "apps/api/src/schemas/command.py"
+
 test_cases:
   normal:
-  - 正常路径：文件类型识别 的核心场景可以完成。
+    - "正常路径：csv 文件被识别为 csv，并写入 parser_key。"
+    - "正常路径：xlsx 文件被识别为 xlsx，并写入 parser_key。"
   exception:
-  - 异常路径：文件类型识别 失败时返回可解释结果。
+    - "异常路径：扩展名与 MIME 类型不匹配时返回 STATEMENT_FILE_TYPE_MISMATCH。"
+    - "异常路径：不支持的文件后缀被拒绝。"

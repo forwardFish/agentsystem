@@ -1,41 +1,55 @@
-task_id: S1-006
-task_name: TradeRecord 标准化
-sprint: Sprint 1
-epic: Epic 1.2 交割单解析与标准化
-story_id: S1-006
-blast_radius: L1
-execution_mode: Fast
-mode: Fast
-goal: 把原始记录转换为统一 TradeRecord。
-business_value: 让 TradeRecord 标准化 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-006"
+task_name: "TradeRecord 标准化"
+sprint: "Sprint 1"
+epic: "Epic 1.2 交割单解析与标准化"
+story_id: "S1-006"
+blast_radius: "L1"
+execution_mode: "Fast"
+mode: "Fast"
+
+goal: "把映射后的原始记录统一转换为平台内部的 TradeRecord 结构。"
+business_value: "让后续 Profile 提取和 Agent 建模都基于稳定、统一、可持久化的交易记录格式。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S1-005 已完成，字段映射规则可用。"
+
 acceptance_criteria:
-- TradeRecord 标准化 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "输出的 TradeRecord 包含 traded_at、symbol、side、qty、price、fee、tax、broker、row_number。"
+  - "side 会统一成 buy/sell，数量和金额字段会标准化为数值类型。"
+  - "标准化结果可被持久化并复用。"
+  - "非法记录会被记录进解析报告，而不会静默丢失。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/modules/statements/traderecord_标准化.py'
+  - "只修改解析服务和 TradeRecord schema。"
+  - "标准化逻辑必须保持纯函数化，便于测试。"
+  - "不得把业务校验和字段映射混在同一层。"
+
 out_of_scope:
-- 不在本 Story 中实现 TradeRecord 标准化 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现解析报告聚合。"
+  - "不在本 Story 中提取 Profile。"
+
 not_do:
-- 不在本 Story 中实现 TradeRecord 标准化 之外的后续能力。
-- 不做架构级重构。
+  - "不改动上传和文件识别链路。"
+  - "不新增数据库表。"
+
 dependencies:
-- S1-005
+  - "S1-005"
+
 related_files:
-- apps/api/src/modules/statements/traderecord_标准化.py
-- apps/api/src/modules/statements/mappers/__init__.py
+  - "apps/api/src/modules/statements/parser_service.py"
+  - "apps/api/src/schemas/trade.py"
+  - "apps/api/src/modules/statements/mappers/rules.py"
+
 primary_files:
-- apps/api/src/modules/statements/traderecord_标准化.py
+  - "apps/api/src/modules/statements/parser_service.py"
+  - "apps/api/src/schemas/trade.py"
+
 secondary_files:
-- apps/api/src/modules/statements/mappers/__init__.py
+  - "apps/api/src/modules/statements/mappers/rules.py"
+
 test_cases:
   normal:
-  - 正常路径：TradeRecord 标准化 的核心场景可以完成。
+    - "正常路径：有效记录会生成完整的标准化 TradeRecord。"
+    - "正常路径：buy/sell 方向和数值字段都按统一格式输出。"
   exception:
-  - 异常路径：TradeRecord 标准化 失败时返回可解释结果。
+    - "异常路径：关键字段缺失的记录不会进入标准化结果，并会产出可解释问题。"

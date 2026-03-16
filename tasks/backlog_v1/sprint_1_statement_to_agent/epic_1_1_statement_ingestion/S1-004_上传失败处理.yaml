@@ -1,41 +1,58 @@
-task_id: S1-004
-task_name: 上传失败处理
-sprint: Sprint 1
-epic: Epic 1.1 交割单摄入
-story_id: S1-004
-blast_radius: L1
-execution_mode: Fast
-mode: Fast
-goal: 覆盖上传阶段异常路径。
-business_value: 让 上传失败处理 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-004"
+task_name: "上传失败处理"
+sprint: "Sprint 1"
+epic: "Epic 1.1 交割单摄入"
+story_id: "S1-004"
+blast_radius: "L1"
+execution_mode: "Fast"
+mode: "Fast"
+
+goal: "覆盖上传阶段关键失败路径，确保对象存储和 metadata 不留下脏数据。"
+business_value: "让交割单上传链路在失败时可回滚、可解释、可追踪。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S1-001、S1-002、S1-003 已完成。"
+
 acceptance_criteria:
-- 上传失败处理 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "空文件、超 10MB、非法扩展名都会被拒绝并返回统一错误信息。"
+  - "对象存储写入失败时返回 500，且不会创建 metadata。"
+  - "metadata 持久化失败时会回滚已上传对象。"
+  - "失败结果可通过查询接口看到 error_message。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/routes/statements.py'
+  - "只修改上传服务、存储和 metadata 持久化相关代码。"
+  - "失败处理必须保持幂等。"
+  - "不得影响成功上传路径的返回结构。"
+
 out_of_scope:
-- 不在本 Story 中实现 上传失败处理 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现解析失败路径。"
+  - "不引入异步补偿队列。"
+
 not_do:
-- 不在本 Story 中实现 上传失败处理 之外的后续能力。
-- 不做架构级重构。
+  - "不调整对象存储命名规范。"
+  - "不扩展更多上传校验规则。"
+
 dependencies:
-- S1-003
+  - "S1-003"
+
 related_files:
-- apps/api/src/routes/statements.py
-- apps/api/src/modules/statements/上传失败处理.py
+  - "apps/api/src/modules/statements/service.py"
+  - "apps/api/src/modules/statements/repository.py"
+  - "apps/api/src/infra/storage/object_store.py"
+  - "apps/api/src/api/command/routes.py"
+
 primary_files:
-- apps/api/src/routes/statements.py
+  - "apps/api/src/modules/statements/service.py"
+  - "apps/api/src/modules/statements/repository.py"
+
 secondary_files:
-- apps/api/src/modules/statements/上传失败处理.py
+  - "apps/api/src/infra/storage/object_store.py"
+  - "apps/api/src/api/command/routes.py"
+
 test_cases:
   normal:
-  - 正常路径：上传失败处理 的核心场景可以完成。
+    - "正常路径：合法文件上传后 metadata 和对象文件都成功写入。"
   exception:
-  - 异常路径：上传失败处理 失败时返回可解释结果。
+    - "异常路径：对象存储失败时返回 500 且 metadata 不存在。"
+    - "异常路径：metadata 持久化失败时对象文件被回滚删除。"
+    - "异常路径：空文件和超大文件返回 400。"

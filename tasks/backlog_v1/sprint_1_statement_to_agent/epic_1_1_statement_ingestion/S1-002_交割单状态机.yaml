@@ -1,41 +1,58 @@
-task_id: S1-002
-task_name: 交割单状态机
-sprint: Sprint 1
-epic: Epic 1.1 交割单摄入
-story_id: S1-002
-blast_radius: L1
-execution_mode: Fast
-mode: Fast
-goal: 实现 statement 状态流转和非法跳转拦截。
-business_value: 让 交割单状态机 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-002"
+task_name: "交割单状态机"
+sprint: "Sprint 1"
+epic: "Epic 1.1 交割单摄入"
+story_id: "S1-002"
+blast_radius: "L1"
+execution_mode: "Fast"
+mode: "Fast"
+
+goal: "实现 statement 状态流转规则，支持 uploaded -> parsing -> parsed/failed，并阻止非法跳转。"
+business_value: "让交割单上传后的业务状态具备可验证、可审计、可复用的统一状态机。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S1-001 已完成，上传成功后能生成 statement_id 和 uploaded 状态。"
+
 acceptance_criteria:
-- 交割单状态机 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "支持 uploaded -> parsing -> parsed 和 uploaded -> parsing -> failed 的合法流转。"
+  - "非法状态跳转会被拒绝，并返回统一错误码。"
+  - "状态更新结果会持久化到 statement 元数据。"
+  - "查询接口能读到最新 upload_status 和 error_message。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/routes/statements.py'
+  - "只修改 statement 状态流转相关文件。"
+  - "不引入新的外部依赖。"
+  - "必须与现有上传接口和查询接口兼容。"
+
 out_of_scope:
-- 不在本 Story 中实现 交割单状态机 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现解析逻辑本身。"
+  - "不实现批量状态推进。"
+
 not_do:
-- 不在本 Story 中实现 交割单状态机 之外的后续能力。
-- 不做架构级重构。
+  - "不修改对象存储落盘规则。"
+  - "不扩展到 DNA 或 Agent 创建模块。"
+
 dependencies:
-- S1-001
+  - "S1-001"
+
 related_files:
-- apps/api/src/routes/statements.py
-- apps/api/src/modules/statements/交割单状态机.py
+  - "apps/api/src/modules/statements/status_machine.py"
+  - "apps/api/src/modules/statements/service.py"
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/api/query/routes.py"
+
 primary_files:
-- apps/api/src/routes/statements.py
+  - "apps/api/src/modules/statements/status_machine.py"
+  - "apps/api/src/modules/statements/service.py"
+
 secondary_files:
-- apps/api/src/modules/statements/交割单状态机.py
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/api/query/routes.py"
+
 test_cases:
   normal:
-  - 正常路径：交割单状态机 的核心场景可以完成。
+    - "正常路径：uploaded -> parsing -> parsed 能顺利执行并持久化。"
+    - "正常路径：uploaded -> parsing -> failed 能顺利执行并记录错误信息。"
   exception:
-  - 异常路径：交割单状态机 失败时返回可解释结果。
+    - "异常路径：parsed -> parsing 会被拒绝并返回统一错误码。"
+    - "异常路径：不存在的 statement_id 更新状态时返回可解释错误。"

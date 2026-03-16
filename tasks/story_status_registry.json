@@ -89,6 +89,51 @@
         "Transitioned statement status to parsed on clean parse",
         "Transitioned statement status to failed with error_code on parse failure"
       ]
+    },
+    {
+      "story_id": "S1-008",
+      "task_id": "business-validation-s1-008",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "repository": "versefina",
+      "commit": "44036e3",
+      "verified_at": "2026-03-16T12:05:46+08:00",
+      "summary": "Implemented rule-based profile extraction from parsed TradeRecord files.",
+      "evidence": [
+        "Generated persisted profile JSON from parsed trade records",
+        "Extracted styleTags, preferredUniverse and cadence from normalized trades",
+        "Returned stable profile output through POST /api/v1/statements/{statement_id}/profile"
+      ]
+    },
+    {
+      "story_id": "S1-009",
+      "task_id": "business-validation-s1-009",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "repository": "versefina",
+      "commit": "44036e3",
+      "verified_at": "2026-03-16T12:05:46+08:00",
+      "summary": "Implemented style tags and risk control generation inside the persisted TradingAgentProfile.",
+      "evidence": [
+        "Profile output includes styleTags and riskControls",
+        "Generated cadence, costModel and decisionPolicy fields deterministically",
+        "Validated profile query returns structured profile payload"
+      ]
+    },
+    {
+      "story_id": "S1-010",
+      "task_id": "business-validation-s1-010",
+      "status": "done",
+      "source": "versefina_business_validation",
+      "repository": "versefina",
+      "commit": "44036e3",
+      "verified_at": "2026-03-16T12:05:46+08:00",
+      "summary": "Implemented real Agent creation API backed by persisted profile and agent registry records.",
+      "evidence": [
+        "Created persisted agent record via POST /api/v1/agents",
+        "Returned agent_id, public_url and profile_path from the real API",
+        "Validated GET /api/v1/agents/{agent_id} and snapshot query against persisted agent data"
+      ]
     }
   ]
 }

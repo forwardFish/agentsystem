@@ -1,41 +1,54 @@
-task_id: S1-008
-task_name: 规则版 Profile 提取
-sprint: Sprint 1
-epic: Epic 1.3 Agent DNA / Profile
-story_id: S1-008
-blast_radius: L2
-execution_mode: Safe
-mode: Safe
-goal: 从 TradeRecord 提取基础交易画像。
-business_value: 让 规则版 Profile 提取 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-008"
+task_name: "规则版 Profile 提取"
+sprint: "Sprint 1"
+epic: "Epic 1.3 Agent DNA / Profile"
+story_id: "S1-008"
+blast_radius: "L2"
+execution_mode: "Safe"
+mode: "Safe"
+
+goal: "基于标准化 TradeRecord 提取基础交易画像，包括偏好标的、持仓倾向和交易节奏。"
+business_value: "让上传后的交割单不只停留在记录层，而是能转成后续 Agent 可用的 Profile 基础。"
+
 entry_criteria:
-- 无前置依赖。
+  - "S1-007 已完成，标准化 TradeRecord 和 parse report 可用。"
+
 acceptance_criteria:
-- 规则版 Profile 提取 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "能根据 TradeRecord 提取偏好标的或偏好行业线索。"
+  - "能提取持仓天数倾向、换手倾向或交易活跃度。"
+  - "输出结果结构能被后续风格标签和风控约束生成直接复用。"
+  - "同一输入在规则版实现下输出稳定。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/modules/profile/规则版_profile_提取.py'
+  - "只修改 DNA/Profile 提取相关模块。"
+  - "优先使用规则实现，不引入 LLM 推断。"
+  - "输出结构要和后续 Agent schema 对齐。"
+
 out_of_scope:
-- 不在本 Story 中实现 规则版 Profile 提取 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中创建 Agent 实体。"
+  - "不实现复杂机器学习画像。"
+
 not_do:
-- 不在本 Story 中实现 规则版 Profile 提取 之外的后续能力。
-- 不做架构级重构。
+  - "不修改解析服务。"
+  - "不扩展到世界或账本模块。"
+
 dependencies:
-- 无
+  - "S1-007"
+
 related_files:
-- apps/api/src/modules/profile/规则版_profile_提取.py
-- docs/contracts/trading_agent_profile.schema.json
+  - "apps/api/src/domain/dna_engine/service.py"
+  - "apps/api/src/schemas/agent.py"
+  - "apps/api/src/schemas/trade.py"
+
 primary_files:
-- apps/api/src/modules/profile/规则版_profile_提取.py
+  - "apps/api/src/domain/dna_engine/service.py"
+
 secondary_files:
-- docs/contracts/trading_agent_profile.schema.json
+  - "apps/api/src/schemas/agent.py"
+  - "apps/api/src/schemas/trade.py"
+
 test_cases:
   normal:
-  - 正常路径：规则版 Profile 提取 的核心场景可以完成。
+    - "正常路径：输入标准化 TradeRecord 后生成基础 Profile 摘要。"
   exception:
-  - 异常路径：规则版 Profile 提取 失败时返回可解释结果。
+    - "异常路径：空 TradeRecord 集合时返回可解释错误或空结果。"

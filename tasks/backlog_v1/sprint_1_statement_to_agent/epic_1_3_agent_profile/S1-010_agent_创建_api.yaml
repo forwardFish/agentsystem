@@ -1,41 +1,58 @@
-task_id: S1-010
-task_name: Agent 创建 API
-sprint: Sprint 1
-epic: Epic 1.3 Agent DNA / Profile
-story_id: S1-010
-blast_radius: L2
-execution_mode: Safe
-mode: Safe
-goal: 基于 statement/profile/init_cash 创建 Agent。
-business_value: 让 Agent 创建 API 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-010"
+task_name: "Agent 创建 API"
+sprint: "Sprint 1"
+epic: "Epic 1.3 Agent DNA / Profile"
+story_id: "S1-010"
+blast_radius: "L2"
+execution_mode: "Safe"
+mode: "Safe"
+
+goal: "基于 statement、Profile 和初始资金创建 Agent，并返回可查询的 agent_id。"
+business_value: "让交割单到 Agent 建模的业务链路真正闭环，形成平台里的可运行实体。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S1-009 已完成，Profile 和风控约束生成可用。"
+
 acceptance_criteria:
-- Agent 创建 API 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "创建接口能接收 statement_id、profile 和 init_cash，并返回 agent_id。"
+  - "会持久化 Agent 基础信息和 Profile 摘要。"
+  - "失败时返回统一错误结构，不产生半成品数据。"
+  - "查询接口能读取新创建的 Agent 基础信息。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/modules/profile/agent_创建_api.py'
+  - "只修改 Agent 创建相关 API、service 和 schema。"
+  - "优先复用现有 command/query 路由结构。"
+  - "不得把 Agent 创建逻辑耦合进上传或解析服务。"
+
 out_of_scope:
-- 不在本 Story 中实现 Agent 创建 API 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现 Agent 日循环。"
+  - "不实现前端页面或公开分享页。"
+
 not_do:
-- 不在本 Story 中实现 Agent 创建 API 之外的后续能力。
-- 不做架构级重构。
+  - "不改动世界、账本、OpenClaw 模块。"
+  - "不新增复杂审批流程。"
+
 dependencies:
-- S1-009
+  - "S1-009"
+
 related_files:
-- apps/api/src/modules/profile/agent_创建_api.py
-- docs/contracts/trading_agent_profile.schema.json
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/api/query/routes.py"
+  - "apps/api/src/domain/agent_registry/service.py"
+  - "apps/api/src/schemas/agent.py"
+
 primary_files:
-- apps/api/src/modules/profile/agent_创建_api.py
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/domain/agent_registry/service.py"
+
 secondary_files:
-- docs/contracts/trading_agent_profile.schema.json
+  - "apps/api/src/api/query/routes.py"
+  - "apps/api/src/schemas/agent.py"
+
 test_cases:
   normal:
-  - 正常路径：Agent 创建 API 的核心场景可以完成。
+    - "正常路径：基于有效 statement 和 Profile 创建 Agent，返回 agent_id。"
+    - "正常路径：创建完成后可通过查询接口读取 Agent 基础信息。"
   exception:
-  - 异常路径：Agent 创建 API 失败时返回可解释结果。
+    - "异常路径：缺失 statement 或 Profile 时返回统一错误。"
+    - "异常路径：持久化失败时不保留半成品 Agent 数据。"

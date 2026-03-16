@@ -23,7 +23,7 @@ acceptance_criteria:
 constraints:
   - "每个 Story 控制在 0.5 天到 1 天内完成。"
   - "只修改当前 Story 相关文件，不跨多个大模块。"
-  - "优先修改这些 primary files: apps/api/src/api/command/routes.py, apps/api/src/schemas/command.py, apps/api/src/domain/dna_engine/service.py"
+  - "优先修改这些 primary files: apps/api/src/api/command/routes.py, apps/api/src/modules/statements/service.py, apps/api/src/schemas/command.py"
 
 out_of_scope:
   - "不在本 Story 中实现交割单解析、标准化或 Agent DNA 生成。"
@@ -39,13 +39,13 @@ dependencies:
 related_files:
   - "apps/api/src/api/command/routes.py"
   - "apps/api/src/schemas/command.py"
-  - "apps/api/src/domain/dna_engine/service.py"
+  - "apps/api/src/modules/statements/service.py"
   - "apps/api/src/infra/storage/object_store.py"
 
 primary_files:
   - "apps/api/src/api/command/routes.py"
   - "apps/api/src/schemas/command.py"
-  - "apps/api/src/domain/dna_engine/service.py"
+  - "apps/api/src/modules/statements/service.py"
 
 secondary_files:
   - "apps/api/src/infra/storage/object_store.py"

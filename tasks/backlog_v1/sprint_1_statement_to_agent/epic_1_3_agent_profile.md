@@ -1,6 +1,9 @@
-# Epic 1_3 Agent DNA / Profile
+# Epic 1.3 Agent DNA / Profile
 
-从标准化交易记录中提取 profile 并创建 Agent。
+这一组 Story 负责把标准化交易记录继续转成 Agent 可用画像：
+- 提取基础交易风格
+- 生成风格标签和风控约束
+- 创建 Agent 实体并返回可查询入口
 
 ## Stories
 | Story ID | Story 名称 |

@@ -1,41 +1,57 @@
-task_id: S1-007
-task_name: 解析校验与错误报告
-sprint: Sprint 1
-epic: Epic 1.2 交割单解析与标准化
-story_id: S1-007
-blast_radius: L1
-execution_mode: Fast
-mode: Fast
-goal: 输出结构化解析结果与错误报告。
-business_value: 让 解析校验与错误报告 成为可独立验收、可直接进入 Agent 执行闭环的 Story。
+task_id: "S1-007"
+task_name: "解析校验与错误报告"
+sprint: "Sprint 1"
+epic: "Epic 1.2 交割单解析与标准化"
+story_id: "S1-007"
+blast_radius: "L1"
+execution_mode: "Fast"
+mode: "Fast"
+
+goal: "生成结构化 parse report，并在解析成功或失败时更新 statement 最终状态。"
+business_value: "让解析链路具备可审计、可追踪、可复盘的结果输出，而不是只有黑盒成功或失败。"
+
 entry_criteria:
-- 前置依赖已完成并可用。
+  - "S1-006 已完成，TradeRecord 标准化可用。"
+
 acceptance_criteria:
-- 解析校验与错误报告 的核心输出可以被独立验收。
-- 只跨一个业务边界，不扩展到相邻模块。
-- 产物能够被后续 Story 直接复用。
-- 正常路径和关键失败路径都有可验证结果。
+  - "解析成功时会生成包含 parsed_records、failed_records 和 issues 的 parse report。"
+  - "解析成功后 statement 状态会更新为 parsed。"
+  - "解析失败时 statement 状态会更新为 failed，并记录统一错误码。"
+  - "查询接口能读取 parse report 和最终状态。"
+
 constraints:
-- 每个 Story 默认控制在 0.5 天到 1 天完成。
-- 只修改当前 Story 相关文件，不跨多个大模块。
-- '优先修改这些 primary files: apps/api/src/modules/statements/解析校验与错误报告.py'
+  - "只修改解析服务、状态更新和查询接口相关文件。"
+  - "错误报告结构必须稳定，便于后续 Dashboard 展示。"
+  - "不得吞掉异常原因。"
+
 out_of_scope:
-- 不在本 Story 中实现 解析校验与错误报告 之外的后续能力。
-- 不做架构级重构。
+  - "不在本 Story 中实现 Profile 提取。"
+  - "不在本 Story 中实现失败自动重试。"
+
 not_do:
-- 不在本 Story 中实现 解析校验与错误报告 之外的后续能力。
-- 不做架构级重构。
+  - "不修改上传 API 的返回结构。"
+  - "不新增额外后台任务。"
+
 dependencies:
-- S1-006
+  - "S1-006"
+
 related_files:
-- apps/api/src/modules/statements/解析校验与错误报告.py
-- apps/api/src/modules/statements/mappers/__init__.py
+  - "apps/api/src/modules/statements/parser_service.py"
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/api/query/routes.py"
+  - "apps/api/src/modules/statements/service.py"
+
 primary_files:
-- apps/api/src/modules/statements/解析校验与错误报告.py
+  - "apps/api/src/modules/statements/parser_service.py"
+  - "apps/api/src/api/query/routes.py"
+
 secondary_files:
-- apps/api/src/modules/statements/mappers/__init__.py
+  - "apps/api/src/api/command/routes.py"
+  - "apps/api/src/modules/statements/service.py"
+
 test_cases:
   normal:
-  - 正常路径：解析校验与错误报告 的核心场景可以完成。
+    - "正常路径：解析成功后生成 parse report，statement 状态变为 parsed。"
   exception:
-  - 异常路径：解析校验与错误报告 失败时返回可解释结果。
+    - "异常路径：无有效映射规则时生成失败报告，statement 状态变为 failed。"
+    - "异常路径：查询不存在的 parse report 时返回可解释错误。"
