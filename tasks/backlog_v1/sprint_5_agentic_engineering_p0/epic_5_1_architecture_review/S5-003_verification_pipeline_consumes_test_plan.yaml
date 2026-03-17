@@ -1,0 +1,64 @@
+task_id: S5-003
+task_name: verification pipeline consumes test plan
+sprint: Sprint 5
+epic: Epic 5.1 Architecture Review and Test Planning
+story_id: S5-003
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: Make tester, reviewer, and fixer consume the architecture review test plan and failure modes instead of relying only on story-id heuristics or generic diff checks.
+business_value: Move verification from best-effort inference toward a repeatable, plan-driven loop that is closer to a real engineering control plane.
+entry_criteria:
+  - S5-002 is complete and test-plan artifacts exist in runtime state.
+acceptance_criteria:
+  - Tester reads test_plan.json when present and falls back cleanly when it is absent.
+  - Reviewer report includes a failure-mode cross-check section driven by architecture review outputs.
+  - Fix loop preserves architecture-review refs and test-plan refs across retries.
+  - Tests cover both plan-present and plan-absent execution paths.
+constraints:
+  - Keep story-specific validation fallback working for existing backlog items.
+  - Avoid coupling tester or reviewer to a single project repository layout.
+  - Preserve current dashboard completion metrics.
+out_of_scope:
+  - Browser-driven QA execution.
+  - Release or PR automation.
+not_do:
+  - Do not remove story-specific validation entirely in this story.
+  - Do not expand into design review or product review.
+dependencies:
+  - S5-002
+related_files:
+  - src/agentsystem/agents/test_agent.py
+  - src/agentsystem/agents/review_agent.py
+  - src/agentsystem/agents/fix_agent.py
+  - src/agentsystem/agents/doc_agent.py
+  - tests/test_story_completion_flow.py
+primary_files:
+  - src/agentsystem/agents/test_agent.py
+  - src/agentsystem/agents/review_agent.py
+  - src/agentsystem/agents/fix_agent.py
+secondary_files:
+  - src/agentsystem/agents/doc_agent.py
+  - tests/test_story_completion_flow.py
+story_inputs:
+  - test_plan.json from architecture review.
+  - failure_modes.json from architecture review.
+  - Existing tester, reviewer, and fixer runtime state.
+story_process:
+  - Update tester to read the reusable test plan before fallback heuristics.
+  - Update reviewer to evaluate planned failure modes explicitly.
+  - Preserve planning refs through retry loops and final reporting.
+story_outputs:
+  - Plan-aware tester behavior.
+  - Reviewer failure-mode coverage in the report.
+  - Stable planning refs across fixer retries.
+verification_basis:
+  - Tester behavior changes when a test plan is present.
+  - Reviewer output records planned failure-mode coverage.
+  - Retry cycles do not drop planning refs from state.
+test_cases:
+  normal:
+    - A run with test_plan.json uses the plan and reports planned checks.
+    - A run without planning artifacts still uses the legacy fallback path successfully.
+  exception:
+    - Corrupt test-plan content is surfaced as an explicit validation issue instead of being silently ignored.

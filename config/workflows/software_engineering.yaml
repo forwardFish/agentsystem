@@ -9,8 +9,10 @@ policy_refs:
 trigger_events:
   - task.created
 verification_pipeline:
+  - architecture_review
   - code_style_review
   - test
+  - browser_qa
   - security_scan
   - review
   - code_acceptance
@@ -25,6 +27,9 @@ nodes:
   - node_id: requirement_analysis
     display_name: Requirement
     agent_manifest: software_engineering.requirement_analysis
+  - node_id: architecture_review
+    display_name: Architecture Review
+    agent_manifest: software_engineering.architecture_review
   - node_id: workspace_prep
     display_name: Workspace Prep
     agent_manifest: software_engineering.workspace_prep
@@ -49,6 +54,9 @@ nodes:
   - node_id: tester
     display_name: Tester
     agent_manifest: software_engineering.tester
+  - node_id: browser_qa
+    display_name: Browser QA
+    agent_manifest: software_engineering.browser_qa
   - node_id: fixer
     display_name: Fixer
     agent_manifest: software_engineering.fixer
@@ -69,7 +77,7 @@ nodes:
     agent_manifest: software_engineering.doc_writer
 edges:
   - source: requirement_analysis
-    target: workspace_prep
+    target: architecture_review
   - source: backend_dev
     target: sync_merge
   - source: frontend_dev
@@ -85,6 +93,11 @@ edges:
   - source: doc_writer
     target: __end__
 conditional_edges:
+  - source: architecture_review
+    router: route_after_architecture_review
+    routes:
+      workspace_prep: workspace_prep
+      __end__: __end__
   - source: workspace_prep
     router: task_router
     routes:
@@ -102,12 +115,20 @@ conditional_edges:
     router: route_after_test
     routes:
       fixer: fixer
+      browser_qa: browser_qa
       security_scanner: security_scanner
+  - source: browser_qa
+    router: route_after_browser_qa
+    routes:
+      fixer: fixer
+      security_scanner: security_scanner
+      __end__: __end__
   - source: fixer
     router: route_after_fix
     routes:
       code_style_reviewer: code_style_reviewer
       tester: tester
+      browser_qa: browser_qa
       reviewer: reviewer
       code_acceptance: code_acceptance
       acceptance_gate: acceptance_gate

@@ -1,0 +1,65 @@
+task_id: S5-008
+task_name: release guardrails and dashboard status
+sprint: Sprint 5
+epic: Epic 5.3 Ship Release Guardrails
+story_id: S5-008
+blast_radius: L1
+execution_mode: Fast
+mode: Fast
+goal: Surface release status, approval state, PR metadata, and ship readiness in the dashboard while enforcing guardrails that block shipping when critical verification is missing.
+business_value: Make release readiness visible and auditable so the control plane can answer not only “did the Story pass?” but also “is it actually shippable?”
+entry_criteria:
+  - S5-006 and S5-007 are complete and ship/browser QA outputs exist.
+acceptance_criteria:
+  - Task detail API returns release status, PR metadata, approval status, and ship-readiness summary.
+  - Story detail UI renders release status and approval state alongside workflow and browser QA metadata.
+  - Ship guardrails prevent a story from being marked ready when acceptance, browser QA, or release evidence is missing.
+  - Dashboard tests cover no-token, pending approval, and ready-to-ship states.
+constraints:
+  - Reuse current Story detail and task detail response patterns.
+  - Keep release-status rendering additive and read-only.
+  - Preserve backward compatibility for stories that never enter ship flow.
+out_of_scope:
+  - Automatic merge completion UI.
+  - Multi-repository release coordination.
+not_do:
+  - Do not add dashboard buttons that mutate approval state.
+  - Do not expose secrets or raw tokens in dashboard payloads.
+dependencies:
+  - S5-006
+  - S5-007
+related_files:
+  - src/agentsystem/dashboard/main.py
+  - src/agentsystem/dashboard/static/story.html
+  - src/agentsystem/integrations/pr_approval_integration.py
+  - tests/test_dashboard_api.py
+  - tests/test_story_completion_flow.py
+primary_files:
+  - src/agentsystem/dashboard/main.py
+  - src/agentsystem/dashboard/static/story.html
+  - src/agentsystem/integrations/pr_approval_integration.py
+secondary_files:
+  - tests/test_dashboard_api.py
+  - tests/test_story_completion_flow.py
+story_inputs:
+  - Browser QA ship-readiness signals.
+  - Ship agent release evidence and PR metadata.
+  - Existing dashboard task detail and Story detail models.
+story_process:
+  - Extend dashboard loaders with release metadata.
+  - Render release and approval state in Story detail.
+  - Enforce guardrail logic for ready-to-ship projection.
+story_outputs:
+  - Dashboard-visible release status.
+  - Guarded ready-to-ship summary.
+  - Approval and PR metadata projection.
+verification_basis:
+  - Dashboard returns stable release metadata fields.
+  - Ready-to-ship is blocked when critical verification is missing.
+  - Legacy stories still load correctly without ship metadata.
+test_cases:
+  normal:
+    - A fully verified ship-enabled story shows ready-to-ship with PR metadata and approval status.
+    - A legacy story with no ship metadata still renders Story detail without regression.
+  exception:
+    - Pending approval or missing browser QA evidence keeps the story in a not-ready release state with an explicit reason.

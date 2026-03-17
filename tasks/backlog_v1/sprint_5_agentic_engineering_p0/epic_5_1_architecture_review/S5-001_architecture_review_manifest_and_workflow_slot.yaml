@@ -1,0 +1,64 @@
+task_id: S5-001
+task_name: architecture review manifest and workflow slot
+sprint: Sprint 5
+epic: Epic 5.1 Architecture Review and Test Planning
+story_id: S5-001
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: Introduce a first-class Architecture Review agent into the default software engineering workflow between requirement parsing and workspace preparation.
+business_value: Make planning a reusable, manifest-driven stage instead of forcing execution to start directly from requirement decomposition.
+entry_criteria:
+  - The manifest-driven software_engineering workflow is already running in agentsystem.
+acceptance_criteria:
+  - config/workflows/software_engineering.yaml contains an architecture_review node routed after requirement_analysis and before workspace_prep.
+  - config/agents/software_engineering/architecture_review.yaml exists and declares role, plane, capabilities, policy refs, trigger events, and tool scope.
+  - Workflow registry tests confirm the new node loads correctly and exposes its manifest metadata.
+  - The runtime state can carry architecture-review metadata placeholders without breaking the current workflow.
+constraints:
+  - Keep this story focused on manifest and workflow integration only.
+  - Do not implement the full planning artifact writer in this story.
+  - Preserve backward compatibility for stories that still use the existing workflow entrypoint.
+out_of_scope:
+  - Generating the implementation plan artifact itself.
+  - Changing tester, reviewer, or fixer logic.
+not_do:
+  - Do not bundle browser QA or ship flow into this story.
+  - Do not rewrite unrelated existing agent manifests.
+dependencies: []
+related_files:
+  - config/workflows/software_engineering.yaml
+  - config/agents/software_engineering/architecture_review.yaml
+  - src/agentsystem/orchestration/agent_manifest_registry.py
+  - src/agentsystem/orchestration/workflow_registry.py
+  - src/agentsystem/graph/dev_workflow.py
+  - tests/test_workflow_registry.py
+primary_files:
+  - config/workflows/software_engineering.yaml
+  - config/agents/software_engineering/architecture_review.yaml
+  - src/agentsystem/orchestration/workflow_registry.py
+secondary_files:
+  - src/agentsystem/orchestration/agent_manifest_registry.py
+  - src/agentsystem/graph/dev_workflow.py
+  - tests/test_workflow_registry.py
+story_inputs:
+  - Existing software_engineering workflow manifest and agent manifest registry.
+  - The current gap between requirement parsing and execution start.
+  - The need to attach planning metadata to a Story before code changes begin.
+story_process:
+  - Define the new architecture review manifest.
+  - Insert the node and route transitions into the workflow manifest.
+  - Extend workflow-loading tests to verify the new planning stage is present.
+story_outputs:
+  - A manifest-driven architecture_review workflow node.
+  - Runtime metadata slots for downstream planning artifacts.
+verification_basis:
+  - Workflow registry loads the new node and preserves graph integrity.
+  - The default workflow still compiles with the added planning stage.
+  - Existing story execution metadata remains backward compatible.
+test_cases:
+  normal:
+    - The workflow loader resolves the new architecture_review manifest and node successfully.
+    - The graph compiles and routes from requirement_analysis into architecture_review.
+  exception:
+    - Missing or malformed architecture review manifest fails registry loading with an explicit error.

@@ -7,6 +7,8 @@ from typing import Any, Callable, Iterable
 import yaml
 
 from agentsystem.agents.acceptance_gate_agent import route_after_acceptance
+from agentsystem.agents.architecture_review_agent import route_after_architecture_review
+from agentsystem.agents.browser_qa_agent import route_after_browser_qa
 from agentsystem.agents.code_acceptance_agent import route_after_code_acceptance
 from agentsystem.agents.code_style_reviewer_agent import route_after_code_style_review
 from agentsystem.agents.fix_agent import route_after_fix
@@ -23,8 +25,10 @@ RouterHandler = Callable[..., str | list[str]]
 
 ROUTER_CATALOG: dict[str, RouterHandler] = {
     "task_router": task_router,
+    "route_after_architecture_review": route_after_architecture_review,
     "route_after_code_style_review": route_after_code_style_review,
     "route_after_test": route_after_test,
+    "route_after_browser_qa": route_after_browser_qa,
     "route_after_fix": route_after_fix,
     "route_after_review": route_after_review,
     "route_after_code_acceptance": route_after_code_acceptance,
@@ -207,7 +211,7 @@ def _build_conditional_edge(payload: Any, manifest_path: Path, node_ids: set[str
     routes: dict[str, str] = {}
     for route_name, target in routes_payload.items():
         target_name = str(target).strip()
-        if target_name not in node_ids:
+        if target_name != "__end__" and target_name not in node_ids:
             raise ValueError(f"{manifest_path} route target {target_name!r} is not a registered node")
         routes[str(route_name).strip()] = target_name
     return WorkflowConditionalEdge(source=source, router=router, router_id=router_id, routes=routes)

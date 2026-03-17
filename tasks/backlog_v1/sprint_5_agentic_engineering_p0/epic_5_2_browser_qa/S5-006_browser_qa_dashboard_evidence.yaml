@@ -1,0 +1,61 @@
+task_id: S5-006
+task_name: browser QA dashboard evidence
+sprint: Sprint 5
+epic: Epic 5.2 Browser QA Runtime and Verification
+story_id: S5-006
+blast_radius: L1
+execution_mode: Fast
+mode: Fast
+goal: Expose browser QA outputs in the dashboard so a Story detail page shows screenshots, console health, browser findings, and ship-readiness summary.
+business_value: Make browser verification visible and reviewable by humans instead of hiding QA evidence inside local runtime artifacts.
+entry_criteria:
+  - S5-005 is complete and Browser QA outputs structured evidence.
+acceptance_criteria:
+  - Story detail API returns browser QA evidence including screenshots, console summary, health score, and ship-readiness.
+  - Story detail UI renders browser QA evidence in a readable section without breaking existing report tabs.
+  - The latest run summary highlights whether browser QA was executed and what verdict it produced.
+  - Dashboard tests cover the browser QA evidence contract.
+constraints:
+  - Reuse current dashboard loading and story-detail patterns where possible.
+  - Keep evidence rendering additive and backward compatible.
+  - Do not require a separate browser-runtime dashboard for this story.
+out_of_scope:
+  - Gallery-style QA run history.
+  - Design-review visuals.
+not_do:
+  - Do not remove existing text-based artifacts from the Story detail page.
+  - Do not add mutable dashboard controls in this story.
+dependencies:
+  - S5-005
+related_files:
+  - src/agentsystem/dashboard/main.py
+  - src/agentsystem/dashboard/static/story.html
+  - src/agentsystem/dashboard/static/index.html
+  - tests/test_dashboard_api.py
+primary_files:
+  - src/agentsystem/dashboard/main.py
+  - src/agentsystem/dashboard/static/story.html
+secondary_files:
+  - src/agentsystem/dashboard/static/index.html
+  - tests/test_dashboard_api.py
+story_inputs:
+  - Browser QA screenshots and browser-side log summaries.
+  - Browser QA health score and ship-readiness metadata.
+  - Existing Story detail API and dashboard layout.
+story_process:
+  - Extend the task detail loader with browser QA evidence.
+  - Render browser QA evidence into Story detail UI.
+  - Add tests for the browser QA evidence contract.
+story_outputs:
+  - Dashboard-visible browser QA evidence.
+  - Latest-run summary with browser QA verdict.
+verification_basis:
+  - API returns browser QA evidence in a stable structure.
+  - Story detail page renders browser QA evidence without errors.
+  - Existing dashboard views remain backward compatible.
+test_cases:
+  normal:
+    - Story detail displays browser QA health score and screenshot evidence when present.
+    - Story detail gracefully hides browser QA sections when no evidence exists.
+  exception:
+    - Corrupt or partial browser QA evidence is rendered as an explicit missing-evidence state instead of breaking the page.

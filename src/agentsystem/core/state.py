@@ -25,9 +25,12 @@ class SubTask(BaseModel):
 
 class AgentRole(str, Enum):
     REQUIREMENT = "Requirement"
+    ARCHITECTURE_REVIEW = "ArchitectureReview"
     BUILDER = "Builder"
     SYNC = "Sync"
     TESTER = "Tester"
+    BROWSER_QA = "BrowserQA"
+    SECURITY_SCANNER = "SecurityScanner"
     FIXER = "Fixer"
     REVIEWER = "Reviewer"
     CODE_STYLE_REVIEWER = "CodeStyleReviewer"
@@ -134,6 +137,13 @@ class DevState(TypedDict, total=False):
     user_requirement: str
     repo_b_path: str
     task_payload: dict[str, Any] | None
+    skill_mode: str | None
+    skill_mode_name: str | None
+    skill_mode_description: str | None
+    skill_mode_manifest_path: str | None
+    skill_entry_mode: str | None
+    stop_after: str | None
+    fixer_allowed: bool | None
     workflow_plugin_id: str | None
     workflow_manifest_path: str | None
     workflow_policy_refs: list[str] | None
@@ -150,6 +160,11 @@ class DevState(TypedDict, total=False):
     commit_msg: str | None
     requirement_spec: str | None
     parsed_goal: str | None
+    architecture_review_success: bool | None
+    architecture_review_dir: str | None
+    architecture_review_report: str | None
+    architecture_review_summary: str | None
+    architecture_test_plan: dict[str, Any] | None
     acceptance_checklist: list[str] | None
     story_inputs: list[str] | None
     story_process: list[str] | None
@@ -169,6 +184,18 @@ class DevState(TypedDict, total=False):
     test_results: str | None
     test_passed: bool | None
     test_failure_info: str | None
+    browser_runtime_dir: str | None
+    browser_session_id: str | None
+    browser_qa_success: bool | None
+    browser_qa_passed: bool | None
+    browser_qa_report: str | None
+    browser_qa_dir: str | None
+    browser_qa_findings: list[str] | None
+    browser_qa_warnings: list[str] | None
+    browser_qa_health_score: int | None
+    browser_qa_ship_readiness: str | None
+    browser_qa_mode: str | None
+    browser_qa_report_only: bool | None
     security_report: str | None
     review_success: bool | None
     review_passed: bool | None

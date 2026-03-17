@@ -115,7 +115,7 @@ def _record_test_handoff(state: DevState) -> None:
             HandoffPacket(
                 packet_id=str(uuid.uuid4()),
                 from_agent=AgentRole.TESTER,
-                to_agent=AgentRole.REVIEWER,
+                to_agent=AgentRole.BROWSER_QA,
                 status=HandoffStatus.COMPLETED,
                 what_i_did="Executed configured validation commands and story-specific checks.",
                 what_i_produced=[
@@ -129,7 +129,7 @@ def _record_test_handoff(state: DevState) -> None:
                     )
                 ],
                 what_risks_i_found=[],
-                what_i_require_next="Review the validated change set for requirement fit, risk, and maintainability.",
+                what_i_require_next="Probe the runtime or preview surface, score ship-readiness, and surface browser-facing regressions before security and review.",
                 trace_id=str(state.get("collaboration_trace_id") or ""),
             ),
         )

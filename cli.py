@@ -21,6 +21,7 @@ from agentsystem.dashboard.main import app as dashboard_app
 from agentsystem.orchestration.workspace_manager import WorkspaceManager
 from agentsystem.agents.requirements_analyst_agent import analyze_requirement, split_requirement_file
 from scripts.fix_encoding import fix_tree_encoding
+from scripts.render_agent_skills import render_agent_skill, render_all_agent_skills, validate_rendered_agent_package
 from scripts.validate_skill import validate_all_skills, validate_skill_file
 
 
@@ -179,6 +180,23 @@ def validate_skill(skill_file: str | None) -> None:
         return
     click.echo("Some skill files failed validation.", err=True)
     raise SystemExit(1)
+
+
+@cli.command("render-agent-skills")
+@click.option("--mode-id", help="Render only one skill mode package")
+@click.option("--validate/--no-validate", default=True, show_default=True, help="Validate rendered packages after writing")
+def render_agent_skills(mode_id: str | None, validate: bool) -> None:
+    click.echo("Rendering agent skill packages...")
+    if mode_id:
+        rendered = [render_agent_skill(mode_id, ROOT_DIR)]
+    else:
+        rendered = render_all_agent_skills(ROOT_DIR)
+    if validate:
+        for item in rendered:
+            validate_rendered_agent_package(Path(item["skill_path"]).resolve().parent)
+    for item in rendered:
+        click.echo(f"  - {item['mode_id']}: {item['skill_path']}")
+    click.echo("Agent skill packages rendered.")
 
 
 @cli.command("fix-encoding")

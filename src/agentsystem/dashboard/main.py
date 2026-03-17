@@ -291,6 +291,18 @@ def load_task_detail(task_id: str) -> dict[str, Any]:
             archive_dir / "requirement" / "parsed_requirement.json",
             meta_dir / "requirement" / "parsed_requirement.json",
         ),
+        "architecture_review_report": _read_first_available_text(
+            archive_dir / "architecture_review" / "architecture_review_report.md",
+            meta_dir / "architecture_review" / "architecture_review_report.md",
+        ),
+        "browser_qa_report": _read_first_available_text(
+            archive_dir / "browser_qa" / "browser_qa_report.md",
+            meta_dir / "browser_qa" / "browser_qa_report.md",
+        ),
+        "browser_session_manifest": _read_first_available_text(
+            archive_dir / "browser_runtime" / "session.json",
+            meta_dir / "browser_runtime" / "session.json",
+        ),
         "intent_confirmation": _read_first_available_text(
             archive_dir / "requirement" / "intent_confirmation.md",
             meta_dir / "requirement" / "intent_confirmation.md",
@@ -851,6 +863,8 @@ def _extract_completion(payload: dict[str, Any]) -> dict[str, Any]:
     task_payload = result.get("task_payload", {}) if isinstance(result, dict) else {}
     return {
         "tests_passed": bool(result.get("test_passed")),
+        "browser_qa_passed": result.get("browser_qa_passed"),
+        "browser_qa_health_score": result.get("browser_qa_health_score"),
         "code_style_review_passed": bool(result.get("code_style_review_passed")),
         "review_passed": bool(result.get("review_passed")),
         "code_acceptance_passed": bool(result.get("code_acceptance_passed")),

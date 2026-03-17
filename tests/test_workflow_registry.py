@@ -16,8 +16,12 @@ class WorkflowRegistryTestCase(unittest.TestCase):
 
         self.assertEqual(plugin.plugin_id, "software_engineering")
         self.assertEqual(plugin.entry_point, "requirement_analysis")
+        self.assertIn("architecture_review", {node.node_id for node in plugin.nodes})
         self.assertIn("backend_dev", {node.node_id for node in plugin.nodes})
+        self.assertIn("browser_qa", {node.node_id for node in plugin.nodes})
         self.assertIn("reviewer", {node.node_id for node in plugin.nodes})
+        self.assertIn("architecture_review", plugin.verification_pipeline)
+        self.assertIn("browser_qa", plugin.verification_pipeline)
         self.assertIn("code_acceptance", plugin.verification_pipeline)
         self.assertIn("acceptance_gate", plugin.human_approval_points)
         self.assertTrue(plugin.manifest_path.endswith("software_engineering.yaml"))
@@ -108,6 +112,13 @@ class WorkflowRegistryTestCase(unittest.TestCase):
         self.assertEqual(manifest.agent_role, "verification.review")
         self.assertIn("code_review", manifest.capabilities)
         self.assertTrue(manifest.manifest_path.endswith("reviewer.yaml"))
+
+    def test_agent_manifest_loader_returns_browser_qa_agent(self) -> None:
+        manifest = get_agent_manifest("software_engineering.browser_qa")
+
+        self.assertEqual(manifest.agent_role, "verification.browser_qa")
+        self.assertIn("browser_probe", manifest.capabilities)
+        self.assertTrue(manifest.manifest_path.endswith("browser_qa.yaml"))
 
 
 if __name__ == "__main__":

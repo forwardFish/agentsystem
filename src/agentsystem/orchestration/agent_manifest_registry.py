@@ -7,7 +7,9 @@ from typing import Any, Callable
 import yaml
 
 from agentsystem.agents.acceptance_gate_agent import acceptance_gate_node
+from agentsystem.agents.architecture_review_agent import architecture_review_node
 from agentsystem.agents.backend_dev_agent import backend_dev_node
+from agentsystem.agents.browser_qa_agent import browser_qa_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.code_style_reviewer_agent import code_style_review_node
 from agentsystem.agents.database_agent import database_dev_node
@@ -31,6 +33,7 @@ NodeHandler = Callable[..., dict]
 
 HANDLER_CATALOG: dict[str, NodeHandler] = {
     "requirement_analysis_node": requirement_analysis_node,
+    "architecture_review_node": architecture_review_node,
     "workspace_prep_node": workspace_prep_node,
     "backend_dev_node": backend_dev_node,
     "frontend_dev_node": frontend_dev_node,
@@ -39,6 +42,7 @@ HANDLER_CATALOG: dict[str, NodeHandler] = {
     "sync_merge_node": sync_merge_node,
     "code_style_review_node": code_style_review_node,
     "test_node": test_node,
+    "browser_qa_node": browser_qa_node,
     "fix_node": fix_node,
     "security_node": security_node,
     "review_node": review_node,

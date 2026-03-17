@@ -1,0 +1,67 @@
+task_id: S5-007
+task_name: ship agent manifest and release flow
+sprint: Sprint 5
+epic: Epic 5.3 Ship Release Guardrails
+story_id: S5-007
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: Add a Ship agent and a guarded release path that can prepare branch sync, release checks, PR metadata, and ship evidence after acceptance is complete.
+business_value: Turn the workflow from “locally accepted” into “ready to ship with release evidence,” which is the missing last mile of the engineering control plane.
+entry_criteria:
+  - S5-003 is complete so verification is already plan-driven.
+  - Existing PR approval integration and task state machine are available as starting points.
+acceptance_criteria:
+  - A ship agent manifest exists with explicit release-plane role, capabilities, and policy refs.
+  - Workflow supports a guarded ship path after acceptance instead of ending at delivery reporting only.
+  - Ship step can write release evidence including base sync status, release-check summary, and PR metadata placeholders.
+  - The flow remains safe when release credentials are absent and records a readable pending-approval or pending-release state.
+constraints:
+  - Keep ship behavior guarded and explicit.
+  - Do not require automatic merge in the first version.
+  - Reuse existing PR approval integration where possible.
+out_of_scope:
+  - Repo-wide changelog or documentation synchronization.
+  - Multi-environment deployment orchestration.
+not_do:
+  - Do not auto-ship every story by default.
+  - Do not bypass acceptance gate or human signoff.
+dependencies:
+  - S5-003
+related_files:
+  - src/agentsystem/agents/ship_agent.py
+  - config/agents/software_engineering/ship.yaml
+  - config/workflows/software_engineering.yaml
+  - src/agentsystem/integrations/pr_approval_integration.py
+  - src/agentsystem/orchestration/task_state_machine.py
+  - tests/test_workflow_registry.py
+primary_files:
+  - src/agentsystem/agents/ship_agent.py
+  - config/agents/software_engineering/ship.yaml
+  - config/workflows/software_engineering.yaml
+secondary_files:
+  - src/agentsystem/integrations/pr_approval_integration.py
+  - src/agentsystem/orchestration/task_state_machine.py
+  - tests/test_workflow_registry.py
+story_inputs:
+  - Accepted Story state and verification outputs.
+  - Existing PR approval and gated state-machine integration points.
+  - Repository branch context and release policy constraints.
+story_process:
+  - Define the Ship agent manifest and handler.
+  - Add guarded release routing after acceptance.
+  - Persist release evidence and PR metadata into runtime state.
+story_outputs:
+  - Ship agent and workflow slot.
+  - Release evidence artifact.
+  - PR metadata placeholders and guarded release state.
+verification_basis:
+  - Ship path is reachable only when explicitly enabled.
+  - Missing credentials produce a readable gated state.
+  - Release evidence is archived in a deterministic task location.
+test_cases:
+  normal:
+    - A ship-enabled story writes release evidence and PR metadata placeholders after acceptance.
+    - A non-ship story follows the existing local delivery path without regression.
+  exception:
+    - Missing release credentials or PR configuration produces a pending-release state instead of a crash.

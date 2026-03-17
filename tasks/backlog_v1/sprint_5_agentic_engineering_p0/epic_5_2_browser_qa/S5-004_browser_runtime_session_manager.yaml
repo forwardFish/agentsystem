@@ -1,0 +1,63 @@
+task_id: S5-004
+task_name: browser runtime session manager
+sprint: Sprint 5
+epic: Epic 5.2 Browser QA Runtime and Verification
+story_id: S5-004
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: Create a persistent per-task browser runtime scaffold that can manage session lifecycle, screenshots, console logs, and browser-side evidence without sharing state across workspaces.
+business_value: Give the control plane a real browser runtime foundation instead of treating QA as pure text-based inference.
+entry_criteria:
+  - The current runtime can already persist per-task meta artifacts and dashboard evidence.
+acceptance_criteria:
+  - A browser runtime service exists with deterministic per-task storage for session metadata, screenshots, console logs, and network summaries.
+  - The runtime supports start, reuse, and idle-timeout semantics at the task or workspace level.
+  - Browser state is isolated per task or worktree and does not rely on a shared global session.
+  - Runtime contracts or tests define the expected artifact layout and lifecycle behavior.
+constraints:
+  - Keep the first version local-only and deterministic.
+  - Do not require a production-grade browser farm in this story.
+  - Separate runtime infrastructure from QA business logic.
+out_of_scope:
+  - Full end-to-end QA flow execution.
+  - Cookie import from real browsers.
+not_do:
+  - Do not hard-code browser behavior directly into the dashboard.
+  - Do not hide runtime crashes behind silent retries.
+dependencies: []
+related_files:
+  - src/agentsystem/runtime/browser_session_manager.py
+  - src/agentsystem/runtime/browser_artifacts.py
+  - src/agentsystem/core/state.py
+  - docs/architecture/browser_runtime.md
+  - tests/test_browser_runtime.py
+primary_files:
+  - src/agentsystem/runtime/browser_session_manager.py
+  - docs/architecture/browser_runtime.md
+secondary_files:
+  - src/agentsystem/runtime/browser_artifacts.py
+  - src/agentsystem/core/state.py
+  - tests/test_browser_runtime.py
+story_inputs:
+  - The need for per-task browser state and evidence capture.
+  - Existing task-scoped artifact storage conventions in .meta and dashboard loaders.
+  - Future Browser QA and report-only QA requirements.
+story_process:
+  - Define the browser session manager lifecycle and storage layout.
+  - Implement task-scoped runtime metadata and evidence helpers.
+  - Document the runtime contract and verify it with tests.
+story_outputs:
+  - Persistent browser runtime scaffold.
+  - Deterministic browser artifact layout.
+  - Runtime contract documentation.
+verification_basis:
+  - Per-task runtime state can be created and reused.
+  - Idle timeout and artifact layout are explicit and testable.
+  - Browser artifacts do not collide across task workspaces.
+test_cases:
+  normal:
+    - Starting a task browser session creates the expected metadata and artifact paths.
+    - Reusing the same task session returns the same runtime context until timeout.
+  exception:
+    - A crashed or missing session is surfaced as a recoverable runtime state, not as silently reused stale state.

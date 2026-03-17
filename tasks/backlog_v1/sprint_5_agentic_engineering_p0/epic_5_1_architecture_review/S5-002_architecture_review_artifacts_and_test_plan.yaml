@@ -1,0 +1,64 @@
+task_id: S5-002
+task_name: architecture review artifacts and test plan
+sprint: Sprint 5
+epic: Epic 5.1 Architecture Review and Test Planning
+story_id: S5-002
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: Implement the Architecture Review agent so it writes an implementation plan, a reusable test plan, and a failure-mode map into Story artifacts and runtime state.
+business_value: Give every downstream verification step a durable planning artifact instead of forcing tester and reviewer to infer intent only from the task card.
+entry_criteria:
+  - S5-001 is complete and the workflow already contains the architecture review node.
+acceptance_criteria:
+  - The architecture review step writes implementation_plan.md, test_plan.json, and failure_modes.json under the task meta directory.
+  - The implementation plan records architecture summary, data flow or state-transition diagram, edge cases, and planned verification coverage.
+  - Runtime state exposes architecture plan refs, test plan refs, and failure-mode refs for downstream agents.
+  - Dashboard task detail can read the new planning artifacts without breaking existing artifact loading.
+constraints:
+  - Keep artifact paths deterministic and per-task scoped.
+  - Prefer additive state fields and artifact loaders over changing existing report formats.
+  - Use UTF-8 text or JSON outputs that the dashboard can render directly.
+out_of_scope:
+  - Consuming the test plan in tester or reviewer.
+  - Building browser QA or ship flow.
+not_do:
+  - Do not replace existing requirement artifacts.
+  - Do not add human approval logic in this story.
+dependencies:
+  - S5-001
+related_files:
+  - src/agentsystem/agents/architecture_review_agent.py
+  - src/agentsystem/core/state.py
+  - src/agentsystem/dashboard/main.py
+  - tests/test_dashboard_api.py
+  - tests/test_story_completion_flow.py
+primary_files:
+  - src/agentsystem/agents/architecture_review_agent.py
+  - src/agentsystem/core/state.py
+  - src/agentsystem/dashboard/main.py
+secondary_files:
+  - tests/test_dashboard_api.py
+  - tests/test_story_completion_flow.py
+story_inputs:
+  - Parsed requirement scope, acceptance checklist, and file targets from the requirement stage.
+  - The new architecture review node and manifest wiring from S5-001.
+  - The need for a reusable plan artifact that downstream agents can consume.
+story_process:
+  - Implement the architecture review node and artifact writer.
+  - Extend runtime state with references to planning outputs.
+  - Expose the new artifacts through the dashboard task detail loader.
+story_outputs:
+  - implementation_plan.md
+  - test_plan.json
+  - failure_modes.json
+verification_basis:
+  - Task detail API exposes the new planning artifacts.
+  - The architecture review node produces deterministic per-task output paths.
+  - The workflow preserves the planning refs through later stages.
+test_cases:
+  normal:
+    - Architecture review produces all three planning artifacts for a story run.
+    - Dashboard task detail returns implementation plan and test plan content.
+  exception:
+    - Missing task scope or file targets still produces a readable architecture review with explicit gaps, not a silent failure.

@@ -33,7 +33,11 @@ FIXER_COMMENT = "{/* Fixed by Fix Agent after validation failure */}"
 def fix_node(state: DevState) -> DevState:
     print("[Fix Agent] Attempting automatic remediation")
 
-    if state.get("test_passed", False):
+    pending_fix_issues = [
+        issue for issue in list(state.get("issues_to_fix") or []) if str(issue.get("target_agent")) == AgentRole.FIXER.value
+    ]
+    needs_fix = bool(pending_fix_issues) or not state.get("test_passed", True) or not state.get("browser_qa_passed", True)
+    if not needs_fix:
         state["fixer_needed"] = False
         state["fixer_success"] = True
         state["fix_result"] = "No fix required."
@@ -46,8 +50,16 @@ def fix_node(state: DevState) -> DevState:
     state["fixer_needed"] = True
 
     task_payload = state.get("task_payload") or {}
-    related_files = [str(path) for path in task_payload.get("related_files", [])]
+    issue_file_candidates = [str(issue.get("file_path")).strip() for issue in pending_fix_issues if str(issue.get("file_path") or "").strip()]
+    related_files = [
+        str(path).strip()
+        for path in [*(task_payload.get("primary_files", []) or []), *(task_payload.get("related_files", []) or [])]
+        if str(path).strip()
+    ]
+    candidate_files = [*issue_file_candidates, *related_files]
     if not related_files:
+        related_files = candidate_files
+    if not candidate_files:
         state["fixer_success"] = False
         state["fix_result"] = "No target file available for remediation."
         state["error_message"] = state.get("test_failure_info") or state.get("error_message")
@@ -56,7 +68,7 @@ def fix_node(state: DevState) -> DevState:
         return state
 
     repo_b_path = Path(state["repo_b_path"]).resolve()
-    target_file = repo_b_path / related_files[0]
+    target_file = repo_b_path / candidate_files[0]
     if not target_file.exists() and str(task_payload.get("story_id", "")).strip() not in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006", "S0-007", "S1-001"}:
         state["fixer_success"] = False
         state["fix_result"] = f"Target file missing: {target_file}"
@@ -66,7 +78,13 @@ def fix_node(state: DevState) -> DevState:
         return state
 
     story_id = str(task_payload.get("story_id", "")).strip()
-    failure_info = state.get("test_failure_info") or state.get("error_message") or "Unknown validation failure"
+    failure_info = (
+        (str(pending_fix_issues[0].get("description")) if pending_fix_issues else "")
+        or str(state.get("test_failure_info") or "")
+        or str(state.get("error_message") or "")
+        or "; ".join(str(item) for item in (state.get("browser_qa_findings") or []))
+        or "Unknown validation failure"
+    )
 
     if story_id in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006", "S0-007", "S1-001"}:
         regenerated_files = _regenerate_contract_story_artifacts(repo_b_path, task_payload)
@@ -76,7 +94,6 @@ def fix_node(state: DevState) -> DevState:
         target_file.write_text(fixed_code, encoding="utf-8")
         regenerated_files = [str(target_file)]
 
-    pending_fix_issues = [issue for issue in list(state.get("issues_to_fix") or []) if issue.get("target_agent") == AgentRole.FIXER]
     return_target = _infer_fix_return_target(pending_fix_issues)
     resolved_issue_ids = [issue.get("issue_id") for issue in pending_fix_issues]
     for issue_id in resolved_issue_ids:
@@ -104,6 +121,7 @@ def fix_node(state: DevState) -> DevState:
     state["fixer_success"] = True
     state["fix_result"] = f"Applied automated remediation to {', '.join(regenerated_files)}."
     state["error_message"] = None
+    state["browser_qa_passed"] = True if return_target == "browser_qa" else state.get("browser_qa_passed")
     state["message"] = "Code fixed and ready for another validation pass."
     state["current_step"] = "fix_done"
     state["fix_return_to"] = return_target
@@ -249,6 +267,7 @@ def _infer_fix_return_target(issues: list[dict[str, object]]) -> str:
     priorities = {
         AgentRole.CODE_STYLE_REVIEWER.value: "code_style_reviewer",
         AgentRole.TESTER.value: "tester",
+        AgentRole.BROWSER_QA.value: "browser_qa",
         AgentRole.REVIEWER.value: "reviewer",
         AgentRole.CODE_ACCEPTANCE.value: "code_acceptance",
         AgentRole.ACCEPTANCE_GATE.value: "acceptance_gate",
@@ -263,6 +282,7 @@ def _route_name_to_agent_role(route_name: str) -> AgentRole:
     mapping = {
         "code_style_reviewer": AgentRole.CODE_STYLE_REVIEWER,
         "tester": AgentRole.TESTER,
+        "browser_qa": AgentRole.BROWSER_QA,
         "reviewer": AgentRole.REVIEWER,
         "code_acceptance": AgentRole.CODE_ACCEPTANCE,
         "acceptance_gate": AgentRole.ACCEPTANCE_GATE,

@@ -1,0 +1,66 @@
+task_id: S5-005
+task_name: browser QA agent and report-only mode
+sprint: Sprint 5
+epic: Epic 5.2 Browser QA Runtime and Verification
+story_id: S5-005
+blast_radius: L1
+execution_mode: Safe
+mode: Safe
+goal: Add a Browser QA agent that can execute browser-based verification and support both fix-capable QA and report-only QA modes.
+business_value: Turn browser QA into a first-class verification stage instead of a manual afterthought, while preserving a pure reporting path when no code changes are desired.
+entry_criteria:
+  - S5-004 is complete and browser runtime scaffolding exists.
+  - S5-003 is complete and the verification pipeline already consumes planning artifacts.
+acceptance_criteria:
+  - A browser_qa agent manifest exists and is inserted into the software engineering verification flow.
+  - Browser QA can run in a report-only mode that never edits code and still outputs screenshots, console summary, health score, and ship-readiness.
+  - Browser QA can block the workflow and route to fixer when blocking findings are present.
+  - Tests verify workflow routing for both report-only and blocking-finding paths.
+constraints:
+  - Keep the first version focused on local or staging-style verification inputs.
+  - Do not mix design review concerns into this story.
+  - Keep report-only mode explicit in task payload or QA config.
+out_of_scope:
+  - Design-consultation or design-fix loops.
+  - Cookie import from real browsers.
+not_do:
+  - Do not bypass existing acceptance or review gates.
+  - Do not collapse browser QA into the generic tester node.
+dependencies:
+  - S5-003
+  - S5-004
+related_files:
+  - src/agentsystem/agents/browser_qa_agent.py
+  - config/agents/software_engineering/browser_qa.yaml
+  - config/workflows/software_engineering.yaml
+  - src/agentsystem/orchestration/workflow_registry.py
+  - tests/test_workflow_registry.py
+primary_files:
+  - src/agentsystem/agents/browser_qa_agent.py
+  - config/agents/software_engineering/browser_qa.yaml
+  - config/workflows/software_engineering.yaml
+secondary_files:
+  - src/agentsystem/orchestration/workflow_registry.py
+  - tests/test_workflow_registry.py
+story_inputs:
+  - Browser runtime sessions and artifacts from S5-004.
+  - Architecture review test-plan artifacts from S5-003.
+  - The need for both fix-capable QA and pure-report QA behavior.
+story_process:
+  - Implement the Browser QA agent and manifest.
+  - Add workflow routing and report-only mode control.
+  - Emit browser QA health score, findings, and ship-readiness outputs.
+story_outputs:
+  - Browser QA verification node.
+  - Report-only QA mode.
+  - Health score and ship-readiness metadata.
+verification_basis:
+  - Browser QA participates in workflow routing.
+  - Report-only mode never edits code.
+  - Blocking browser findings can route the workflow into fixer.
+test_cases:
+  normal:
+    - Browser QA report-only mode produces screenshots and health summary without file edits.
+    - Browser QA with no blocking issues lets the workflow continue to the next verification stage.
+  exception:
+    - Browser QA with blocking issues routes to fixer and preserves evidence artifacts for later review.

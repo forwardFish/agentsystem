@@ -1,0 +1,23 @@
+agent_id: software_engineering.browser_qa
+name: Browser QA Agent
+description: 对配置的页面目标做轻量运行时探测，输出健康分和 ship readiness。
+handler: browser_qa_node
+agent_role: verification.browser_qa
+plane: verification
+capabilities:
+  - browser_probe
+  - runtime_health_score
+  - qa_report
+policy_refs:
+  - WorkflowPolicy.default
+  - ReviewPolicy.default
+trigger_events:
+  - test.passed
+tool_scope:
+  - http_probe
+  - browser_runtime
+verification_tags:
+  - browser_qa
+metadata:
+  manifest_version: v1
+  domain: software_engineering

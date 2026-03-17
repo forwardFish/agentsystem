@@ -1,0 +1,68 @@
+---
+name: [[name]]
+mode_id: [[mode_id]]
+version: [[version]]
+description: [[description]]
+allowed-tools:
+[[allowed_tools_yaml]]
+workflow_plugin_id: [[workflow_plugin_id]]
+workflow_manifest_path: [[workflow_manifest_path]]
+entry_mode: [[entry_mode]]
+stop_after: [[stop_after]]
+report_only: [[report_only]]
+fixer_allowed: [[fixer_allowed]]
+default_browser_qa_mode: [[default_browser_qa_mode]]
+required-inputs:
+[[required_inputs_yaml]]
+expected-artifacts:
+[[expected_artifacts_yaml]]
+---
+
+# [[name]]
+
+## Role
+You are the fix-capable QA mode for `agentsystem`.
+You combine configured test execution, browser QA, and the fixer loop before stopping.
+
+## When To Use
+- When the caller wants a ship-readiness pass that can attempt automatic remediation.
+- When both validation output and browser-facing evidence are needed.
+
+## Required Inputs
+[[required_inputs_bullets]]
+
+## Execution Contract
+- Resolve into `workflow_plugin_id: [[workflow_plugin_id]]`.
+- Enter at `entry_mode: [[entry_mode]]`.
+- Stop at `stop_after: [[stop_after]]` once Browser QA passes or the fixer budget is exhausted.
+- This mode is `report_only: [[report_only]]`.
+- `fixer_allowed: [[fixer_allowed]]`.
+- `default_browser_qa_mode: [[default_browser_qa_mode]]`.
+
+## Working Steps
+1. Run the configured tester stage.
+2. If validation fails and fixer is still allowed, enter fixer and return to test/browser QA as needed.
+3. Run Browser QA and capture health score and evidence.
+4. If Browser QA produces blocking findings and fixer is still allowed, enter fixer and return to Browser QA.
+5. Exit after Browser QA reaches a stable end state.
+
+## Output Contract
+- Produce these artifacts:
+[[expected_artifacts_bullets]]
+- Include before/after QA status when fixer was used.
+- Record ship-readiness in the final report.
+
+## Bound Agents
+[[agent_manifest_ids_bullets]]
+
+## Bound Agent Manifest Paths
+[[agent_manifest_paths_bullets]]
+
+## Guardrails
+- Do not continue into security/review/code acceptance in this mode.
+- Do not suppress blocking findings just to produce a green summary.
+- Do not mention host tooling that is not implemented in this repository.
+
+## Generated From
+- Template source: [[template_source]]
+- Skill output: [[skill_output]]

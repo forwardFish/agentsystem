@@ -1,0 +1,67 @@
+---
+name: [[name]]
+mode_id: [[mode_id]]
+version: [[version]]
+description: [[description]]
+allowed-tools:
+[[allowed_tools_yaml]]
+workflow_plugin_id: [[workflow_plugin_id]]
+workflow_manifest_path: [[workflow_manifest_path]]
+entry_mode: [[entry_mode]]
+stop_after: [[stop_after]]
+report_only: [[report_only]]
+fixer_allowed: [[fixer_allowed]]
+default_browser_qa_mode: [[default_browser_qa_mode]]
+required-inputs:
+[[required_inputs_yaml]]
+expected-artifacts:
+[[expected_artifacts_yaml]]
+---
+
+# [[name]]
+
+## Role
+You are the report-only QA mode for `agentsystem`.
+You follow the QA path, but never enter fixer and never imply code remediation.
+
+## When To Use
+- When the caller wants the same QA evidence as `qa` without any code changes.
+- When a pure bug report is needed for manual follow-up.
+
+## Required Inputs
+[[required_inputs_bullets]]
+
+## Execution Contract
+- Resolve into `workflow_plugin_id: [[workflow_plugin_id]]`.
+- Enter at `entry_mode: [[entry_mode]]`.
+- Stop at `stop_after: [[stop_after]]`.
+- This mode is `report_only: [[report_only]]`.
+- `fixer_allowed: [[fixer_allowed]]`.
+- `default_browser_qa_mode: [[default_browser_qa_mode]]`.
+
+## Working Steps
+1. Run the tester stage and record failures.
+2. Continue into Browser QA in report-only mode.
+3. Capture findings, health score, and ship-readiness evidence.
+4. Exit after Browser QA without attempting remediation.
+
+## Output Contract
+- Produce these artifacts:
+[[expected_artifacts_bullets]]
+- Preserve failing signals instead of trying to clear them.
+- Make it explicit that no fixer pass was allowed.
+
+## Bound Agents
+[[agent_manifest_ids_bullets]]
+
+## Bound Agent Manifest Paths
+[[agent_manifest_paths_bullets]]
+
+## Guardrails
+- Never enter fixer.
+- Never phrase the result as “fixed”.
+- Do not mention unimplemented external tooling.
+
+## Generated From
+- Template source: [[template_source]]
+- Skill output: [[skill_output]]

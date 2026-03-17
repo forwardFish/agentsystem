@@ -68,15 +68,15 @@ def run_prod_task(task_file: str | Path, env: str = "test") -> dict:
             "state": result["state"],
         }
 
+    git_worktree = GitAdapter(worktree_path)
     repo_b_config = RepoBConfigReader(worktree_path).load_all_config()
     format_commands = repo_b_config.commands.get("format", [])
-    if format_commands:
+    if format_commands and git_worktree.is_dirty():
         shell = ShellExecutor(worktree_path)
         format_success, format_output = shell.run_commands(format_commands)
         if not format_success:
             raise RuntimeError(f"Format failed: {format_output}")
 
-    git_worktree = GitAdapter(worktree_path)
     commit_hash = git_worktree.get_current_commit()
     if git_worktree.is_dirty():
         git_worktree.add_all()
@@ -155,6 +155,9 @@ def _archive_task_artifacts(task_id: str, state: dict) -> Path | None:
     copied = False
 
     for source_key, target_name in (
+        ("architecture_review_dir", "architecture_review"),
+        ("browser_qa_dir", "browser_qa"),
+        ("browser_runtime_dir", "browser_runtime"),
         ("pr_prep_dir", "pr_prep"),
         ("review_dir", "review"),
         ("code_acceptance_dir", "code_acceptance"),

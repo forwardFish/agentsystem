@@ -7,16 +7,57 @@ from unittest.mock import patch
 
 from git import Repo
 
+from agentsystem.agents.architecture_review_agent import architecture_review_node
 from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.code_style_reviewer_agent import code_style_review_node, route_after_code_style_review
 from agentsystem.agents.doc_agent import doc_node
 from agentsystem.agents.fix_agent import fix_node, route_after_fix
 from agentsystem.agents.review_agent import review_node, route_after_review
+from agentsystem.agents.router_agent import route_after_test
 from agentsystem.agents.test_agent import _run_story_specific_validation
 
 
 class StoryCompletionFlowTestCase(unittest.TestCase):
+    def test_architecture_review_writes_plan_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            repo_path.mkdir(parents=True)
+
+            state = {
+                "task_id": "task-demo",
+                "repo_b_path": str(repo_path),
+                "user_requirement": "Implement a dashboard page and its API endpoint.",
+                "parsed_goal": "Implement a dashboard page and its API endpoint.",
+                "acceptance_checklist": ["page renders", "API returns summary"],
+                "verification_basis": ["check API response", "open dashboard page"],
+                "primary_files": ["apps/web/src/app/dashboard/page.tsx", "apps/api/src/routes/dashboard.py"],
+                "secondary_files": ["docs/architecture.md"],
+                "parsed_constraints": ["do not change the persistence schema"],
+                "parsed_not_do": ["no unrelated layout rewrite"],
+                "story_inputs": ["task payload"],
+                "story_outputs": ["dashboard page", "summary API"],
+                "subtasks": [
+                    {"id": "1", "type": "frontend", "files_to_modify": ["apps/web/src/app/dashboard/page.tsx"]},
+                    {"id": "2", "type": "backend", "files_to_modify": ["apps/api/src/routes/dashboard.py"]},
+                ],
+                "shared_blackboard": {},
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = architecture_review_node(state)
+
+            self.assertTrue(updated["architecture_review_success"])
+            self.assertEqual(updated["current_step"], "architecture_review_done")
+            review_dir = Path(updated["architecture_review_dir"])
+            self.assertTrue((review_dir / "architecture_review_report.md").exists())
+            self.assertTrue((review_dir / "test_plan.json").exists())
+            self.assertIn("architecture_review", updated["shared_blackboard"])
+
     def test_requirement_agent_does_not_infer_devops_from_specification(self) -> None:
         state = {
             "task_id": "task-demo",
@@ -185,6 +226,53 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             self.assertFalse(updated["review_passed"])
             self.assertEqual(route_after_review(updated), "fixer")
             self.assertGreater(len(updated["issues_to_fix"]), 0)
+
+    def test_route_after_test_sends_successful_run_to_browser_qa(self) -> None:
+        state = {
+            "test_passed": True,
+            "error_message": None,
+            "fix_attempts": 0,
+        }
+
+        self.assertEqual(route_after_test(state), "browser_qa")
+
+    def test_fixer_routes_back_to_browser_qa_for_browser_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            file_path = repo_path / "apps" / "web" / "src" / "app" / "page.tsx"
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text("export default function Page(){ return <main>demo</main>; }\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S9-998",
+                    "primary_files": ["apps/web/src/app/page.tsx"],
+                    "related_files": ["apps/web/src/app/page.tsx"],
+                },
+                "test_passed": True,
+                "browser_qa_passed": False,
+                "browser_qa_findings": ["Homepage returned HTTP 500."],
+                "issues_to_fix": [
+                    {
+                        "issue_id": "issue-browser",
+                        "severity": "blocking",
+                        "source_agent": "BrowserQA",
+                        "target_agent": "Fixer",
+                        "title": "Browser regression",
+                        "description": "Homepage returned HTTP 500.",
+                        "file_path": "apps/web/src/app/page.tsx",
+                    }
+                ],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = fix_node(state)
+            self.assertTrue(updated["fixer_success"])
+            self.assertEqual(route_after_fix(updated), "browser_qa")
 
     def test_story_specific_validation_for_s0_002_world_state_schema(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

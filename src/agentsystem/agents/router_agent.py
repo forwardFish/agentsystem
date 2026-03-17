@@ -26,6 +26,13 @@ def task_router(state: DevState) -> list[str]:
 
 
 def route_after_test(state: DevState) -> str:
-    if state.get("error_message") and state.get("fix_attempts", 0) < 1:
-        return "fixer"
-    return "security_scanner"
+    if state.get("error_message"):
+        if state.get("browser_qa_report_only"):
+            return "browser_qa"
+        if state.get("fixer_allowed", True) and state.get("fix_attempts", 0) < 2:
+            return "fixer"
+        if str(state.get("stop_after") or "").strip() == "tester":
+            return "__end__"
+    if state.get("test_passed") is False:
+        return "security_scanner"
+    return "browser_qa"
