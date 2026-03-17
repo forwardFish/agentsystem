@@ -48,6 +48,8 @@ STORY_BATCH = [
     ("S2A-004", "sprint_2a_early_theme_discovery_engine"),
     ("S2A-005", "sprint_2a_early_theme_discovery_engine"),
     ("S2A-006", "sprint_2a_early_theme_discovery_engine"),
+    ("S2A-007", "sprint_2a_early_theme_discovery_engine"),
+    ("S2A-008", "sprint_2a_early_theme_discovery_engine"),
 ]
 
 

@@ -632,6 +632,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
             "theme_candidate_mappings": [],
             "theme_purity_candidates": [],
             "fermentation_monitor": [],
+            "similar_theme_cases": [],
             "theme_candidates": [],
             "structured_result_cards": [],
             "theme_heat_snapshots": [],
@@ -669,6 +670,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
     theme_purity_candidates = _read_json_list(run_dir / "theme_purity_candidates.json")
     theme_candidates = _read_json_list(run_dir / "theme_candidates.json")
     fermentation_monitor = _read_json_list(run_dir / "fermentation_monitor.json")
+    similar_theme_cases = _read_json_list(run_dir / "similar_theme_cases.json")
     structured_result_cards = _read_json_list(run_dir / "structured_result_cards.json")
     theme_heat_snapshots = _read_json_list(run_dir / "theme_heat_snapshots.json")
     low_position_opportunities = _read_json_list(run_dir / "low_position_opportunities.json")
@@ -687,6 +689,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "theme_purity_candidates": len(theme_purity_candidates),
         "theme_candidates": len(theme_candidates),
         "fermentation_monitor": len(fermentation_monitor),
+        "similar_theme_cases": len(similar_theme_cases),
         "structured_result_cards": len(structured_result_cards),
         "theme_heat_snapshots": len(theme_heat_snapshots),
         "low_position_opportunities": len(low_position_opportunities),
@@ -703,6 +706,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "theme_purity_candidates": theme_purity_candidates,
         "theme_candidates": theme_candidates,
         "fermentation_monitor": fermentation_monitor,
+        "similar_theme_cases": similar_theme_cases,
         "structured_result_cards": structured_result_cards,
         "theme_heat_snapshots": theme_heat_snapshots,
         "low_position_opportunities": low_position_opportunities,
@@ -727,6 +731,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "theme_purity_candidates": theme_purity_candidates,
         "theme_candidates": theme_candidates,
         "fermentation_monitor": fermentation_monitor,
+        "similar_theme_cases": similar_theme_cases,
         "structured_result_cards": structured_result_cards,
         "theme_heat_snapshots": theme_heat_snapshots,
         "low_position_opportunities": low_position_opportunities,
@@ -1393,6 +1398,8 @@ FINAHUNT_SHOWCASE_STORY_ORDER: list[dict[str, str]] = [
     {"story_id": "S2A-004", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_clusters", "output_key": "theme_candidate_mappings", "validation_hint": "Confirm theme clusters produce ranked candidate mappings with reasons and evidence references."},
     {"story_id": "S2A-005", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidate_mappings", "output_key": "theme_purity_candidates", "validation_hint": "Confirm candidate pools receive accepted/watch/filter purity decisions with explanations."},
     {"story_id": "S2A-006", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidates", "output_key": "fermentation_monitor", "validation_hint": "Confirm fermentation monitoring outputs phase, platform spread, and reignition strength."},
+    {"story_id": "S2A-007", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "low_position_opportunities", "output_key": "similar_theme_cases", "validation_hint": "Confirm low-position themes can reference explainable historical cases and distinguish no-match from reignited-logic paths."},
+    {"story_id": "S2A-008", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "similar_theme_cases", "output_key": "daily_review", "validation_hint": "Confirm daily review emits research cards with similar cases, watch signals, and research-only positioning."},
 ]
 
 
@@ -1512,6 +1519,7 @@ def _label_for_finahunt_dataset(key: str) -> str:
         "theme_purity_candidates": "正宗度评判池",
         "theme_candidates": "题材候选",
         "fermentation_monitor": "发酵监控结果",
+        "similar_theme_cases": "相似案例参考",
         "structured_result_cards": "结构化结果卡",
         "theme_heat_snapshots": "题材热度快照",
         "low_position_opportunities": "低位挖掘结果",
@@ -1532,6 +1540,7 @@ def _build_finahunt_pipeline(artifact_counts: dict[str, int], daily_review: dict
         {"stage": "theme_purity_candidates", "label": "正宗度评判", "count": int(artifact_counts.get("theme_purity_candidates") or 0)},
         {"stage": "theme_candidates", "label": "题材候选聚合", "count": int(artifact_counts.get("theme_candidates") or 0)},
         {"stage": "fermentation_monitor", "label": "发酵监控", "count": int(artifact_counts.get("fermentation_monitor") or 0)},
+        {"stage": "similar_theme_cases", "label": "相似案例参考", "count": int(artifact_counts.get("similar_theme_cases") or 0)},
         {"stage": "structured_result_cards", "label": "结构化结果卡", "count": int(artifact_counts.get("structured_result_cards") or 0)},
         {"stage": "theme_heat_snapshots", "label": "题材热度快照", "count": int(artifact_counts.get("theme_heat_snapshots") or 0)},
         {"stage": "low_position_opportunities", "label": "低位挖掘", "count": int(artifact_counts.get("low_position_opportunities") or 0)},
@@ -1560,6 +1569,8 @@ FINAHUNT_SHOWCASE_STORY_ORDER: list[dict[str, str]] = [
     {"story_id": "S2A-004", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_clusters", "output_key": "theme_candidate_mappings", "validation_hint": "Confirm theme clusters produce ranked candidate mappings with reasons and evidence references."},
     {"story_id": "S2A-005", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidate_mappings", "output_key": "theme_purity_candidates", "validation_hint": "Confirm candidate pools receive accepted/watch/filter purity decisions with explanations."},
     {"story_id": "S2A-006", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidates", "output_key": "fermentation_monitor", "validation_hint": "Confirm fermentation monitoring outputs phase, platform spread, and reignition strength."},
+    {"story_id": "S2A-007", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "low_position_opportunities", "output_key": "similar_theme_cases", "validation_hint": "Confirm low-position themes can reference explainable historical cases and distinguish no-match from reignited-logic paths."},
+    {"story_id": "S2A-008", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "similar_theme_cases", "output_key": "daily_review", "validation_hint": "Confirm daily review emits research cards with similar cases, watch signals, and research-only positioning."},
 ]
 
 
@@ -1679,6 +1690,7 @@ def _label_for_finahunt_dataset(key: str) -> str:
         "theme_purity_candidates": "正宗度评判池",
         "theme_candidates": "题材候选",
         "fermentation_monitor": "发酵监控结果",
+        "similar_theme_cases": "相似案例参考",
         "structured_result_cards": "结构化结果卡",
         "theme_heat_snapshots": "题材热度快照",
         "low_position_opportunities": "低位挖掘结果",
@@ -1699,6 +1711,7 @@ def _build_finahunt_pipeline(artifact_counts: dict[str, int], daily_review: dict
         {"stage": "theme_purity_candidates", "label": "正宗度评判", "count": int(artifact_counts.get("theme_purity_candidates") or 0)},
         {"stage": "theme_candidates", "label": "题材候选聚合", "count": int(artifact_counts.get("theme_candidates") or 0)},
         {"stage": "fermentation_monitor", "label": "发酵监控", "count": int(artifact_counts.get("fermentation_monitor") or 0)},
+        {"stage": "similar_theme_cases", "label": "相似案例参考", "count": int(artifact_counts.get("similar_theme_cases") or 0)},
         {"stage": "structured_result_cards", "label": "结构化结果卡", "count": int(artifact_counts.get("structured_result_cards") or 0)},
         {"stage": "theme_heat_snapshots", "label": "题材热度快照", "count": int(artifact_counts.get("theme_heat_snapshots") or 0)},
         {"stage": "low_position_opportunities", "label": "低位挖掘", "count": int(artifact_counts.get("low_position_opportunities") or 0)},
