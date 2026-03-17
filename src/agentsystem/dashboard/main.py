@@ -567,6 +567,7 @@ def load_finahunt_runtime_runs(limit: int = 12) -> list[dict[str, Any]]:
                 "saved_artifact_count": len(summary.get("saved_artifacts") or []),
                 "structured_result_card_count": _json_list_count(run_dir / "structured_result_cards.json"),
                 "theme_heat_snapshot_count": _json_list_count(run_dir / "theme_heat_snapshots.json"),
+                "low_position_count": _json_list_count(run_dir / "low_position_opportunities.json"),
                 "fermenting_theme_count": _json_list_count(run_dir / "fermenting_theme_feed.json"),
                 "today_focus_count": len((_read_json_file(run_dir / "daily_review.json") or {}).get("today_focus_page") or []),
             }
@@ -587,12 +588,14 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
             "theme_candidates": [],
             "structured_result_cards": [],
             "theme_heat_snapshots": [],
+            "low_position_opportunities": [],
             "fermenting_theme_feed": [],
             "daily_review": {},
             "stats": {
                 "story_count": 9,
                 "structured_result_card_count": 0,
                 "theme_heat_snapshot_count": 0,
+                "low_position_count": 0,
                 "fermenting_theme_count": 0,
                 "today_focus_count": 0,
                 "watchlist_count": 0,
@@ -616,6 +619,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
     theme_candidates = _read_json_list(run_dir / "theme_candidates.json")
     structured_result_cards = _read_json_list(run_dir / "structured_result_cards.json")
     theme_heat_snapshots = _read_json_list(run_dir / "theme_heat_snapshots.json")
+    low_position_opportunities = _read_json_list(run_dir / "low_position_opportunities.json")
     fermenting_theme_feed = _read_json_list(run_dir / "fermenting_theme_feed.json")
     daily_review = _read_json_file(run_dir / "daily_review.json")
     if not isinstance(daily_review, dict):
@@ -628,6 +632,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "theme_candidates": len(theme_candidates),
         "structured_result_cards": len(structured_result_cards),
         "theme_heat_snapshots": len(theme_heat_snapshots),
+        "low_position_opportunities": len(low_position_opportunities),
         "fermenting_theme_feed": len(fermenting_theme_feed),
         "result_warehouse": len(result_warehouse_summary.get("saved_artifacts") or []),
     }
@@ -638,6 +643,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "theme_candidates": theme_candidates,
         "structured_result_cards": structured_result_cards,
         "theme_heat_snapshots": theme_heat_snapshots,
+        "low_position_opportunities": low_position_opportunities,
         "fermenting_theme_feed": fermenting_theme_feed,
         "daily_review": daily_review,
         "result_warehouse_summary": result_warehouse_summary,
@@ -655,6 +661,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "theme_candidates": theme_candidates,
         "structured_result_cards": structured_result_cards,
         "theme_heat_snapshots": theme_heat_snapshots,
+        "low_position_opportunities": low_position_opportunities,
         "fermenting_theme_feed": fermenting_theme_feed,
         "daily_review": daily_review,
         "inspection": _build_finahunt_inspection(datasets),
@@ -667,6 +674,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
             "canonical_event_count": len(canonical_events),
             "structured_result_card_count": len(structured_result_cards),
             "theme_heat_snapshot_count": len(theme_heat_snapshots),
+            "low_position_count": len(low_position_opportunities),
             "fermenting_theme_count": len(fermenting_theme_feed),
             "today_focus_count": len(daily_review.get("today_focus_page") or []),
             "watchlist_count": len(daily_review.get("watchlist_event_page") or []),
@@ -1206,6 +1214,7 @@ def _label_for_finahunt_dataset(key: str) -> str:
         "theme_candidates": "题材候选",
         "structured_result_cards": "结构化结果卡",
         "theme_heat_snapshots": "题材热度快照",
+        "low_position_opportunities": "低位挖掘结果",
         "fermenting_theme_feed": "发酵题材结果流",
         "result_warehouse_summary": "结果仓库摘要",
     }
@@ -1231,11 +1240,12 @@ def _sample_dataset_item(value: Any) -> Any:
 
 
 def _build_finahunt_inspection(datasets: dict[str, Any]) -> dict[str, Any]:
+    low_position = datasets.get("low_position_opportunities")
     return {
         "first_input_label": "原始资讯输入",
         "first_input_sample": _sample_dataset_item(datasets.get("raw_documents")),
-        "last_output_label": "最终发酵题材结果流",
-        "last_output_sample": _sample_dataset_item(datasets.get("fermenting_theme_feed")),
+        "last_output_label": "低位挖掘结果" if _count_dataset_items(low_position) else "最终发酵题材结果流",
+        "last_output_sample": _sample_dataset_item(low_position) if _count_dataset_items(low_position) else _sample_dataset_item(datasets.get("fermenting_theme_feed")),
     }
 
 
@@ -1247,6 +1257,7 @@ def _build_finahunt_pipeline(artifact_counts: dict[str, int], daily_review: dict
         {"stage": "theme_candidates", "label": "题材候选聚合", "count": int(artifact_counts.get("theme_candidates") or 0)},
         {"stage": "structured_result_cards", "label": "结构化结果卡", "count": int(artifact_counts.get("structured_result_cards") or 0)},
         {"stage": "theme_heat_snapshots", "label": "题材热度快照", "count": int(artifact_counts.get("theme_heat_snapshots") or 0)},
+        {"stage": "low_position_opportunities", "label": "低位挖掘", "count": int(artifact_counts.get("low_position_opportunities") or 0)},
         {"stage": "fermenting_theme_feed", "label": "发酵题材结果流", "count": int(artifact_counts.get("fermenting_theme_feed") or 0)},
         {"stage": "daily_review", "label": "日终复盘", "count": len(daily_review.get("today_focus_page") or [])},
     ]
