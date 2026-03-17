@@ -35,7 +35,7 @@ class DevWorkflow:
             "skill_mode_manifest_path": self.task.get("skill_mode_manifest_path"),
             "skill_entry_mode": self.task.get("skill_entry_mode"),
             "stop_after": self.task.get("stop_after"),
-            "fixer_allowed": self.task.get("fixer_allowed"),
+            "fixer_allowed": self.task.get("fixer_allowed", True),
             "workflow_plugin_id": self.workflow_plugin.plugin_id,
             "workflow_manifest_path": self.workflow_plugin.manifest_path,
             "workflow_policy_refs": list(self.workflow_plugin.policy_refs),

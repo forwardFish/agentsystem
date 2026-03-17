@@ -1,0 +1,43 @@
+{
+  "mode_id": "browse",
+  "name": "Browse",
+  "version": "v1",
+  "description": "给 agentsystem 一个轻量的运行时浏览与探测模式，只出报告，不修代码。",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "entry_mode": "browser_qa",
+  "stop_after": "browser_qa",
+  "report_only": true,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": "report_only",
+  "allowed_tools": [
+    "browser_runtime",
+    "http_probe",
+    "repo_context"
+  ],
+  "required_inputs": [
+    "browser_urls",
+    "preview_base_url",
+    "preview_route"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/browser_qa/browser_qa_report.md",
+    ".meta/<repo>/browser_runtime/session.json",
+    ".meta/<repo>/browser_runtime/probes/*.json"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.browser_qa"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\browser_qa.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\browse\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\browse\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "qa",
+    "host_surface": "claude_skill",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\browse\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\browse\\SKILL.md"
+  }
+}

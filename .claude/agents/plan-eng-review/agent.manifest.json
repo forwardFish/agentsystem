@@ -1,0 +1,45 @@
+{
+  "mode_id": "plan-eng-review",
+  "name": "Plan Engineering Review",
+  "version": "v1",
+  "description": "在改代码前先产出实现结构、边界条件和测试计划。",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "entry_mode": "requirement_analysis",
+  "stop_after": "architecture_review",
+  "report_only": true,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "repo_context",
+    "workflow_manifest",
+    "agent_manifest"
+  ],
+  "required_inputs": [
+    "goal",
+    "acceptance_criteria",
+    "related_files",
+    "constraints"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/architecture_review/architecture_review_report.md",
+    ".meta/<repo>/architecture_review/test_plan.json"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.requirement_analysis",
+    "software_engineering.architecture_review"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\requirement_analysis.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\architecture_review.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-eng-review\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-eng-review\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "planning",
+    "host_surface": "claude_skill",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-eng-review\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-eng-review\\SKILL.md"
+  }
+}
