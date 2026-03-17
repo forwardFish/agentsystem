@@ -29,6 +29,19 @@ ARTIFACTS_DIR = RUNS_DIR / "artifacts"
 COMPLETION_STANDARD_PATH = BASE_DIR / "docs" / "story_completion_standard.md"
 
 STORY_BATCH = [
+    ("S2-001", "sprint_2_catalyst_mining_core"),
+    ("S2-002", "sprint_2_catalyst_mining_core"),
+    ("S2-003", "sprint_2_catalyst_mining_core"),
+    ("S2-004", "sprint_2_catalyst_mining_core"),
+    ("S2-005", "sprint_2_catalyst_mining_core"),
+    ("S2-006", "sprint_2_catalyst_mining_core"),
+    ("S2-007", "sprint_2_catalyst_mining_core"),
+    ("S2-008", "sprint_2_catalyst_mining_core"),
+    ("S2-009", "sprint_2_catalyst_mining_core"),
+    ("S2-010", "sprint_2_catalyst_mining_core"),
+    ("S2-011", "sprint_2_catalyst_mining_core"),
+    ("S2-012", "sprint_2_catalyst_mining_core"),
+    ("S2-013", "sprint_2_catalyst_mining_core"),
     ("S2A-001", "sprint_2a_early_theme_discovery_engine"),
     ("S2A-002", "sprint_2a_early_theme_discovery_engine"),
     ("S2A-003", "sprint_2a_early_theme_discovery_engine"),
