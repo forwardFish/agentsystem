@@ -1,0 +1,14 @@
+agent_id: software_engineering.code_style_reviewer
+name: Code Style Reviewer Agent
+description: 负责风格、约定与代码整洁性检查。
+handler: code_style_review_node
+agent_role: verification.style
+plane: verification
+capabilities:
+  - style_check
+  - policy_match
+verification_tags:
+  - style
+metadata:
+  manifest_version: v1
+  domain: software_engineering

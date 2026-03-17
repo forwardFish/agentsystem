@@ -134,6 +134,11 @@ class DevState(TypedDict, total=False):
     user_requirement: str
     repo_b_path: str
     task_payload: dict[str, Any] | None
+    workflow_plugin_id: str | None
+    workflow_manifest_path: str | None
+    workflow_policy_refs: list[str] | None
+    workflow_agent_manifest_ids: list[str] | None
+    workflow_agent_manifest_paths: list[str] | None
     branch_name: str | None
     auto_commit: bool | None
     sync_merge_success: bool | None

@@ -1,0 +1,12 @@
+agent_id: software_engineering.doc_writer
+name: Documentation Sync Agent
+description: 负责交付报告、结果总结与文档同步。
+handler: doc_node
+agent_role: documentation.sync
+plane: build
+capabilities:
+  - delivery_report
+  - doc_sync
+metadata:
+  manifest_version: v1
+  domain: software_engineering

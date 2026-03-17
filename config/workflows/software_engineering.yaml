@@ -1,0 +1,128 @@
+plugin_id: software_engineering
+name: Software Engineering Workflow
+description: 当前 agentsystem 默认的软件研发 Story 交付工作流。
+entry_point: requirement_analysis
+policy_refs:
+  - WorkflowPolicy.default
+  - ReviewPolicy.default
+  - ReleasePolicy.default
+trigger_events:
+  - task.created
+verification_pipeline:
+  - code_style_review
+  - test
+  - security_scan
+  - review
+  - code_acceptance
+  - acceptance_gate
+human_approval_points:
+  - acceptance_gate
+metadata:
+  domain: software_engineering
+  plugin_kind: build_engineering
+  manifest_version: v1
+nodes:
+  - node_id: requirement_analysis
+    display_name: Requirement
+    agent_manifest: software_engineering.requirement_analysis
+  - node_id: workspace_prep
+    display_name: Workspace Prep
+    agent_manifest: software_engineering.workspace_prep
+  - node_id: backend_dev
+    display_name: Backend Dev
+    agent_manifest: software_engineering.backend_dev
+  - node_id: frontend_dev
+    display_name: Frontend Dev
+    agent_manifest: software_engineering.frontend_dev
+  - node_id: database_dev
+    display_name: Database Dev
+    agent_manifest: software_engineering.database_dev
+  - node_id: devops_dev
+    display_name: DevOps Dev
+    agent_manifest: software_engineering.devops_dev
+  - node_id: sync_merge
+    display_name: Sync Merge
+    agent_manifest: software_engineering.sync_merge
+  - node_id: code_style_reviewer
+    display_name: Code Style Reviewer
+    agent_manifest: software_engineering.code_style_reviewer
+  - node_id: tester
+    display_name: Tester
+    agent_manifest: software_engineering.tester
+  - node_id: fixer
+    display_name: Fixer
+    agent_manifest: software_engineering.fixer
+  - node_id: security_scanner
+    display_name: Security Scanner
+    agent_manifest: software_engineering.security_scanner
+  - node_id: reviewer
+    display_name: Reviewer
+    agent_manifest: software_engineering.reviewer
+  - node_id: code_acceptance
+    display_name: Code Acceptance
+    agent_manifest: software_engineering.code_acceptance
+  - node_id: acceptance_gate
+    display_name: Acceptance Gate
+    agent_manifest: software_engineering.acceptance_gate
+  - node_id: doc_writer
+    display_name: Doc Writer
+    agent_manifest: software_engineering.doc_writer
+edges:
+  - source: requirement_analysis
+    target: workspace_prep
+  - source: backend_dev
+    target: sync_merge
+  - source: frontend_dev
+    target: sync_merge
+  - source: database_dev
+    target: sync_merge
+  - source: devops_dev
+    target: sync_merge
+  - source: sync_merge
+    target: code_style_reviewer
+  - source: security_scanner
+    target: reviewer
+  - source: doc_writer
+    target: __end__
+conditional_edges:
+  - source: workspace_prep
+    router: task_router
+    routes:
+      backend_dev: backend_dev
+      frontend_dev: frontend_dev
+      database_dev: database_dev
+      devops_dev: devops_dev
+      sync_merge: sync_merge
+  - source: code_style_reviewer
+    router: route_after_code_style_review
+    routes:
+      tester: tester
+      fixer: fixer
+  - source: tester
+    router: route_after_test
+    routes:
+      fixer: fixer
+      security_scanner: security_scanner
+  - source: fixer
+    router: route_after_fix
+    routes:
+      code_style_reviewer: code_style_reviewer
+      tester: tester
+      reviewer: reviewer
+      code_acceptance: code_acceptance
+      acceptance_gate: acceptance_gate
+  - source: reviewer
+    router: route_after_review
+    routes:
+      code_acceptance: code_acceptance
+      fixer: fixer
+  - source: code_acceptance
+    router: route_after_code_acceptance
+    routes:
+      acceptance_gate: acceptance_gate
+      fixer: fixer
+  - source: acceptance_gate
+    router: route_after_acceptance
+    routes:
+      doc_writer: doc_writer
+      fixer: fixer

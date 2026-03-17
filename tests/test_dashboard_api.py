@@ -57,6 +57,12 @@ class DashboardApiTestCase(unittest.TestCase):
                         "task_id": "task-demo",
                         "success": True,
                         "result": {
+                            "workflow_plugin_id": "software_engineering",
+                            "workflow_manifest_path": "config/workflows/software_engineering.yaml",
+                            "workflow_agent_manifest_ids": [
+                                "software_engineering.requirement_analysis",
+                                "software_engineering.reviewer",
+                            ],
                             "test_passed": True,
                             "review_passed": True,
                             "code_acceptance_passed": True,
@@ -96,6 +102,15 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(detail["artifacts"]["completion_standard"], "completion standard")
             self.assertTrue(detail["completion"]["acceptance_passed"])
             self.assertEqual(detail["completion"]["fix_attempts"], 1)
+            self.assertEqual(detail["workflow"]["workflow_plugin_id"], "software_engineering")
+            self.assertEqual(detail["workflow"]["workflow_manifest_path"], "config/workflows/software_engineering.yaml")
+            self.assertEqual(
+                detail["workflow"]["agent_manifest_ids"],
+                [
+                    "software_engineering.requirement_analysis",
+                    "software_engineering.reviewer",
+                ],
+            )
             self.assertIn("collaboration", detail)
 
     def test_load_task_collaboration_reads_state_payload(self) -> None:
@@ -177,6 +192,13 @@ class DashboardApiTestCase(unittest.TestCase):
                         "branch": "agent/l1-task-story",
                         "commit": "abc999",
                         "result": {
+                            "workflow_plugin_id": "software_engineering",
+                            "workflow_manifest_path": "config/workflows/software_engineering.yaml",
+                            "workflow_agent_manifest_ids": [
+                                "software_engineering.requirement_analysis",
+                                "software_engineering.tester",
+                                "software_engineering.doc_writer",
+                            ],
                             "task_payload": {
                                 "story_id": "S0-001",
                                 "task_id": "S0-001",
@@ -214,6 +236,15 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(story_detail["latest_task_id"], "task-story")
             self.assertEqual(story_detail["status"], "done")
             self.assertTrue(story_detail["task_detail"]["completion"]["acceptance_passed"])
+            self.assertEqual(story_detail["workflow"]["workflow_plugin_id"], "software_engineering")
+            self.assertEqual(
+                story_detail["workflow"]["agent_manifest_ids"],
+                [
+                    "software_engineering.requirement_analysis",
+                    "software_engineering.tester",
+                    "software_engineering.doc_writer",
+                ],
+            )
 
     def test_story_status_registry_marks_story_done_without_audit_log(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -515,6 +546,32 @@ class DashboardApiTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             runtime_dir = base / "runtime"
+            tasks_dir = base / "finahunt_tasks"
+            sprint_2_dir = tasks_dir / "backlog_v1" / "sprint_2_catalyst_mining_core" / "epic_demo"
+            sprint_2a_dir = tasks_dir / "backlog_v1" / "sprint_2a_early_theme_discovery_engine" / "epic_demo"
+            sprint_2_dir.mkdir(parents=True)
+            sprint_2a_dir.mkdir(parents=True)
+            (tasks_dir / "backlog_v1" / "sprint_overview.md").write_text("# Finahunt", encoding="utf-8")
+            (tasks_dir / "backlog_v1" / "sprint_2_catalyst_mining_core" / "sprint_plan.md").write_text("# Sprint 2", encoding="utf-8")
+            (tasks_dir / "backlog_v1" / "sprint_2a_early_theme_discovery_engine" / "sprint_plan.md").write_text("# Sprint 2A", encoding="utf-8")
+            (tasks_dir / "backlog_v1" / "sprint_2_catalyst_mining_core" / "epic_demo.md").write_text("# Epic", encoding="utf-8")
+            (tasks_dir / "backlog_v1" / "sprint_2a_early_theme_discovery_engine" / "epic_demo.md").write_text("# Epic", encoding="utf-8")
+            (sprint_2_dir / "S2-006_demo.yaml").write_text(
+                "task_id: S2-006\nstory_id: S2-006\ntask_name: Structured Result Cards\nstory_inputs:\n  - cards input\nstory_process:\n  - build cards\nstory_outputs:\n  - cards output\nverification_basis:\n  - verify cards\nacceptance_criteria:\n  - cards exist\n",
+                encoding="utf-8",
+            )
+            (sprint_2_dir / "S2-009_demo.yaml").write_text(
+                "task_id: S2-009\nstory_id: S2-009\ntask_name: Fermenting Feed\nstory_inputs:\n  - feed input\nstory_process:\n  - build feed\nstory_outputs:\n  - feed output\nverification_basis:\n  - verify feed\nacceptance_criteria:\n  - feed exists\n",
+                encoding="utf-8",
+            )
+            (sprint_2a_dir / "S2A-001_demo.yaml").write_text(
+                "task_id: S2A-001\nstory_id: S2A-001\ntask_name: Source Scout\nsprint: Sprint 2A\nstory_inputs:\n  - raw docs\nstory_process:\n  - scout sources\nstory_outputs:\n  - scout output\nverification_basis:\n  - verify scout\nacceptance_criteria:\n  - scout exists\n",
+                encoding="utf-8",
+            )
+            (sprint_2a_dir / "S2A-006_demo.yaml").write_text(
+                "task_id: S2A-006\nstory_id: S2A-006\ntask_name: Fermentation Monitor\nsprint: Sprint 2A\nstory_inputs:\n  - theme candidates\nstory_process:\n  - monitor fermentation\nstory_outputs:\n  - monitor output\nverification_basis:\n  - verify monitor\nacceptance_criteria:\n  - monitor exists\n",
+                encoding="utf-8",
+            )
             run_dir = runtime_dir / "run-demo"
             run_dir.mkdir(parents=True)
             (run_dir / "manifest.json").write_text(
@@ -545,9 +602,14 @@ class DashboardApiTestCase(unittest.TestCase):
                 encoding="utf-8",
             )
             (run_dir / "raw_documents.json").write_text(json.dumps([{"id": 1}, {"id": 2}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "source_scout_candidates.json").write_text(json.dumps([{"id": "scout-1"}], ensure_ascii=False), encoding="utf-8")
             (run_dir / "normalized_documents.json").write_text(json.dumps([{"id": 1}], ensure_ascii=False), encoding="utf-8")
             (run_dir / "canonical_events.json").write_text(json.dumps([{"event_id": "evt-1"}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "theme_clusters.json").write_text(json.dumps([{"cluster_id": "cluster-1"}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "theme_candidate_mappings.json").write_text(json.dumps([{"cluster_id": "cluster-1", "candidates": []}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "theme_purity_candidates.json").write_text(json.dumps([{"cluster_id": "cluster-1", "judge_status": "accepted"}], ensure_ascii=False), encoding="utf-8")
             (run_dir / "theme_candidates.json").write_text(json.dumps([{"theme_name": "AI"}], ensure_ascii=False), encoding="utf-8")
+            (run_dir / "fermentation_monitor.json").write_text(json.dumps([{"theme_name": "AI", "fermentation_phase": "spreading"}], ensure_ascii=False), encoding="utf-8")
             (run_dir / "structured_result_cards.json").write_text(
                 json.dumps([{"card_id": "card-1", "theme_name": "AI"}], ensure_ascii=False),
                 encoding="utf-8",
@@ -589,6 +651,38 @@ class DashboardApiTestCase(unittest.TestCase):
                                 "project": "finahunt",
                                 "validation_summary": "feed validated",
                             },
+                            {
+                                "story_id": "S2A-001",
+                                "status": "done",
+                                "project": "finahunt",
+                                "validation_summary": "source scout validated",
+                            },
+                            {
+                                "story_id": "S2A-006",
+                                "status": "done",
+                                "project": "finahunt",
+                                "validation_summary": "fermentation monitor validated",
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            review_registry = base / "finahunt_story_acceptance_reviews.json"
+            review_registry.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "project": "finahunt",
+                                "backlog_id": "backlog_v1",
+                                "sprint_id": "sprint_2a_early_theme_discovery_engine",
+                                "story_id": "S2A-006",
+                                "reviewer": "QA",
+                                "verdict": "approved",
+                                "summary": "formal acceptance passed",
+                            }
                         ]
                     },
                     ensure_ascii=False,
@@ -598,7 +692,9 @@ class DashboardApiTestCase(unittest.TestCase):
 
             with (
                 patch.object(dashboard_main, "FINAHUNT_RUNTIME_DIR", runtime_dir),
+                patch.object(dashboard_main, "FINAHUNT_TASKS_DIR", tasks_dir),
                 patch.object(dashboard_main, "FINAHUNT_STORY_STATUS_REGISTRY", finahunt_registry),
+                patch.object(dashboard_main, "FINAHUNT_STORY_ACCEPTANCE_REVIEW_REGISTRY", review_registry),
             ):
                 showcase = dashboard_main.load_finahunt_runtime_showcase()
 
@@ -607,9 +703,14 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(showcase["stats"]["structured_result_card_count"], 1)
             self.assertEqual(showcase["pipeline"][0]["label"], "资讯源运行时")
             self.assertEqual(showcase["pipeline"][0]["count"], 2)
-            self.assertEqual(showcase["stories"][5]["story_id"], "S2-006")
-            self.assertTrue(showcase["stories"][5]["output_ready"])
-            self.assertEqual(showcase["stories"][8]["story_id"], "S2-009")
+            story_ids = [item["story_id"] for item in showcase["stories"]]
+            self.assertIn("S2-006", story_ids)
+            self.assertIn("S2A-001", story_ids)
+            self.assertIn("S2A-006", story_ids)
+            story_by_id = {item["story_id"]: item for item in showcase["stories"]}
+            self.assertTrue(story_by_id["S2-006"]["output_ready"])
+            self.assertTrue(story_by_id["S2A-001"]["output_ready"])
+            self.assertEqual(story_by_id["S2A-006"]["human_review"]["verdict"], "approved")
             self.assertEqual(showcase["fermenting_theme_feed"][0]["theme_name"], "AI")
 
     def test_load_finahunt_runtime_showcase_handles_empty_runtime_dir(self) -> None:
@@ -627,7 +728,39 @@ class DashboardApiTestCase(unittest.TestCase):
 
             self.assertIsNone(showcase["run_id"])
             self.assertEqual(showcase["stats"]["structured_result_card_count"], 0)
-            self.assertEqual(len(showcase["stories"]), 9)
+            self.assertGreaterEqual(len(showcase["stories"]), 15)
+
+    def test_generic_runtime_showcase_uses_project_registration(self) -> None:
+        with patch.object(dashboard_main, "load_finahunt_runtime_showcase", return_value={"run_id": "run-demo"}) as loader:
+            showcase = dashboard_main.load_runtime_showcase("finahunt", run_id="run-demo")
+
+        self.assertEqual(showcase["run_id"], "run-demo")
+        loader.assert_called_once_with(run_id="run-demo")
+
+    def test_load_projects_exposes_runtime_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            versefina_tasks = base / "versefina_tasks"
+            finahunt_tasks = base / "finahunt_tasks"
+            for tasks_root in [versefina_tasks, finahunt_tasks]:
+                backlog_dir = tasks_root / "backlog_v1"
+                backlog_dir.mkdir(parents=True)
+                (backlog_dir / "sprint_overview.md").write_text("# Backlog", encoding="utf-8")
+                (tasks_root / "story_status_registry.json").write_text(json.dumps({"stories": []}), encoding="utf-8")
+
+            with (
+                patch.object(dashboard_main, "TASKS_DIR", versefina_tasks),
+                patch.object(dashboard_main, "STORY_STATUS_REGISTRY", versefina_tasks / "story_status_registry.json"),
+                patch.object(dashboard_main, "FINAHUNT_TASKS_DIR", finahunt_tasks),
+                patch.object(dashboard_main, "FINAHUNT_STORY_STATUS_REGISTRY", finahunt_tasks / "story_status_registry.json"),
+            ):
+                projects = dashboard_main.load_projects()
+
+            project_index = {item["id"]: item for item in projects}
+            self.assertTrue(project_index["versefina"]["has_runtime"])
+            self.assertEqual(project_index["versefina"]["runtime_dashboard_path"], "/projects/versefina/runtime")
+            self.assertTrue(project_index["finahunt"]["has_runtime"])
+            self.assertEqual(project_index["finahunt"]["runtime_dashboard_path"], "/projects/finahunt/runtime")
 
     def test_load_versefina_runtime_showcase_reads_runtime_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

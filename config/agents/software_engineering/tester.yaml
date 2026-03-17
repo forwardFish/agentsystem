@@ -1,0 +1,14 @@
+agent_id: software_engineering.tester
+name: Tester Agent
+description: 负责执行测试并汇总失败上下文。
+handler: test_node
+agent_role: verification.test
+plane: verification
+capabilities:
+  - run_tests
+  - summarize_failures
+verification_tags:
+  - test
+metadata:
+  manifest_version: v1
+  domain: software_engineering

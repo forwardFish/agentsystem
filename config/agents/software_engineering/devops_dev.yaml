@@ -1,0 +1,12 @@
+agent_id: software_engineering.devops_dev
+name: DevOps Development Agent
+description: 负责 CI、部署脚本与环境相关变更。
+handler: devops_dev_node
+agent_role: development.devops
+plane: build
+capabilities:
+  - ci_update
+  - deploy_prepare
+metadata:
+  manifest_version: v1
+  domain: software_engineering

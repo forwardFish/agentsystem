@@ -1,0 +1,14 @@
+agent_id: software_engineering.reviewer
+name: Review Agent
+description: 负责代码审查、阻断问题识别与审查报告输出。
+handler: review_node
+agent_role: verification.review
+plane: verification
+capabilities:
+  - code_review
+  - blocking_issue_detect
+verification_tags:
+  - review
+metadata:
+  manifest_version: v1
+  domain: software_engineering

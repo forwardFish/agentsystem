@@ -1,0 +1,14 @@
+agent_id: software_engineering.acceptance_gate
+name: Acceptance Gate Agent
+description: 负责最终闸门判断与人工签收前的决策输出。
+handler: acceptance_gate_node
+agent_role: governance.final_gate
+plane: governance
+capabilities:
+  - final_gate
+  - signoff_decision
+policy_refs:
+  - ReleasePolicy.default
+metadata:
+  manifest_version: v1
+  domain: software_engineering

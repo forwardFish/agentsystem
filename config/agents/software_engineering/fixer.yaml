@@ -1,0 +1,12 @@
+agent_id: software_engineering.fixer
+name: Fix Agent
+description: 负责在验证失败后进行自动修复与回路重试。
+handler: fix_node
+agent_role: remediation.fix
+plane: build
+capabilities:
+  - issue_fix
+  - retry
+metadata:
+  manifest_version: v1
+  domain: software_engineering

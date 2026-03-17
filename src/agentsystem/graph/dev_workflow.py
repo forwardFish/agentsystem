@@ -7,23 +7,8 @@ from langgraph.graph import END, StateGraph
 
 from agentsystem.adapters.git_adapter import GitAdapter
 from agentsystem.dashboard.hooks import send_log, send_node_end, send_node_start, send_workflow_state
-from agentsystem.agents.backend_dev_agent import backend_dev_node
-from agentsystem.agents.acceptance_gate_agent import acceptance_gate_node, route_after_acceptance
-from agentsystem.agents.code_acceptance_agent import code_acceptance_node, route_after_code_acceptance
-from agentsystem.agents.code_style_reviewer_agent import code_style_review_node, route_after_code_style_review
-from agentsystem.agents.database_agent import database_dev_node
-from agentsystem.agents.devops_agent import devops_dev_node
-from agentsystem.agents.doc_agent import doc_node
-from agentsystem.agents.fix_agent import fix_node, route_after_fix
-from agentsystem.agents.frontend_dev_agent import frontend_dev_node
-from agentsystem.agents.requirement_agent import requirement_analysis_node
-from agentsystem.agents.router_agent import route_after_test, task_router
-from agentsystem.agents.review_agent import review_node, route_after_review
-from agentsystem.agents.security_agent import security_node
-from agentsystem.agents.sync_agent import sync_merge_node
-from agentsystem.agents.test_agent import test_node
-from agentsystem.agents.workspace_prep_agent import workspace_prep_node
 from agentsystem.core.state import DevState
+from agentsystem.orchestration.workflow_registry import get_workflow_plugin
 
 
 class DevWorkflow:
@@ -32,7 +17,9 @@ class DevWorkflow:
         self.worktree_path = worktree_path
         self.task = task
         self.task_id = task_id or Path(worktree_path).name
-        self.graph = create_dev_graph()
+        self.workflow_plugin_id = str(task.get("workflow_plugin") or "software_engineering")
+        self.workflow_plugin = get_workflow_plugin(self.workflow_plugin_id)
+        self.graph = create_dev_graph(self.workflow_plugin_id)
 
     def run(self) -> dict:
         initial_state: DevState = {
@@ -40,6 +27,11 @@ class DevWorkflow:
             "user_requirement": str(self.task.get("goal", "")),
             "repo_b_path": str(self.worktree_path),
             "task_payload": self.task,
+            "workflow_plugin_id": self.workflow_plugin.plugin_id,
+            "workflow_manifest_path": self.workflow_plugin.manifest_path,
+            "workflow_policy_refs": list(self.workflow_plugin.policy_refs),
+            "workflow_agent_manifest_ids": [node.agent_id for node in self.workflow_plugin.nodes],
+            "workflow_agent_manifest_paths": [node.manifest_path for node in self.workflow_plugin.nodes],
             "branch_name": GitAdapter(self.worktree_path).get_current_branch(),
             "auto_commit": False,
             "current_step": "init",
@@ -110,94 +102,20 @@ class DevWorkflow:
         return value
 
 
-def create_dev_graph():
+def create_dev_graph(workflow_plugin_id: str = "software_engineering"):
+    plugin = get_workflow_plugin(workflow_plugin_id)
     workflow = StateGraph(DevState)
-    workflow.add_node("requirement_analysis", _instrument_node("Requirement", requirement_analysis_node))
-    workflow.add_node("workspace_prep", _instrument_node("Workspace Prep", workspace_prep_node))
-    workflow.add_node("backend_dev", _instrument_node("Backend Dev", backend_dev_node))
-    workflow.add_node("frontend_dev", _instrument_node("Frontend Dev", frontend_dev_node))
-    workflow.add_node("database_dev", _instrument_node("Database Dev", database_dev_node))
-    workflow.add_node("devops_dev", _instrument_node("DevOps Dev", devops_dev_node))
-    workflow.add_node("sync_merge", _instrument_node("Sync Merge", sync_merge_node))
-    workflow.add_node("code_style_reviewer", _instrument_node("Code Style Reviewer", code_style_review_node))
-    workflow.add_node("tester", _instrument_node("Tester", test_node))
-    workflow.add_node("fixer", _instrument_node("Fixer", fix_node))
-    workflow.add_node("security_scanner", _instrument_node("Security Scanner", security_node))
-    workflow.add_node("reviewer", _instrument_node("Reviewer", review_node))
-    workflow.add_node("code_acceptance", _instrument_node("Code Acceptance", code_acceptance_node))
-    workflow.add_node("acceptance_gate", _instrument_node("Acceptance Gate", acceptance_gate_node))
-    workflow.add_node("doc_writer", _instrument_node("Doc Writer", doc_node))
-    workflow.set_entry_point("requirement_analysis")
-    workflow.add_edge("requirement_analysis", "workspace_prep")
-    workflow.add_conditional_edges(
-        "workspace_prep",
-        task_router,
-        {
-            "backend_dev": "backend_dev",
-            "frontend_dev": "frontend_dev",
-            "database_dev": "database_dev",
-            "devops_dev": "devops_dev",
-            "sync_merge": "sync_merge",
-        },
-    )
-    workflow.add_edge("backend_dev", "sync_merge")
-    workflow.add_edge("frontend_dev", "sync_merge")
-    workflow.add_edge("database_dev", "sync_merge")
-    workflow.add_edge("devops_dev", "sync_merge")
-    workflow.add_edge("sync_merge", "code_style_reviewer")
-    workflow.add_conditional_edges(
-        "code_style_reviewer",
-        route_after_code_style_review,
-        {
-            "tester": "tester",
-            "fixer": "fixer",
-        },
-    )
-    workflow.add_conditional_edges(
-        "tester",
-        route_after_test,
-        {
-            "fixer": "fixer",
-            "security_scanner": "security_scanner",
-        },
-    )
-    workflow.add_conditional_edges(
-        "fixer",
-        route_after_fix,
-        {
-            "code_style_reviewer": "code_style_reviewer",
-            "tester": "tester",
-            "reviewer": "reviewer",
-            "code_acceptance": "code_acceptance",
-            "acceptance_gate": "acceptance_gate",
-        },
-    )
-    workflow.add_edge("security_scanner", "reviewer")
-    workflow.add_conditional_edges(
-        "reviewer",
-        route_after_review,
-        {
-            "code_acceptance": "code_acceptance",
-            "fixer": "fixer",
-        },
-    )
-    workflow.add_conditional_edges(
-        "code_acceptance",
-        route_after_code_acceptance,
-        {
-            "acceptance_gate": "acceptance_gate",
-            "fixer": "fixer",
-        },
-    )
-    workflow.add_conditional_edges(
-        "acceptance_gate",
-        route_after_acceptance,
-        {
-            "doc_writer": "doc_writer",
-            "fixer": "fixer",
-        },
-    )
-    workflow.add_edge("doc_writer", END)
+    for node in plugin.node_specs():
+        workflow.add_node(node.node_id, _instrument_node(node.display_name, node.handler))
+    workflow.set_entry_point(plugin.entry_point)
+    for start, end in plugin.edges:
+        workflow.add_edge(start, END if end == "__end__" else end)
+    for conditional_edge in plugin.conditional_edges:
+        workflow.add_conditional_edges(
+            conditional_edge.source,
+            conditional_edge.router,
+            conditional_edge.routes,
+        )
     return workflow.compile()
 
 
@@ -231,6 +149,8 @@ def _compact_payload(state: DevState) -> dict[str, object]:
         "current_step": state.get("current_step"),
         "branch_name": state.get("branch_name"),
         "repo_b_path": state.get("repo_b_path"),
+        "workflow_plugin_id": state.get("workflow_plugin_id"),
+        "workflow_agent_count": len(state.get("workflow_agent_manifest_ids") or []),
         "subtask_count": len(subtasks),
         "fix_attempts": state.get("fix_attempts"),
         "test_passed": state.get("test_passed"),

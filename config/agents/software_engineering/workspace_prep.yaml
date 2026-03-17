@@ -1,0 +1,14 @@
+agent_id: software_engineering.workspace_prep
+name: Workspace Prep Agent
+description: 负责准备分支、工作区与子任务路由输入。
+handler: workspace_prep_node
+agent_role: workspace.prep
+plane: build
+capabilities:
+  - branch_prepare
+  - task_route
+policy_refs:
+  - WorkflowPolicy.default
+metadata:
+  manifest_version: v1
+  domain: software_engineering

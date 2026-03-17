@@ -1,0 +1,12 @@
+agent_id: software_engineering.sync_merge
+name: Sync Merge Agent
+description: 负责并行子任务结果归并与交付同步。
+handler: sync_merge_node
+agent_role: merge.sync
+plane: build
+capabilities:
+  - diff_merge
+  - handoff_sync
+metadata:
+  manifest_version: v1
+  domain: software_engineering

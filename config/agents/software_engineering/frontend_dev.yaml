@@ -1,0 +1,15 @@
+agent_id: software_engineering.frontend_dev
+name: Frontend Development Agent
+description: 负责前端页面、组件与交互实现。
+handler: frontend_dev_node
+agent_role: development.frontend
+plane: build
+capabilities:
+  - code_write
+  - frontend_impl
+tool_scope:
+  - git
+  - shell
+metadata:
+  manifest_version: v1
+  domain: software_engineering

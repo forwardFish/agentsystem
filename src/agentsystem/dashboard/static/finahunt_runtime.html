@@ -390,7 +390,8 @@
             </div>
             <div class="flex flex-wrap items-start gap-2">
               <span class="pill ${badgeClass((story.human_review || {}).verdict || "pending_signoff")}">${statusText((story.human_review || {}).verdict || "pending_signoff")}</span>
-              <a href="/story?project=finahunt&backlog=backlog_v1&sprint=sprint_2_catalyst_mining_core&story=${encodeURIComponent(story.story_id)}" class="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-emerald-300/50 hover:bg-white/10">进入 Story 验收页</a>
+              <span class="pill not_started">${story.sprint_label || story.sprint_id || "-"}</span>
+              <a href="/story?project=finahunt&backlog=backlog_v1&sprint=${encodeURIComponent(story.sprint_id || "sprint_2_catalyst_mining_core")}&story=${encodeURIComponent(story.story_id)}" class="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-emerald-300/50 hover:bg-white/10">进入 Story 验收页</a>
             </div>
           </div>
         </div>

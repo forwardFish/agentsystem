@@ -212,7 +212,8 @@ class StoryContractReportingTestCase(unittest.TestCase):
     def test_finahunt_sprint2_story_specs_define_contract_fields(self) -> None:
         specs = dashboard_main._load_finahunt_sprint2_story_specs()
 
-        self.assertEqual(len(specs), 9)
+        self.assertGreaterEqual(len(specs), 15)
+        self.assertIn("S2A-006", specs)
         for story_id, payload in specs.items():
             self.assertTrue(payload.get("story_inputs"), story_id)
             self.assertTrue(payload.get("story_process"), story_id)

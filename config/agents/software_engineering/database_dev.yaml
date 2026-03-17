@@ -1,0 +1,12 @@
+agent_id: software_engineering.database_dev
+name: Database Development Agent
+description: 负责数据库 schema、存储与数据层变更。
+handler: database_dev_node
+agent_role: development.database
+plane: build
+capabilities:
+  - schema_change
+  - storage_impl
+metadata:
+  manifest_version: v1
+  domain: software_engineering

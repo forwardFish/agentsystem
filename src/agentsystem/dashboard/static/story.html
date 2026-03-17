@@ -441,6 +441,25 @@
       `;
     }
 
+    function renderWorkflowSummary(workflow) {
+      const agentManifestIds = Array.isArray(workflow?.agent_manifest_ids) ? workflow.agent_manifest_ids.filter(Boolean) : [];
+      const hasWorkflow = Boolean(workflow?.workflow_plugin_id || workflow?.workflow_manifest_path || agentManifestIds.length);
+      if (!hasWorkflow) {
+        return `<div class="text-sm text-slate-400">No workflow manifest metadata recorded for this run.</div>`;
+      }
+      return `
+        ${renderKeyValues([
+          ["Workflow Plugin", workflow?.workflow_plugin_id],
+          ["Workflow Manifest", workflow?.workflow_manifest_path],
+          ["Agent Manifest Count", workflow?.agent_manifest_count ? String(workflow.agent_manifest_count) : String(agentManifestIds.length || 0)],
+        ])}
+        <div class="mt-4">
+          <div class="section-label mb-2">Agent Manifest IDs</div>
+          ${renderList(agentManifestIds, "No agent manifests recorded.")}
+        </div>
+      `;
+    }
+
     function renderAcceptanceTemplate(template) {
       const cards = Array.isArray(template?.cards) ? template.cards : [];
       if (!cards.length) {
@@ -606,11 +625,12 @@
       const latestRun = detail.latest_run || {};
       const taskDetail = detail.task_detail || {};
       const completion = taskDetail.completion || {};
+      const workflow = detail.workflow || taskDetail.workflow || {};
       const businessValidated = latestRun.source && latestRun.source !== "agentsystem_audit" && detail.status === "done";
       const showcaseLink = document.getElementById("showcase-link");
       let showcaseHref = "";
       let showcaseText = "";
-      if (projectId === "finahunt" && String(story.story_id || storyId).startsWith("S2-")) {
+      if (projectId === "finahunt" && (String(story.story_id || storyId).startsWith("S2-") || String(story.story_id || storyId).startsWith("S2A-"))) {
         showcaseHref = "/finahunt/runtime";
         showcaseText = "返回 Finahunt 验收台";
       } else if (projectId === "versefina" && ["sprint_1_statement_to_agent", "sprint_2_world_ledger_loop"].includes(sprintId)) {
@@ -669,6 +689,12 @@
         <div><div class="section-label mb-2">Out of Scope</div>${renderList(story.out_of_scope || story.not_do, "暂无")}</div>
       `;
 
+      document.getElementById("story-summary").insertAdjacentHTML("beforeend", `
+        <div>
+          <div class="section-label mb-2">Workflow Contract</div>
+          ${renderWorkflowSummary(workflow)}
+        </div>
+      `);
       document.getElementById("story-checklist").innerHTML = renderChecklist(story.acceptance_criteria, completion, businessValidated);
       document.getElementById("story-contract").innerHTML = renderStoryContract(story);
       document.getElementById("story-acceptance-template").innerHTML = renderAcceptanceTemplate(detail.acceptance_template || {});
@@ -695,6 +721,20 @@
         ["Success", latestRun.success === true ? "yes" : latestRun.success === false ? "no" : businessValidated ? "verified" : "-"],
       ]);
 
+      document.getElementById("run-summary").insertAdjacentHTML("beforeend", `
+        <div>
+          <div class="section-label mb-2">Workflow Plugin</div>
+          <div class="break-words text-sm text-slate-200">${workflow.workflow_plugin_id || "-"}</div>
+        </div>
+        <div>
+          <div class="section-label mb-2">Workflow Manifest</div>
+          <div class="break-words text-sm text-slate-200">${workflow.workflow_manifest_path || "-"}</div>
+        </div>
+        <div>
+          <div class="section-label mb-2">Agent Manifest IDs</div>
+          ${renderList(workflow.agent_manifest_ids, "No agent manifests recorded.")}
+        </div>
+      `);
       document.getElementById("business-validation").innerHTML = renderValidation(latestRun);
       document.getElementById("standard-summary").innerHTML = renderList([
         "每个 Story 都应有明确验收标准。",

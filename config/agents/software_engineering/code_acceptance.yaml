@@ -1,0 +1,14 @@
+agent_id: software_engineering.code_acceptance
+name: Code Acceptance Agent
+description: 负责验收项核对与证据包整理。
+handler: code_acceptance_node
+agent_role: verification.acceptance
+plane: verification
+capabilities:
+  - acceptance_check
+  - evidence_pack
+verification_tags:
+  - acceptance
+metadata:
+  manifest_version: v1
+  domain: software_engineering

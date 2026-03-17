@@ -1,0 +1,14 @@
+agent_id: software_engineering.security_scanner
+name: Security Scanner Agent
+description: 负责安全扫描与风险说明。
+handler: security_node
+agent_role: verification.security
+plane: verification
+capabilities:
+  - security_scan
+  - risk_note
+verification_tags:
+  - security
+metadata:
+  manifest_version: v1
+  domain: software_engineering

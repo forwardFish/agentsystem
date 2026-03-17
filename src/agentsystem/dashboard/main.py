@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .project_registry import ProjectRegistration, RuntimeSurface
 from .versefina_runtime_showcase import load_versefina_runtime_showcase_data
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -75,14 +76,19 @@ async def get_story_dashboard() -> FileResponse:
     return FileResponse(Path(__file__).parent / "static" / "story.html")
 
 
+@app.get("/projects/{project_id}/runtime")
+async def get_project_runtime_dashboard(project_id: str):
+    return _runtime_dashboard_response(project_id)
+
+
 @app.get("/finahunt/runtime")
 async def get_finahunt_runtime_dashboard() -> FileResponse:
-    return FileResponse(Path(__file__).parent / "static" / "finahunt_runtime.html")
+    return _runtime_dashboard_response("finahunt")
 
 
 @app.get("/versefina/runtime")
 async def get_versefina_runtime_dashboard() -> FileResponse:
-    return FileResponse(Path(__file__).parent / "static" / "versefina_runtime.html")
+    return _runtime_dashboard_response("versefina")
 
 
 @app.get("/api/tasks")
@@ -108,6 +114,16 @@ async def get_metrics(project: str = "versefina") -> JSONResponse:
 @app.get("/api/projects")
 async def get_projects() -> JSONResponse:
     return JSONResponse({"projects": load_projects()})
+
+
+@app.get("/api/projects/{project_id}/runtime/showcase")
+async def get_project_runtime_showcase(project_id: str, run_id: str | None = None) -> JSONResponse:
+    return JSONResponse(load_runtime_showcase(project_id, run_id=run_id))
+
+
+@app.get("/api/projects/{project_id}/runtime/runs")
+async def get_project_runtime_runs(project_id: str, limit: int = 12) -> JSONResponse:
+    return JSONResponse({"project": project_id, "runs": load_runtime_runs(project_id, limit=limit)})
 
 
 @app.get("/api/backlogs")
@@ -230,6 +246,14 @@ def load_tasks() -> list[dict[str, Any]]:
     return tasks
 
 
+def _runtime_dashboard_response(project_id: str):
+    project = _get_project_registration(project_id)
+    runtime_surface = project.runtime_surface
+    if runtime_surface is None or not runtime_surface.dashboard_asset:
+        return JSONResponse(status_code=404, content={"project": project_id, "error": "runtime_dashboard_not_configured"})
+    return FileResponse(Path(__file__).parent / "static" / runtime_surface.dashboard_asset)
+
+
 def load_task_detail(task_id: str) -> dict[str, Any]:
     run_file = RUNS_DIR / f"prod_audit_{task_id}.json"
     payload: dict[str, Any] = {}
@@ -285,6 +309,7 @@ def load_task_detail(task_id: str) -> dict[str, Any]:
         ),
     }
     completion = _extract_completion(payload)
+    workflow = _extract_workflow(payload)
     return {
         "task_id": task_id,
         "audit_log": payload,
@@ -292,6 +317,7 @@ def load_task_detail(task_id: str) -> dict[str, Any]:
         "events": load_task_events(task_id),
         "collaboration": _extract_collaboration(payload),
         "completion": completion,
+        "workflow": workflow,
     }
 
 
@@ -411,16 +437,18 @@ def _collect_story_metrics_records(project_id: str) -> list[dict[str, Any]]:
 
 def load_projects() -> list[dict[str, Any]]:
     projects: list[dict[str, Any]] = []
-    for project_id, config in _project_configs().items():
-        tasks_dir = config["tasks_dir"]
-        backlogs = load_backlogs(project_id)
+    for project in _build_project_registry().values():
+        tasks_dir = project.tasks_dir
+        backlogs = load_backlogs(project.id)
         projects.append(
             {
-                "id": project_id,
-                "name": config["name"],
-                "description": config["description"],
+                "id": project.id,
+                "name": project.name,
+                "description": project.description,
                 "available": tasks_dir.exists(),
                 "backlog_count": len(backlogs),
+                "has_runtime": project.has_runtime,
+                "runtime_dashboard_path": f"/projects/{project.id}/runtime" if project.has_runtime else None,
             }
         )
     return projects
@@ -535,6 +563,7 @@ def load_story_detail(backlog_id: str, sprint_id: str, story_id: str, project_id
         "latest_task_id": run_info.get("task_id") if run_info else None,
         "latest_run": run_info,
         "task_detail": task_detail,
+        "workflow": task_detail.get("workflow") if isinstance(task_detail, dict) else {},
         "human_review": human_review,
         "acceptance_template": acceptance_template,
     }
@@ -577,14 +606,20 @@ def load_finahunt_runtime_runs(limit: int = 12) -> list[dict[str, Any]]:
 
 def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
     runs = load_finahunt_runtime_runs(limit=24)
+    empty_stories = _build_finahunt_story_validation_cards({}, {})
     if not runs:
         return {
             "run_id": None,
             "runs": [],
-            "stories": _build_finahunt_story_validation_cards({}, {}),
+            "stories": empty_stories,
             "manifest": {},
             "result_warehouse_summary": {},
             "inspection": _build_finahunt_inspection({}),
+            "source_scout_candidates": [],
+            "theme_clusters": [],
+            "theme_candidate_mappings": [],
+            "theme_purity_candidates": [],
+            "fermentation_monitor": [],
             "theme_candidates": [],
             "structured_result_cards": [],
             "theme_heat_snapshots": [],
@@ -592,7 +627,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
             "fermenting_theme_feed": [],
             "daily_review": {},
             "stats": {
-                "story_count": 9,
+                "story_count": len(empty_stories),
                 "structured_result_card_count": 0,
                 "theme_heat_snapshot_count": 0,
                 "low_position_count": 0,
@@ -614,9 +649,14 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
     if not isinstance(result_warehouse_summary, dict):
         result_warehouse_summary = {}
     raw_documents = _read_json_list(run_dir / "raw_documents.json")
+    source_scout_candidates = _read_json_list(run_dir / "source_scout_candidates.json")
     normalized_documents = _read_json_list(run_dir / "normalized_documents.json")
     canonical_events = _read_json_list(run_dir / "canonical_events.json")
+    theme_clusters = _read_json_list(run_dir / "theme_clusters.json")
+    theme_candidate_mappings = _read_json_list(run_dir / "theme_candidate_mappings.json")
+    theme_purity_candidates = _read_json_list(run_dir / "theme_purity_candidates.json")
     theme_candidates = _read_json_list(run_dir / "theme_candidates.json")
+    fermentation_monitor = _read_json_list(run_dir / "fermentation_monitor.json")
     structured_result_cards = _read_json_list(run_dir / "structured_result_cards.json")
     theme_heat_snapshots = _read_json_list(run_dir / "theme_heat_snapshots.json")
     low_position_opportunities = _read_json_list(run_dir / "low_position_opportunities.json")
@@ -627,9 +667,14 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
 
     artifact_counts = {
         "raw_documents": len(raw_documents),
+        "source_scout_candidates": len(source_scout_candidates),
         "normalized_documents": len(normalized_documents),
         "canonical_events": len(canonical_events),
+        "theme_clusters": len(theme_clusters),
+        "theme_candidate_mappings": len(theme_candidate_mappings),
+        "theme_purity_candidates": len(theme_purity_candidates),
         "theme_candidates": len(theme_candidates),
+        "fermentation_monitor": len(fermentation_monitor),
         "structured_result_cards": len(structured_result_cards),
         "theme_heat_snapshots": len(theme_heat_snapshots),
         "low_position_opportunities": len(low_position_opportunities),
@@ -638,9 +683,14 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
     }
     datasets = {
         "raw_documents": raw_documents,
+        "source_scout_candidates": source_scout_candidates,
         "normalized_documents": normalized_documents,
         "canonical_events": canonical_events,
+        "theme_clusters": theme_clusters,
+        "theme_candidate_mappings": theme_candidate_mappings,
+        "theme_purity_candidates": theme_purity_candidates,
         "theme_candidates": theme_candidates,
+        "fermentation_monitor": fermentation_monitor,
         "structured_result_cards": structured_result_cards,
         "theme_heat_snapshots": theme_heat_snapshots,
         "low_position_opportunities": low_position_opportunities,
@@ -648,6 +698,7 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "daily_review": daily_review,
         "result_warehouse_summary": result_warehouse_summary,
     }
+    stories = _build_finahunt_story_validation_cards(artifact_counts, datasets)
 
     return {
         "run_id": selected_run["run_id"],
@@ -656,9 +707,14 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "manifest": manifest,
         "result_warehouse_summary": result_warehouse_summary,
         "raw_documents": raw_documents,
+        "source_scout_candidates": source_scout_candidates,
         "normalized_documents": normalized_documents,
         "canonical_events": canonical_events,
+        "theme_clusters": theme_clusters,
+        "theme_candidate_mappings": theme_candidate_mappings,
+        "theme_purity_candidates": theme_purity_candidates,
         "theme_candidates": theme_candidates,
+        "fermentation_monitor": fermentation_monitor,
         "structured_result_cards": structured_result_cards,
         "theme_heat_snapshots": theme_heat_snapshots,
         "low_position_opportunities": low_position_opportunities,
@@ -666,9 +722,9 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
         "daily_review": daily_review,
         "inspection": _build_finahunt_inspection(datasets),
         "pipeline": _build_finahunt_pipeline(artifact_counts, daily_review),
-        "stories": _build_finahunt_story_validation_cards(artifact_counts, datasets),
+        "stories": stories,
         "stats": {
-            "story_count": 9,
+            "story_count": len(stories),
             "raw_document_count": len(raw_documents),
             "normalized_document_count": len(normalized_documents),
             "canonical_event_count": len(canonical_events),
@@ -682,6 +738,14 @@ def load_finahunt_runtime_showcase(run_id: str | None = None) -> dict[str, Any]:
     }
 
 
+def load_runtime_runs(project_id: str, limit: int = 12) -> list[dict[str, Any]]:
+    project = _get_project_registration(project_id)
+    runtime_surface = project.runtime_surface
+    if runtime_surface is None or runtime_surface.runs_loader is None:
+        return []
+    return runtime_surface.runs_loader(limit)
+
+
 def load_versefina_runtime_showcase() -> dict[str, Any]:
     return load_versefina_runtime_showcase_data(
         runtime_root=VERSEFINA_RUNTIME_DIR,
@@ -689,6 +753,16 @@ def load_versefina_runtime_showcase() -> dict[str, Any]:
         story_status_registry=STORY_STATUS_REGISTRY,
         story_acceptance_review_registry=STORY_ACCEPTANCE_REVIEW_REGISTRY,
     )
+
+
+def load_runtime_showcase(project_id: str, run_id: str | None = None) -> dict[str, Any]:
+    project = _get_project_registration(project_id)
+    runtime_surface = project.runtime_surface
+    if runtime_surface is None or runtime_surface.showcase_loader is None:
+        return {"project": project_id, "error": "runtime_showcase_not_configured"}
+    if runtime_surface.runs_loader is None:
+        return runtime_surface.showcase_loader()
+    return runtime_surface.showcase_loader(run_id=run_id)
 
 
 def _merge_story_contract(story_payload: dict[str, Any], audit_log: dict[str, Any] | None) -> dict[str, Any]:
@@ -786,6 +860,20 @@ def _extract_completion(payload: dict[str, Any]) -> dict[str, Any]:
         "acceptance_criteria": list(task_payload.get("acceptance_criteria") or []),
         "story_id": task_payload.get("story_id") or task_payload.get("task_id"),
         "task_name": task_payload.get("task_name") or task_payload.get("goal"),
+    }
+
+
+def _extract_workflow(payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result", {}) if isinstance(payload, dict) else {}
+    if not isinstance(result, dict):
+        result = {}
+    task_payload = result.get("task_payload", {}) if isinstance(result.get("task_payload"), dict) else {}
+    agent_manifest_ids = [str(item) for item in (result.get("workflow_agent_manifest_ids") or []) if item]
+    return {
+        "workflow_plugin_id": result.get("workflow_plugin_id") or task_payload.get("workflow_plugin") or task_payload.get("workflow_plugin_id"),
+        "workflow_manifest_path": result.get("workflow_manifest_path"),
+        "agent_manifest_ids": agent_manifest_ids,
+        "agent_manifest_count": len(agent_manifest_ids),
     }
 
 
@@ -974,41 +1062,49 @@ def _load_story_acceptance_reviews(project_id: str = "versefina") -> list[dict[s
 
 
 def _get_tasks_dir(project_id: str) -> Path:
-    configs = _project_configs()
-    config = configs.get(project_id) or configs["versefina"]
-    return Path(config["tasks_dir"])
+    return _get_project_registration(project_id).tasks_dir
 
 
 def _get_story_status_registry(project_id: str) -> Path:
-    configs = _project_configs()
-    config = configs.get(project_id) or configs["versefina"]
-    return Path(config["story_status_registry"])
+    return _get_project_registration(project_id).story_status_registry
 
 
 def _get_story_acceptance_review_registry(project_id: str) -> Path:
-    configs = _project_configs()
-    config = configs.get(project_id) or configs["versefina"]
-    return Path(config["story_acceptance_review_registry"])
+    return _get_project_registration(project_id).story_acceptance_review_registry
 
 
-def _project_configs() -> dict[str, dict[str, Any]]:
+def _get_project_registration(project_id: str) -> ProjectRegistration:
+    registry = _build_project_registry()
+    return registry.get(project_id) or registry["versefina"]
+
+
+def _build_project_registry() -> dict[str, ProjectRegistration]:
     return {
-        "versefina": {
-            "id": "versefina",
-            "name": "Versefina",
-            "tasks_dir": TASKS_DIR,
-            "story_status_registry": STORY_STATUS_REGISTRY,
-            "story_acceptance_review_registry": STORY_ACCEPTANCE_REVIEW_REGISTRY,
-            "description": "Agent-native financial world delivery backlog",
-        },
-        "finahunt": {
-            "id": "finahunt",
-            "name": "Finahunt",
-            "tasks_dir": FINAHUNT_TASKS_DIR,
-            "story_status_registry": FINAHUNT_STORY_STATUS_REGISTRY,
-            "story_acceptance_review_registry": FINAHUNT_STORY_ACCEPTANCE_REVIEW_REGISTRY,
-            "description": "Financial news cognition system MVP backlog",
-        },
+        "versefina": ProjectRegistration(
+            id="versefina",
+            name="Versefina",
+            description="Agent-native financial world delivery backlog",
+            tasks_dir=TASKS_DIR,
+            story_status_registry=STORY_STATUS_REGISTRY,
+            story_acceptance_review_registry=STORY_ACCEPTANCE_REVIEW_REGISTRY,
+            runtime_surface=RuntimeSurface(
+                dashboard_asset="versefina_runtime.html",
+                showcase_loader=load_versefina_runtime_showcase,
+            ),
+        ),
+        "finahunt": ProjectRegistration(
+            id="finahunt",
+            name="Finahunt",
+            description="Financial news cognition system MVP backlog",
+            tasks_dir=FINAHUNT_TASKS_DIR,
+            story_status_registry=FINAHUNT_STORY_STATUS_REGISTRY,
+            story_acceptance_review_registry=FINAHUNT_STORY_ACCEPTANCE_REVIEW_REGISTRY,
+            runtime_surface=RuntimeSurface(
+                dashboard_asset="finahunt_runtime.html",
+                showcase_loader=load_finahunt_runtime_showcase,
+                runs_loader=load_finahunt_runtime_runs,
+            ),
+        ),
     }
 
 
@@ -1255,6 +1351,332 @@ def _build_finahunt_pipeline(artifact_counts: dict[str, int], daily_review: dict
         {"stage": "normalized_documents", "label": "资讯标准化", "count": int(artifact_counts.get("normalized_documents") or 0)},
         {"stage": "canonical_events", "label": "事件归一", "count": int(artifact_counts.get("canonical_events") or 0)},
         {"stage": "theme_candidates", "label": "题材候选聚合", "count": int(artifact_counts.get("theme_candidates") or 0)},
+        {"stage": "structured_result_cards", "label": "结构化结果卡", "count": int(artifact_counts.get("structured_result_cards") or 0)},
+        {"stage": "theme_heat_snapshots", "label": "题材热度快照", "count": int(artifact_counts.get("theme_heat_snapshots") or 0)},
+        {"stage": "low_position_opportunities", "label": "低位挖掘", "count": int(artifact_counts.get("low_position_opportunities") or 0)},
+        {"stage": "fermenting_theme_feed", "label": "发酵题材结果流", "count": int(artifact_counts.get("fermenting_theme_feed") or 0)},
+        {"stage": "daily_review", "label": "日终复盘", "count": len(daily_review.get("today_focus_page") or [])},
+    ]
+
+
+FINAHUNT_SHOWCASE_STORY_ORDER: list[dict[str, str]] = [
+    {"story_id": "S2-001", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "canonical_events", "output_key": "theme_candidates", "validation_hint": "Confirm theme candidates can be traced back to specific events and evidence chains."},
+    {"story_id": "S2-002", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "canonical_events", "output_key": "structured_result_cards", "validation_hint": "Confirm structured cards preserve catalyst typing rather than only theme names."},
+    {"story_id": "S2-003", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "theme_heat_snapshots", "validation_hint": "Confirm heat snapshots absorb strength and timeliness scoring."},
+    {"story_id": "S2-004", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "canonical_events", "output_key": "theme_candidates", "validation_hint": "Confirm multiple events are aggregated into reusable theme candidates."},
+    {"story_id": "S2-005", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "structured_result_cards", "validation_hint": "Confirm outputs expose objective theme-to-asset mapping evidence."},
+    {"story_id": "S2-006", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "structured_result_cards", "validation_hint": "Confirm cards contain summary, evidence, and risk notice."},
+    {"story_id": "S2-007", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "structured_result_cards", "output_key": "result_warehouse_summary", "validation_hint": "Confirm results are persisted into the warehouse rather than staying in memory only."},
+    {"story_id": "S2-008", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "theme_heat_snapshots", "validation_hint": "Confirm snapshots include scoring breakdowns and fermentation stage fields."},
+    {"story_id": "S2-009", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_heat_snapshots", "output_key": "fermenting_theme_feed", "validation_hint": "Confirm the final feed is directly usable for observation and acceptance."},
+    {"story_id": "S2A-001", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "raw_documents", "output_key": "source_scout_candidates", "validation_hint": "Confirm early-catalyst clues are prioritized and remain traceable to public sources."},
+    {"story_id": "S2A-002", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "source_scout_candidates", "output_key": "canonical_events", "validation_hint": "Confirm event extraction preserves catalyst boundary, continuity hints, and source priority."},
+    {"story_id": "S2A-003", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "canonical_events", "output_key": "theme_clusters", "validation_hint": "Confirm scattered events merge into unified theme clusters with anchor terms and noise labels."},
+    {"story_id": "S2A-004", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_clusters", "output_key": "theme_candidate_mappings", "validation_hint": "Confirm theme clusters produce ranked candidate mappings with reasons and evidence references."},
+    {"story_id": "S2A-005", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidate_mappings", "output_key": "theme_purity_candidates", "validation_hint": "Confirm candidate pools receive accepted/watch/filter purity decisions with explanations."},
+    {"story_id": "S2A-006", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidates", "output_key": "fermentation_monitor", "validation_hint": "Confirm fermentation monitoring outputs phase, platform spread, and reignition strength."},
+]
+
+
+def _load_finahunt_sprint2_story_cards(artifact_counts: dict[str, int] | None = None) -> list[dict[str, Any]]:
+    artifact_counts = artifact_counts or {}
+    story_index = _load_story_run_index("finahunt")
+    registry_by_story = {
+        str(entry.get("story_id")): entry
+        for entry in _load_story_status_registry("finahunt")
+        if str(entry.get("story_id") or "").startswith(("S2-", "S2A-"))
+    }
+    cards: list[dict[str, Any]] = []
+    for config in FINAHUNT_SHOWCASE_STORY_ORDER:
+        story_id = config["story_id"]
+        entry = registry_by_story.get(story_id, {})
+        run_info = story_index.get(story_id, {})
+        output_key = config["output_key"]
+        cards.append(
+            {
+                "story_id": story_id,
+                "sprint_id": config["sprint_id"],
+                "status": run_info.get("status") or entry.get("status") or "not_started",
+                "summary": run_info.get("summary") or entry.get("summary") or entry.get("validation_summary") or "",
+                "delivery_report": entry.get("delivery_report"),
+                "evidence": entry.get("evidence") or [],
+                "output_key": output_key,
+                "output_label": _label_for_finahunt_dataset(output_key),
+                "output_ready": bool(artifact_counts.get(output_key)),
+                "output_count": int(artifact_counts.get(output_key) or 0),
+            }
+        )
+    return cards
+
+
+def _build_finahunt_story_validation_cards(
+    artifact_counts: dict[str, int],
+    datasets: dict[str, Any],
+) -> list[dict[str, Any]]:
+    spec_by_story = _load_finahunt_sprint2_story_specs()
+    story_index = _load_story_run_index("finahunt")
+    registry_by_story = {
+        str(entry.get("story_id")): entry
+        for entry in _load_story_status_registry("finahunt")
+        if str(entry.get("story_id") or "").startswith(("S2-", "S2A-"))
+    }
+
+    cards: list[dict[str, Any]] = []
+    for config in FINAHUNT_SHOWCASE_STORY_ORDER:
+        story_id = config["story_id"]
+        spec = spec_by_story.get(story_id, {})
+        registry_entry = registry_by_story.get(story_id, {})
+        run_info = story_index.get(story_id, {})
+        human_review = load_story_acceptance_review("finahunt", "backlog_v1", config["sprint_id"], story_id)
+        input_key = config["input_key"]
+        output_key = config["output_key"]
+        input_value = datasets.get(input_key)
+        output_value = datasets.get(output_key)
+        completion = {
+            "acceptance_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+            "tests_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+            "review_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+            "code_acceptance_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+        }
+        cards.append(
+            {
+                "story_id": story_id,
+                "sprint_id": config["sprint_id"],
+                "sprint_label": spec.get("sprint") or config["sprint_id"],
+                "task_name": spec.get("task_name") or story_id,
+                "status": run_info.get("status") or registry_entry.get("status") or "not_started",
+                "summary": run_info.get("summary") or registry_entry.get("summary") or registry_entry.get("validation_summary") or "",
+                "delivery_report": registry_entry.get("delivery_report"),
+                "evidence": registry_entry.get("evidence") or [],
+                "acceptance_criteria": spec.get("acceptance_criteria") or [],
+                "story_inputs": spec.get("story_inputs") or [],
+                "story_process": spec.get("story_process") or [],
+                "story_outputs": spec.get("story_outputs") or [],
+                "verification_basis": spec.get("verification_basis") or [],
+                "input_label": _label_for_finahunt_dataset(input_key),
+                "input_count": _count_dataset_items(input_value),
+                "input_sample": _sample_dataset_item(input_value),
+                "output_label": _label_for_finahunt_dataset(output_key),
+                "output_count": _count_dataset_items(output_value),
+                "output_sample": _sample_dataset_item(output_value),
+                "output_ready": bool(artifact_counts.get(output_key)),
+                "validation_hint": config["validation_hint"],
+                "human_review": human_review,
+                "acceptance_template": _build_acceptance_template(spec, completion, human_review),
+            }
+        )
+    return cards
+
+
+def _load_finahunt_sprint2_story_specs() -> dict[str, dict[str, Any]]:
+    backlog_dir = _get_tasks_dir("finahunt") / "backlog_v1"
+    specs: dict[str, dict[str, Any]] = {}
+    for config in FINAHUNT_SHOWCASE_STORY_ORDER:
+        sprint_dir = backlog_dir / config["sprint_id"]
+        if not sprint_dir.exists():
+            continue
+        story_file = next(sprint_dir.rglob(f"{config['story_id']}_*.yaml"), None)
+        payload = yaml_safe_load(story_file)
+        story_id = str(payload.get("story_id") or payload.get("task_id") or "")
+        if story_id:
+            specs[story_id] = payload
+    return specs
+
+
+def _label_for_finahunt_dataset(key: str) -> str:
+    labels = {
+        "raw_documents": "原始资讯",
+        "source_scout_candidates": "早期催化候选集",
+        "normalized_documents": "标准化资讯",
+        "canonical_events": "归一事件",
+        "theme_clusters": "题材事件簇",
+        "theme_candidate_mappings": "候选标的映射",
+        "theme_purity_candidates": "正宗度评判池",
+        "theme_candidates": "题材候选",
+        "fermentation_monitor": "发酵监控结果",
+        "structured_result_cards": "结构化结果卡",
+        "theme_heat_snapshots": "题材热度快照",
+        "low_position_opportunities": "低位挖掘结果",
+        "fermenting_theme_feed": "发酵题材结果流",
+        "result_warehouse_summary": "结果仓库摘要",
+    }
+    return labels.get(key, key or "-")
+
+
+def _build_finahunt_pipeline(artifact_counts: dict[str, int], daily_review: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"stage": "raw_documents", "label": "资讯源运行时", "count": int(artifact_counts.get("raw_documents") or 0)},
+        {"stage": "source_scout_candidates", "label": "早期催化候选集", "count": int(artifact_counts.get("source_scout_candidates") or 0)},
+        {"stage": "normalized_documents", "label": "资讯标准化", "count": int(artifact_counts.get("normalized_documents") or 0)},
+        {"stage": "canonical_events", "label": "事件归一", "count": int(artifact_counts.get("canonical_events") or 0)},
+        {"stage": "theme_clusters", "label": "题材簇归一", "count": int(artifact_counts.get("theme_clusters") or 0)},
+        {"stage": "theme_candidate_mappings", "label": "候选标的映射", "count": int(artifact_counts.get("theme_candidate_mappings") or 0)},
+        {"stage": "theme_purity_candidates", "label": "正宗度评判", "count": int(artifact_counts.get("theme_purity_candidates") or 0)},
+        {"stage": "theme_candidates", "label": "题材候选聚合", "count": int(artifact_counts.get("theme_candidates") or 0)},
+        {"stage": "fermentation_monitor", "label": "发酵监控", "count": int(artifact_counts.get("fermentation_monitor") or 0)},
+        {"stage": "structured_result_cards", "label": "结构化结果卡", "count": int(artifact_counts.get("structured_result_cards") or 0)},
+        {"stage": "theme_heat_snapshots", "label": "题材热度快照", "count": int(artifact_counts.get("theme_heat_snapshots") or 0)},
+        {"stage": "low_position_opportunities", "label": "低位挖掘", "count": int(artifact_counts.get("low_position_opportunities") or 0)},
+        {"stage": "fermenting_theme_feed", "label": "发酵题材结果流", "count": int(artifact_counts.get("fermenting_theme_feed") or 0)},
+        {"stage": "daily_review", "label": "日终复盘", "count": len(daily_review.get("today_focus_page") or [])},
+    ]
+
+
+FINAHUNT_SHOWCASE_STORY_ORDER: list[dict[str, str]] = [
+    {"story_id": "S2-001", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "canonical_events", "output_key": "theme_candidates", "validation_hint": "Confirm theme candidates can be traced back to specific events and evidence chains."},
+    {"story_id": "S2-002", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "canonical_events", "output_key": "structured_result_cards", "validation_hint": "Confirm structured cards preserve catalyst typing rather than only theme names."},
+    {"story_id": "S2-003", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "theme_heat_snapshots", "validation_hint": "Confirm heat snapshots absorb strength and timeliness scoring."},
+    {"story_id": "S2-004", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "canonical_events", "output_key": "theme_candidates", "validation_hint": "Confirm multiple events are aggregated into reusable theme candidates."},
+    {"story_id": "S2-005", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "structured_result_cards", "validation_hint": "Confirm outputs expose objective theme-to-asset mapping evidence."},
+    {"story_id": "S2-006", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "structured_result_cards", "validation_hint": "Confirm cards contain summary, evidence, and risk notice."},
+    {"story_id": "S2-007", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "structured_result_cards", "output_key": "result_warehouse_summary", "validation_hint": "Confirm results are persisted into the warehouse rather than staying in memory only."},
+    {"story_id": "S2-008", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_candidates", "output_key": "theme_heat_snapshots", "validation_hint": "Confirm snapshots include scoring breakdowns and fermentation stage fields."},
+    {"story_id": "S2-009", "sprint_id": "sprint_2_catalyst_mining_core", "input_key": "theme_heat_snapshots", "output_key": "fermenting_theme_feed", "validation_hint": "Confirm the final feed is directly usable for observation and acceptance."},
+    {"story_id": "S2A-001", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "raw_documents", "output_key": "source_scout_candidates", "validation_hint": "Confirm early-catalyst clues are prioritized and remain traceable to public sources."},
+    {"story_id": "S2A-002", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "source_scout_candidates", "output_key": "canonical_events", "validation_hint": "Confirm event extraction preserves catalyst boundary, continuity hints, and source priority."},
+    {"story_id": "S2A-003", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "canonical_events", "output_key": "theme_clusters", "validation_hint": "Confirm scattered events merge into unified theme clusters with anchor terms and noise labels."},
+    {"story_id": "S2A-004", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_clusters", "output_key": "theme_candidate_mappings", "validation_hint": "Confirm theme clusters produce ranked candidate mappings with reasons and evidence references."},
+    {"story_id": "S2A-005", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidate_mappings", "output_key": "theme_purity_candidates", "validation_hint": "Confirm candidate pools receive accepted/watch/filter purity decisions with explanations."},
+    {"story_id": "S2A-006", "sprint_id": "sprint_2a_early_theme_discovery_engine", "input_key": "theme_candidates", "output_key": "fermentation_monitor", "validation_hint": "Confirm fermentation monitoring outputs phase, platform spread, and reignition strength."},
+]
+
+
+def _load_finahunt_sprint2_story_cards(artifact_counts: dict[str, int] | None = None) -> list[dict[str, Any]]:
+    artifact_counts = artifact_counts or {}
+    story_index = _load_story_run_index("finahunt")
+    registry_by_story = {
+        str(entry.get("story_id")): entry
+        for entry in _load_story_status_registry("finahunt")
+        if str(entry.get("story_id") or "").startswith(("S2-", "S2A-"))
+    }
+    cards: list[dict[str, Any]] = []
+    for config in FINAHUNT_SHOWCASE_STORY_ORDER:
+        story_id = config["story_id"]
+        entry = registry_by_story.get(story_id, {})
+        run_info = story_index.get(story_id, {})
+        output_key = config["output_key"]
+        cards.append(
+            {
+                "story_id": story_id,
+                "sprint_id": config["sprint_id"],
+                "status": run_info.get("status") or entry.get("status") or "not_started",
+                "summary": run_info.get("summary") or entry.get("summary") or entry.get("validation_summary") or "",
+                "delivery_report": entry.get("delivery_report"),
+                "evidence": entry.get("evidence") or [],
+                "output_key": output_key,
+                "output_label": _label_for_finahunt_dataset(output_key),
+                "output_ready": bool(artifact_counts.get(output_key)),
+                "output_count": int(artifact_counts.get(output_key) or 0),
+            }
+        )
+    return cards
+
+
+def _build_finahunt_story_validation_cards(
+    artifact_counts: dict[str, int],
+    datasets: dict[str, Any],
+) -> list[dict[str, Any]]:
+    spec_by_story = _load_finahunt_sprint2_story_specs()
+    story_index = _load_story_run_index("finahunt")
+    registry_by_story = {
+        str(entry.get("story_id")): entry
+        for entry in _load_story_status_registry("finahunt")
+        if str(entry.get("story_id") or "").startswith(("S2-", "S2A-"))
+    }
+
+    cards: list[dict[str, Any]] = []
+    for config in FINAHUNT_SHOWCASE_STORY_ORDER:
+        story_id = config["story_id"]
+        spec = spec_by_story.get(story_id, {})
+        registry_entry = registry_by_story.get(story_id, {})
+        run_info = story_index.get(story_id, {})
+        human_review = load_story_acceptance_review("finahunt", "backlog_v1", config["sprint_id"], story_id)
+        input_key = config["input_key"]
+        output_key = config["output_key"]
+        input_value = datasets.get(input_key)
+        output_value = datasets.get(output_key)
+        completion = {
+            "acceptance_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+            "tests_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+            "review_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+            "code_acceptance_passed": run_info.get("status") == "done" or registry_entry.get("status") == "done",
+        }
+        cards.append(
+            {
+                "story_id": story_id,
+                "sprint_id": config["sprint_id"],
+                "sprint_label": spec.get("sprint") or config["sprint_id"],
+                "task_name": spec.get("task_name") or story_id,
+                "status": run_info.get("status") or registry_entry.get("status") or "not_started",
+                "summary": run_info.get("summary") or registry_entry.get("summary") or registry_entry.get("validation_summary") or "",
+                "delivery_report": registry_entry.get("delivery_report"),
+                "evidence": registry_entry.get("evidence") or [],
+                "acceptance_criteria": spec.get("acceptance_criteria") or [],
+                "story_inputs": spec.get("story_inputs") or [],
+                "story_process": spec.get("story_process") or [],
+                "story_outputs": spec.get("story_outputs") or [],
+                "verification_basis": spec.get("verification_basis") or [],
+                "input_label": _label_for_finahunt_dataset(input_key),
+                "input_count": _count_dataset_items(input_value),
+                "input_sample": _sample_dataset_item(input_value),
+                "output_label": _label_for_finahunt_dataset(output_key),
+                "output_count": _count_dataset_items(output_value),
+                "output_sample": _sample_dataset_item(output_value),
+                "output_ready": bool(artifact_counts.get(output_key)),
+                "validation_hint": config["validation_hint"],
+                "human_review": human_review,
+                "acceptance_template": _build_acceptance_template(spec, completion, human_review),
+            }
+        )
+    return cards
+
+
+def _load_finahunt_sprint2_story_specs() -> dict[str, dict[str, Any]]:
+    backlog_dir = _get_tasks_dir("finahunt") / "backlog_v1"
+    specs: dict[str, dict[str, Any]] = {}
+    for config in FINAHUNT_SHOWCASE_STORY_ORDER:
+        sprint_dir = backlog_dir / config["sprint_id"]
+        if not sprint_dir.exists():
+            continue
+        story_file = next(sprint_dir.rglob(f"{config['story_id']}_*.yaml"), None)
+        payload = yaml_safe_load(story_file)
+        story_id = str(payload.get("story_id") or payload.get("task_id") or "")
+        if story_id:
+            specs[story_id] = payload
+    return specs
+
+
+def _label_for_finahunt_dataset(key: str) -> str:
+    labels = {
+        "raw_documents": "原始资讯",
+        "source_scout_candidates": "早期催化候选集",
+        "normalized_documents": "标准化资讯",
+        "canonical_events": "归一事件",
+        "theme_clusters": "题材事件簇",
+        "theme_candidate_mappings": "候选标的映射",
+        "theme_purity_candidates": "正宗度评判池",
+        "theme_candidates": "题材候选",
+        "fermentation_monitor": "发酵监控结果",
+        "structured_result_cards": "结构化结果卡",
+        "theme_heat_snapshots": "题材热度快照",
+        "low_position_opportunities": "低位挖掘结果",
+        "fermenting_theme_feed": "发酵题材结果流",
+        "result_warehouse_summary": "结果仓库摘要",
+    }
+    return labels.get(key, key or "-")
+
+
+def _build_finahunt_pipeline(artifact_counts: dict[str, int], daily_review: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"stage": "raw_documents", "label": "资讯源运行时", "count": int(artifact_counts.get("raw_documents") or 0)},
+        {"stage": "source_scout_candidates", "label": "早期催化候选集", "count": int(artifact_counts.get("source_scout_candidates") or 0)},
+        {"stage": "normalized_documents", "label": "资讯标准化", "count": int(artifact_counts.get("normalized_documents") or 0)},
+        {"stage": "canonical_events", "label": "事件归一", "count": int(artifact_counts.get("canonical_events") or 0)},
+        {"stage": "theme_clusters", "label": "题材簇归一", "count": int(artifact_counts.get("theme_clusters") or 0)},
+        {"stage": "theme_candidate_mappings", "label": "候选标的映射", "count": int(artifact_counts.get("theme_candidate_mappings") or 0)},
+        {"stage": "theme_purity_candidates", "label": "正宗度评判", "count": int(artifact_counts.get("theme_purity_candidates") or 0)},
+        {"stage": "theme_candidates", "label": "题材候选聚合", "count": int(artifact_counts.get("theme_candidates") or 0)},
+        {"stage": "fermentation_monitor", "label": "发酵监控", "count": int(artifact_counts.get("fermentation_monitor") or 0)},
         {"stage": "structured_result_cards", "label": "结构化结果卡", "count": int(artifact_counts.get("structured_result_cards") or 0)},
         {"stage": "theme_heat_snapshots", "label": "题材热度快照", "count": int(artifact_counts.get("theme_heat_snapshots") or 0)},
         {"stage": "low_position_opportunities", "label": "低位挖掘", "count": int(artifact_counts.get("low_position_opportunities") or 0)},

@@ -1,0 +1,15 @@
+agent_id: software_engineering.backend_dev
+name: Backend Development Agent
+description: 负责后端代码实现与后端变更落盘。
+handler: backend_dev_node
+agent_role: development.backend
+plane: build
+capabilities:
+  - code_write
+  - backend_impl
+tool_scope:
+  - git
+  - shell
+metadata:
+  manifest_version: v1
+  domain: software_engineering
