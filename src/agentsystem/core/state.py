@@ -265,6 +265,8 @@ class DevState(TypedDict, total=False):
     test_failure_info: str | None
     browser_runtime_dir: str | None
     browser_session_id: str | None
+    browse_observations: list[dict[str, Any]] | None
+    reference_observations: list[dict[str, Any]] | None
     browser_qa_success: bool | None
     browser_qa_passed: bool | None
     browser_qa_report: str | None
@@ -279,6 +281,15 @@ class DevState(TypedDict, total=False):
     qa_design_review_passed: bool | None
     qa_design_review_report: str | None
     qa_design_review_dir: str | None
+    plan_design_scorecard: dict[str, Any] | None
+    plan_design_assumptions: list[str] | None
+    design_review_scores: dict[str, Any] | None
+    design_review_route_scores: list[dict[str, Any]] | None
+    design_review_findings: list[dict[str, Any]] | None
+    design_review_passed: bool | None
+    design_review_report: str | None
+    before_screenshot_paths: list[str] | None
+    after_screenshot_paths: list[str] | None
     security_report: str | None
     review_success: bool | None
     review_passed: bool | None

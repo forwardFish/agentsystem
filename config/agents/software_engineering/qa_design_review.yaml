@@ -1,0 +1,22 @@
+agent_id: software_engineering.qa_design_review
+name: QA Design Review Agent
+description: Run a design-aware QA pass for higher-risk frontend stories after browser QA.
+handler: qa_design_review_node
+agent_role: verification.qa_design_review
+plane: verification
+capabilities:
+  - design_qa
+  - visual_regression_review
+policy_refs:
+  - WorkflowPolicy.default
+  - ReviewPolicy.default
+trigger_events:
+  - browser_qa.completed
+tool_scope:
+  - browser_runtime
+  - repo_context
+verification_tags:
+  - qa_design_review
+metadata:
+  manifest_version: v1
+  domain: software_engineering

@@ -2,9 +2,10 @@
   "mode_id": "qa",
   "name": "QA",
   "version": "v1",
-  "description": "运行测试与 Browser QA，并在 blocking finding 时允许进入 fixer 回路。",
+  "description": "Run tests plus browser QA and allow a fixer loop to improve health score and ship readiness.",
   "workflow_plugin_id": "software_engineering",
   "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
   "entry_mode": "tester",
   "stop_after": "browser_qa",
   "report_only": false,
@@ -45,6 +46,7 @@
   "metadata": {
     "kind": "qa",
     "host_surface": "claude_skill",
+    "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa\\SKILL.md"
   }

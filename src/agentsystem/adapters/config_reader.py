@@ -23,7 +23,7 @@ class RepoBConfigReader:
 
     def load_all_config(self) -> RepoBConfig:
         if not self.agents_dir.exists():
-            raise FileNotFoundError(f"Repo B .agents directory does not exist: {self.agents_dir}")
+            return self._build_default_config()
 
         commands_payload = self._load_yaml("commands.yaml")
         return RepoBConfig(
@@ -35,6 +35,8 @@ class RepoBConfigReader:
         )
 
     def load_commands(self) -> dict[str, Any]:
+        if not self.agents_dir.exists():
+            return self._build_default_config().commands
         return self._normalize_commands(self._load_yaml("commands.yaml"))
 
     def _load_yaml(self, filename: str) -> dict[str, Any]:
@@ -63,6 +65,36 @@ class RepoBConfigReader:
                 raise ValueError(f"commands for phase {phase!r} must be a list of strings")
             normalized[phase] = list(values)
         return normalized
+
+    def _build_default_config(self) -> RepoBConfig:
+        return RepoBConfig(
+            project={
+                "name": self.repo_b_root.name,
+                "git": {
+                    "default_branch": "main",
+                    "working_branch_prefix": "agent/",
+                },
+                "code_style": {
+                    "line_length": 120,
+                },
+            },
+            rules={
+                "protected_paths": [],
+            },
+            commands=self._infer_default_commands(),
+            review_policy={},
+            contracts={},
+        )
+
+    def _infer_default_commands(self) -> dict[str, Any]:
+        commands: dict[str, Any] = {}
+        if (self.repo_b_root / "tools" / "gate_check" / "validate_norms.py").exists():
+            commands["lint"] = ["python tools/gate_check/validate_norms.py"]
+            commands["validation"] = ["python tools/gate_check/validate_norms.py"]
+            commands["gate_check"] = ["python tools/gate_check/validate_norms.py"]
+        if (self.repo_b_root / "tests").exists():
+            commands["test"] = ["python -m pytest -q"]
+        return commands
 
 
 class SystemConfigReader:

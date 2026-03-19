@@ -76,17 +76,20 @@ def validate_rendered_agent_package(package_dir: str | Path) -> bool:
     if str(payload.get("workflow_manifest_path") or "") != plugin.manifest_path:
         raise ValueError(f"{manifest_path} workflow_manifest_path drift detected")
 
+    runtime_ready = bool(payload.get("runtime_ready", True))
     agent_manifest_ids = payload.get("agent_manifest_ids") or []
-    if not isinstance(agent_manifest_ids, list) or not agent_manifest_ids:
-        raise ValueError(f"{manifest_path} must contain agent_manifest_ids")
+    if not isinstance(agent_manifest_ids, list):
+        raise ValueError(f"{manifest_path} must contain agent_manifest_ids as a list")
     for agent_manifest_id in agent_manifest_ids:
         get_agent_manifest(str(agent_manifest_id))
 
-    required_markers = [
-        f"workflow_plugin_id: {workflow_plugin_id}",
-        f"entry_mode: {payload.get('entry_mode')}",
-        f"stop_after: {payload.get('stop_after')}",
-    ]
+    required_markers = [f"workflow_plugin_id: {workflow_plugin_id}", f"runtime_ready: {str(runtime_ready).lower()}"]
+    if runtime_ready:
+        required_markers.extend(
+            [f"entry_mode: {payload.get('entry_mode')}", f"stop_after: {payload.get('stop_after')}"]
+        )
+    else:
+        required_markers.append("execution_status: template_only")
     missing_markers = [item for item in required_markers if item not in skill_text]
     if missing_markers:
         raise ValueError(f"{skill_path} missing rendered markers: {missing_markers}")
@@ -102,10 +105,19 @@ def _build_context(mode: SkillModeSpec, plugin, root_path: Path) -> dict[str, st
         "description": mode.description,
         "workflow_plugin_id": mode.workflow_plugin_id,
         "workflow_manifest_path": plugin.manifest_path,
-        "entry_mode": mode.entry_mode,
-        "stop_after": mode.stop_after,
+        "entry_mode": mode.entry_mode or "",
+        "stop_after": mode.stop_after or "",
+        "entry_mode_label": mode.entry_mode or "not_wired",
+        "stop_after_label": mode.stop_after or "not_wired",
         "report_only": str(mode.report_only).lower(),
         "fixer_allowed": str(mode.fixer_allowed).lower(),
+        "runtime_ready": str(mode.runtime_ready).lower(),
+        "execution_status": "executable" if mode.runtime_ready else "template_only",
+        "runtime_summary": (
+            "This skill mode is wired into the current agentsystem runtime."
+            if mode.runtime_ready
+            else "This skill mode is preserved as a template package only and is not yet executable in runtime."
+        ),
         "default_browser_qa_mode": mode.default_browser_qa_mode or "none",
         "allowed_tools_yaml": _yaml_list(mode.allowed_tools, indent=0),
         "allowed_tools_bullets": _bullet_list(mode.allowed_tools),
@@ -135,6 +147,7 @@ def _build_compiled_manifest(
         "description": mode.description,
         "workflow_plugin_id": mode.workflow_plugin_id,
         "workflow_manifest_path": plugin.manifest_path,
+        "runtime_ready": mode.runtime_ready,
         "entry_mode": mode.entry_mode,
         "stop_after": mode.stop_after,
         "report_only": mode.report_only,

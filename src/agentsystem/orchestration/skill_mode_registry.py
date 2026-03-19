@@ -21,10 +21,11 @@ class SkillModeSpec:
     version: str
     description: str
     workflow_plugin_id: str
-    entry_mode: str
-    stop_after: str
+    entry_mode: str | None
+    stop_after: str | None
     report_only: bool
     fixer_allowed: bool
+    runtime_ready: bool = True
     default_browser_qa_mode: str | None = None
     allowed_tools: tuple[str, ...] = ()
     required_inputs: tuple[str, ...] = ()
@@ -35,12 +36,17 @@ class SkillModeSpec:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def apply_to_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        if not self.runtime_ready:
+            raise ValueError(
+                f"Skill mode {self.mode_id!r} is template-only in agentsystem and is not wired into runtime execution yet."
+            )
         runtime_task = dict(task)
         runtime_task["workflow_plugin"] = self.workflow_plugin_id
         runtime_task["skill_mode"] = self.mode_id
         runtime_task["skill_mode_name"] = self.name
         runtime_task["skill_mode_description"] = self.description
         runtime_task["skill_mode_manifest_path"] = self.manifest_path
+        runtime_task["skill_mode_runtime_ready"] = self.runtime_ready
         runtime_task["skill_entry_mode"] = self.entry_mode
         runtime_task["stop_after"] = self.stop_after
         runtime_task["fixer_allowed"] = self.fixer_allowed
@@ -103,13 +109,16 @@ def _build_skill_mode(
     if not isinstance(payload, dict):
         raise ValueError(f"{manifest_path} mode entries must be mappings")
     mode_id = str(payload.get("mode_id") or "").strip()
-    entry_mode = str(payload.get("entry_mode") or "").strip()
-    stop_after = str(payload.get("stop_after") or "").strip()
-    if not mode_id or not entry_mode or not stop_after:
-        raise ValueError(f"{manifest_path} mode entries must define mode_id, entry_mode, and stop_after")
-    if entry_mode not in plugin_node_ids:
+    runtime_ready = bool(payload.get("runtime_ready", True))
+    entry_mode = _optional_str(payload.get("entry_mode"))
+    stop_after = _optional_str(payload.get("stop_after"))
+    if not mode_id:
+        raise ValueError(f"{manifest_path} mode entries must define mode_id")
+    if runtime_ready and (not entry_mode or not stop_after):
+        raise ValueError(f"{manifest_path} runtime-ready mode {mode_id!r} must define entry_mode and stop_after")
+    if entry_mode and entry_mode not in plugin_node_ids:
         raise ValueError(f"{manifest_path} mode {mode_id!r} references unknown entry_mode {entry_mode!r}")
-    if stop_after not in plugin_node_ids:
+    if stop_after and stop_after not in plugin_node_ids:
         raise ValueError(f"{manifest_path} mode {mode_id!r} references unknown stop_after {stop_after!r}")
 
     agent_manifest_ids = _as_tuple(payload.get("agent_manifest_ids"))
@@ -132,6 +141,7 @@ def _build_skill_mode(
         stop_after=stop_after,
         report_only=bool(payload.get("report_only")),
         fixer_allowed=bool(payload.get("fixer_allowed", True)),
+        runtime_ready=runtime_ready,
         default_browser_qa_mode=_optional_str(payload.get("default_browser_qa_mode")),
         allowed_tools=_as_tuple(payload.get("allowed_tools")),
         required_inputs=_as_tuple(payload.get("required_inputs")),

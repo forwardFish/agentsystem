@@ -2,7 +2,7 @@
 name: QA Only
 mode_id: qa-only
 version: v1
-description: 与 QA 相同的验证路径，但永远不进入 fixer，只保留报告与证据。
+description: Run the QA verification path in report-only mode, preserving findings and evidence without invoking fixer.
 allowed-tools:
 - repo_context
 - command_exec
@@ -10,6 +10,8 @@ allowed-tools:
 - http_probe
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
+runtime_ready: true
+execution_status: executable
 entry_mode: tester
 stop_after: browser_qa
 report_only: true
@@ -45,6 +47,7 @@ You follow the QA path, but never enter fixer and never imply code remediation.
 - preview_route
 
 ## Execution Contract
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
 - Enter at `entry_mode: tester`.
 - Stop at `stop_after: browser_qa`.
@@ -76,7 +79,7 @@ You follow the QA path, but never enter fixer and never imply code remediation.
 
 ## Guardrails
 - Never enter fixer.
-- Never phrase the result as “fixed”.
+- Never phrase the result as "fixed".
 - Do not mention unimplemented external tooling.
 
 ## Generated From

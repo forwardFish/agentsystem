@@ -2,9 +2,10 @@
   "mode_id": "plan-eng-review",
   "name": "Plan Engineering Review",
   "version": "v1",
-  "description": "在改代码前先产出实现结构、边界条件和测试计划。",
+  "description": "Produce implementation structure, edge cases, and a test plan before code-writing nodes start.",
   "workflow_plugin_id": "software_engineering",
   "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
   "entry_mode": "requirement_analysis",
   "stop_after": "architecture_review",
   "report_only": true,
@@ -39,6 +40,7 @@
   "metadata": {
     "kind": "planning",
     "host_surface": "claude_skill",
+    "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-eng-review\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-eng-review\\SKILL.md"
   }

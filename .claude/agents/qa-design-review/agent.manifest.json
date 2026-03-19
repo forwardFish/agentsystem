@@ -1,0 +1,52 @@
+{
+  "mode_id": "qa-design-review",
+  "name": "QA Design Review",
+  "version": "v1",
+  "description": "Combine design audit expectations with frontend-safe remediation planning and before/after evidence requirements.",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
+  "entry_mode": "browser_qa",
+  "stop_after": "qa_design_review",
+  "report_only": false,
+  "fixer_allowed": true,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "browser_runtime",
+    "repo_context",
+    "css_scope_check"
+  ],
+  "required_inputs": [
+    "surface_scope",
+    "screenshots",
+    "design_constraints",
+    "related_files"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/qa_design_review/qa_design_review_report.md",
+    ".meta/<repo>/qa_design_review/before_after_report.md",
+    ".meta/<repo>/qa_design_review/design_scorecard.json"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.browser_qa",
+    "software_engineering.frontend_dev",
+    "software_engineering.fixer",
+    "software_engineering.qa_design_review"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\browser_qa.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\frontend_dev.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\fixer.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\qa_design_review.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa-design-review\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa-design-review\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "design",
+    "host_surface": "claude_skill",
+    "status": "executable",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa-design-review\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa-design-review\\SKILL.md"
+  }
+}

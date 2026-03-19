@@ -2,7 +2,7 @@
 name: QA
 mode_id: qa
 version: v1
-description: 运行测试与 Browser QA，并在 blocking finding 时允许进入 fixer 回路。
+description: Run tests plus browser QA and allow a fixer loop to improve health score and ship readiness.
 allowed-tools:
 - repo_context
 - command_exec
@@ -10,6 +10,8 @@ allowed-tools:
 - http_probe
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
+runtime_ready: true
+execution_status: executable
 entry_mode: tester
 stop_after: browser_qa
 report_only: false
@@ -46,6 +48,7 @@ You combine configured test execution, browser QA, and the fixer loop before sto
 - preview_route
 
 ## Execution Contract
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
 - Enter at `entry_mode: tester`.
 - Stop at `stop_after: browser_qa` once Browser QA passes or the fixer budget is exhausted.

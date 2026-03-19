@@ -13,12 +13,16 @@ from agentsystem.agents.browser_qa_agent import browser_qa_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.code_style_reviewer_agent import code_style_review_node
 from agentsystem.agents.database_agent import database_dev_node
+from agentsystem.agents.design_consultation_agent import design_consultation_node
 from agentsystem.agents.devops_agent import devops_dev_node
 from agentsystem.agents.doc_agent import doc_node
 from agentsystem.agents.fix_agent import fix_node
 from agentsystem.agents.frontend_dev_agent import frontend_dev_node
+from agentsystem.agents.plan_design_review_agent import plan_design_review_node
+from agentsystem.agents.qa_design_review_agent import qa_design_review_node
 from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.review_agent import review_node
+from agentsystem.agents.runtime_qa_agent import runtime_qa_node
 from agentsystem.agents.security_agent import security_node
 from agentsystem.agents.sync_agent import sync_merge_node
 from agentsystem.agents.test_agent import test_node
@@ -34,6 +38,8 @@ NodeHandler = Callable[..., dict]
 HANDLER_CATALOG: dict[str, NodeHandler] = {
     "requirement_analysis_node": requirement_analysis_node,
     "architecture_review_node": architecture_review_node,
+    "plan_design_review_node": plan_design_review_node,
+    "design_consultation_node": design_consultation_node,
     "workspace_prep_node": workspace_prep_node,
     "backend_dev_node": backend_dev_node,
     "frontend_dev_node": frontend_dev_node,
@@ -43,6 +49,8 @@ HANDLER_CATALOG: dict[str, NodeHandler] = {
     "code_style_review_node": code_style_review_node,
     "test_node": test_node,
     "browser_qa_node": browser_qa_node,
+    "runtime_qa_node": runtime_qa_node,
+    "qa_design_review_node": qa_design_review_node,
     "fix_node": fix_node,
     "security_node": security_node,
     "review_node": review_node,

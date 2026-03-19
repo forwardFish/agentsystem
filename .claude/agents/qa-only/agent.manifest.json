@@ -2,9 +2,10 @@
   "mode_id": "qa-only",
   "name": "QA Only",
   "version": "v1",
-  "description": "与 QA 相同的验证路径，但永远不进入 fixer，只保留报告与证据。",
+  "description": "Run the QA verification path in report-only mode, preserving findings and evidence without invoking fixer.",
   "workflow_plugin_id": "software_engineering",
   "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
   "entry_mode": "tester",
   "stop_after": "browser_qa",
   "report_only": true,
@@ -42,6 +43,7 @@
   "metadata": {
     "kind": "qa",
     "host_surface": "claude_skill",
+    "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa-only\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa-only\\SKILL.md"
   }

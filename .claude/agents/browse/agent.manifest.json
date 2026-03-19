@@ -2,9 +2,10 @@
   "mode_id": "browse",
   "name": "Browse",
   "version": "v1",
-  "description": "给 agentsystem 一个轻量的运行时浏览与探测模式，只出报告，不修代码。",
+  "description": "Give agents a lightweight eyes-on-surface mode that probes and reports without modifying code.",
   "workflow_plugin_id": "software_engineering",
   "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
   "entry_mode": "browser_qa",
   "stop_after": "browser_qa",
   "report_only": true,
@@ -37,6 +38,7 @@
   "metadata": {
     "kind": "qa",
     "host_surface": "claude_skill",
+    "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\browse\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\browse\\SKILL.md"
   }

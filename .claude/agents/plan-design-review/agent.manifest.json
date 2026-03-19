@@ -1,0 +1,52 @@
+{
+  "mode_id": "plan-design-review",
+  "name": "Plan Design Review",
+  "version": "v1",
+  "description": "Audit a surface from a senior product design perspective and produce a design-quality report without changing code.",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
+  "entry_mode": "plan_design_review",
+  "stop_after": "plan_design_review",
+  "report_only": true,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "repo_context",
+    "browser_runtime",
+    "design_notes",
+    "design_benchmark"
+  ],
+  "required_inputs": [
+    "goal",
+    "route_scope",
+    "reference_urls",
+    "browser_actions",
+    "design_constraints"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/plan_design_review/design_review_report.md",
+    ".meta/<repo>/plan_design_review/design_scorecard.json",
+    "DESIGN.md"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.plan_design_review",
+    "software_engineering.browser_qa",
+    "software_engineering.frontend_dev"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\plan_design_review.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\browser_qa.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\frontend_dev.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-design-review\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-design-review\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "design",
+    "host_surface": "claude_skill",
+    "status": "executable",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-design-review\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-design-review\\SKILL.md"
+  }
+}

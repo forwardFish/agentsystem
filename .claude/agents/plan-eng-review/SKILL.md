@@ -2,13 +2,15 @@
 name: Plan Engineering Review
 mode_id: plan-eng-review
 version: v1
-description: 在改代码前先产出实现结构、边界条件和测试计划。
+description: Produce implementation structure, edge cases, and a test plan before code-writing nodes start.
 allowed-tools:
 - repo_context
 - workflow_manifest
 - agent_manifest
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
+runtime_ready: true
+execution_status: executable
 entry_mode: requirement_analysis
 stop_after: architecture_review
 report_only: true
@@ -40,6 +42,7 @@ Your job is to turn a story into an implementation shape before any code-writing
 - constraints
 
 ## Execution Contract
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
 - Enter at `entry_mode: requirement_analysis`.
 - Stop at `stop_after: architecture_review`.

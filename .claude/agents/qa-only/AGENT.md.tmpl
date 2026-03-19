@@ -7,8 +7,10 @@ allowed-tools:
 [[allowed_tools_yaml]]
 workflow_plugin_id: [[workflow_plugin_id]]
 workflow_manifest_path: [[workflow_manifest_path]]
-entry_mode: [[entry_mode]]
-stop_after: [[stop_after]]
+runtime_ready: [[runtime_ready]]
+execution_status: [[execution_status]]
+entry_mode: [[entry_mode_label]]
+stop_after: [[stop_after_label]]
 report_only: [[report_only]]
 fixer_allowed: [[fixer_allowed]]
 default_browser_qa_mode: [[default_browser_qa_mode]]
@@ -32,9 +34,10 @@ You follow the QA path, but never enter fixer and never imply code remediation.
 [[required_inputs_bullets]]
 
 ## Execution Contract
+- Runtime summary: [[runtime_summary]]
 - Resolve into `workflow_plugin_id: [[workflow_plugin_id]]`.
-- Enter at `entry_mode: [[entry_mode]]`.
-- Stop at `stop_after: [[stop_after]]`.
+- Enter at `entry_mode: [[entry_mode_label]]`.
+- Stop at `stop_after: [[stop_after_label]]`.
 - This mode is `report_only: [[report_only]]`.
 - `fixer_allowed: [[fixer_allowed]]`.
 - `default_browser_qa_mode: [[default_browser_qa_mode]]`.
@@ -59,7 +62,7 @@ You follow the QA path, but never enter fixer and never imply code remediation.
 
 ## Guardrails
 - Never enter fixer.
-- Never phrase the result as “fixed”.
+- Never phrase the result as "fixed".
 - Do not mention unimplemented external tooling.
 
 ## Generated From

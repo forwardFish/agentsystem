@@ -39,11 +39,19 @@ class BrowserSessionManager:
         self.session_file = self.runtime_dir / "session.json"
         self.probe_dir = self.runtime_dir / "probes"
         self.screenshot_dir = self.runtime_dir / "screenshots"
+        self.observation_dir = self.runtime_dir / "observations"
+        self.dom_dir = self.runtime_dir / "dom"
+        self.console_dir = self.runtime_dir / "console"
+        self.steps_file = self.runtime_dir / "steps.jsonl"
+        self.storage_state_file = self.runtime_dir / "storage_state.json"
 
     def ensure_session(self, target_url: str | None = None) -> BrowserSessionSnapshot:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.probe_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
+        self.observation_dir.mkdir(parents=True, exist_ok=True)
+        self.dom_dir.mkdir(parents=True, exist_ok=True)
+        self.console_dir.mkdir(parents=True, exist_ok=True)
 
         snapshot = self._load_session()
         now = _now()
@@ -99,6 +107,43 @@ class BrowserSessionManager:
         screenshot_path = self.screenshot_dir / f"{screenshot_name}.txt"
         screenshot_path.write_text(summary.strip() + "\n", encoding="utf-8")
         return str(screenshot_path)
+
+    def allocate_screenshot_path(self, name: str, suffix: str = ".png") -> Path:
+        self.screenshot_dir.mkdir(parents=True, exist_ok=True)
+        screenshot_name = _slugify(name) or f"screenshot-{uuid.uuid4()}"
+        return self.screenshot_dir / f"{screenshot_name}{suffix}"
+
+    def write_dom_snapshot(self, name: str, html: str) -> str:
+        self.dom_dir.mkdir(parents=True, exist_ok=True)
+        dom_name = _slugify(name) or f"dom-{uuid.uuid4()}"
+        dom_path = self.dom_dir / f"{dom_name}.html"
+        dom_path.write_text(html, encoding="utf-8")
+        return str(dom_path)
+
+    def write_console_log(self, name: str, payload: list[dict[str, Any]]) -> str:
+        self.console_dir.mkdir(parents=True, exist_ok=True)
+        console_name = _slugify(name) or f"console-{uuid.uuid4()}"
+        console_path = self.console_dir / f"{console_name}.json"
+        console_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return str(console_path)
+
+    def record_observation(self, name: str, payload: dict[str, Any]) -> str:
+        self.observation_dir.mkdir(parents=True, exist_ok=True)
+        observation_name = _slugify(name) or f"observation-{uuid.uuid4()}"
+        observation_path = self.observation_dir / f"{observation_name}.json"
+        observation_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        snapshot = self.ensure_session()
+        snapshot.recent_probe_refs = _trim_tail([*snapshot.recent_probe_refs, str(observation_path)], limit=20)
+        self.session_file.write_text(json.dumps(snapshot.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        return str(observation_path)
+
+    def record_step(self, payload: dict[str, Any]) -> str:
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(payload, ensure_ascii=False)
+        with self.steps_file.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+        return str(self.steps_file)
 
     def _load_session(self) -> BrowserSessionSnapshot | None:
         if not self.session_file.exists():

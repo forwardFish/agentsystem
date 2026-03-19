@@ -10,7 +10,7 @@ from pathlib import Path
 from git import Repo
 
 from agentsystem.graph.dev_workflow import DevWorkflow
-from agentsystem.orchestration.skill_mode_registry import get_skill_mode, list_skill_modes
+from agentsystem.orchestration.skill_mode_registry import get_skill_mode, list_skill_modes, resolve_runtime_task
 
 
 PROJECT_YAML = """name: agentsystem-fixture
@@ -34,10 +34,32 @@ class SkillModeRegistryTestCase(unittest.TestCase):
         modes = list_skill_modes("software_engineering")
         mode_index = {mode.mode_id: mode for mode in modes}
 
-        self.assertEqual(set(mode_index.keys()), {"plan-eng-review", "browse", "qa", "qa-only"})
+        self.assertEqual(
+            set(mode_index.keys()),
+            {
+                "plan-ceo-review",
+                "plan-eng-review",
+                "plan-design-review",
+                "design-consultation",
+                "review",
+                "ship",
+                "browse",
+                "qa",
+                "qa-only",
+                "design-review",
+                "qa-design-review",
+                "setup-browser-cookies",
+                "retro",
+                "document-release",
+            },
+        )
+        self.assertFalse(mode_index["plan-ceo-review"].runtime_ready)
+        self.assertTrue(mode_index["plan-design-review"].runtime_ready)
         self.assertFalse(mode_index["plan-eng-review"].fixer_allowed)
         self.assertTrue(mode_index["qa"].fixer_allowed)
         self.assertTrue(mode_index["qa-only"].report_only)
+        self.assertTrue(mode_index["design-review"].fixer_allowed)
+        self.assertFalse(mode_index["ship"].runtime_ready)
 
     def test_plan_eng_review_stops_after_architecture_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -157,6 +179,10 @@ class SkillModeRegistryTestCase(unittest.TestCase):
             self.assertEqual(result["state"]["current_step"], "browser_qa_done")
             self.assertGreaterEqual(int(result["state"]["fix_attempts"] or 0), 1)
             self.assertFalse(result["state"]["browser_qa_report_only"])
+
+    def test_template_only_mode_is_rejected_for_runtime_execution(self) -> None:
+        with self.assertRaisesRegex(ValueError, "template-only"):
+            resolve_runtime_task({"skill_mode": "ship"})
 
 
 class _DemoHandler(BaseHTTPRequestHandler):

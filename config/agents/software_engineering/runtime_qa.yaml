@@ -1,0 +1,23 @@
+agent_id: software_engineering.runtime_qa
+name: Runtime QA Agent
+description: Run non-UI verification for runtime, schema, artifact, and gate-driven stories.
+handler: runtime_qa_node
+agent_role: verification.runtime_qa
+plane: verification
+capabilities:
+  - runtime_validation
+  - artifact_validation
+  - qa_report
+policy_refs:
+  - WorkflowPolicy.default
+  - ReviewPolicy.default
+trigger_events:
+  - test.passed
+tool_scope:
+  - command_exec
+  - repo_context
+verification_tags:
+  - runtime_qa
+metadata:
+  manifest_version: v1
+  domain: software_engineering

@@ -1,0 +1,51 @@
+{
+  "mode_id": "design-consultation",
+  "name": "Design Consultation",
+  "version": "v1",
+  "description": "Define a target visual system, propose interaction direction, and package a design implementation brief for later execution.",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
+  "entry_mode": "design_consultation",
+  "stop_after": "design_consultation",
+  "report_only": true,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "repo_context",
+    "design_notes",
+    "competitor_scan"
+  ],
+  "required_inputs": [
+    "product_goal",
+    "audience",
+    "surface_scope",
+    "existing_brand_constraints"
+  ],
+  "expected_artifacts": [
+    "DESIGN.md",
+    ".meta/<repo>/design_consultation/design_consultation_report.md",
+    ".meta/<repo>/design_consultation/preview_notes.json",
+    ".meta/<repo>/design_consultation/design_preview.html"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.design_consultation",
+    "software_engineering.frontend_dev",
+    "software_engineering.doc_writer"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\design_consultation.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\frontend_dev.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\doc_writer.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\design-consultation\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\design-consultation\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "design",
+    "host_surface": "claude_skill",
+    "status": "executable",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\design-consultation\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\design-consultation\\SKILL.md"
+  }
+}

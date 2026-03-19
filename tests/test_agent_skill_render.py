@@ -11,7 +11,25 @@ class AgentSkillRenderTestCase(unittest.TestCase):
     def test_render_all_agent_skills_generates_expected_packages(self) -> None:
         rendered = render_all_agent_skills(ROOT_DIR)
 
-        self.assertEqual({item["mode_id"] for item in rendered}, {"plan-eng-review", "browse", "qa", "qa-only"})
+        self.assertEqual(
+            {item["mode_id"] for item in rendered},
+            {
+                "plan-ceo-review",
+                "plan-eng-review",
+                "plan-design-review",
+                "design-consultation",
+                "review",
+                "ship",
+                "browse",
+                "qa",
+                "qa-only",
+                "design-review",
+                "qa-design-review",
+                "setup-browser-cookies",
+                "retro",
+                "document-release",
+            },
+        )
         for item in rendered:
             package_dir = Path(item["skill_path"]).resolve().parent
             self.assertTrue((package_dir / "AGENT.md.tmpl").exists())
@@ -30,6 +48,16 @@ class AgentSkillRenderTestCase(unittest.TestCase):
         self.assertEqual(payload["stop_after"], "browser_qa")
         self.assertTrue(payload["fixer_allowed"])
         self.assertIn("software_engineering.browser_qa", payload["agent_manifest_ids"])
+
+    def test_template_only_skill_manifest_is_rendered_but_not_runtime_ready(self) -> None:
+        render_all_agent_skills(ROOT_DIR)
+        manifest_path = ROOT_DIR / ".claude" / "agents" / "ship" / "agent.manifest.json"
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["mode_id"], "ship")
+        self.assertFalse(payload["runtime_ready"])
+        self.assertIsNone(payload["entry_mode"])
+        self.assertIsNone(payload["stop_after"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 repo:
   agentsystem: "D:\\lyh\\agent\\agent-frame\\agentsystem"
   versefina: "D:\\lyh\\agent\\agent-frame\\versefina"
+  finahunt: "D:\\lyh\\agent\\agent-frame\\finahunt"
+  agentHire: "D:\\lyh\\agent\\agent-frame\\agentHire"
 postgres:
   host: "localhost"
   port: 5432

@@ -1,0 +1,22 @@
+agent_id: software_engineering.design_consultation
+name: Design Consultation Agent
+description: Produce an executable DESIGN.md contract and preview artifact for UI-heavy work before implementation starts.
+handler: design_consultation_node
+agent_role: planning.design_consultation
+plane: build
+capabilities:
+  - design_contract
+  - preview_brief
+policy_refs:
+  - WorkflowPolicy.default
+  - ReviewPolicy.default
+trigger_events:
+  - plan_design_review.completed
+tool_scope:
+  - repo_context
+  - story_contract
+verification_tags:
+  - design_consultation
+metadata:
+  manifest_version: v1
+  domain: software_engineering

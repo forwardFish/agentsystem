@@ -1,6 +1,6 @@
 plugin_id: software_engineering
 name: Software Engineering Workflow
-description: 当前 agentsystem 默认的软件研发 Story 交付工作流。
+description: Default agentsystem workflow for story delivery with automatic planning, QA, review, and acceptance.
 entry_point: requirement_analysis
 policy_refs:
   - WorkflowPolicy.default
@@ -10,9 +10,13 @@ trigger_events:
   - task.created
 verification_pipeline:
   - architecture_review
+  - plan_design_review
+  - design_consultation
   - code_style_review
   - test
   - browser_qa
+  - runtime_qa
+  - qa_design_review
   - security_scan
   - review
   - code_acceptance
@@ -30,6 +34,12 @@ nodes:
   - node_id: architecture_review
     display_name: Architecture Review
     agent_manifest: software_engineering.architecture_review
+  - node_id: plan_design_review
+    display_name: Plan Design Review
+    agent_manifest: software_engineering.plan_design_review
+  - node_id: design_consultation
+    display_name: Design Consultation
+    agent_manifest: software_engineering.design_consultation
   - node_id: workspace_prep
     display_name: Workspace Prep
     agent_manifest: software_engineering.workspace_prep
@@ -57,6 +67,12 @@ nodes:
   - node_id: browser_qa
     display_name: Browser QA
     agent_manifest: software_engineering.browser_qa
+  - node_id: runtime_qa
+    display_name: Runtime QA
+    agent_manifest: software_engineering.runtime_qa
+  - node_id: qa_design_review
+    display_name: QA Design Review
+    agent_manifest: software_engineering.qa_design_review
   - node_id: fixer
     display_name: Fixer
     agent_manifest: software_engineering.fixer
@@ -88,6 +104,8 @@ edges:
     target: sync_merge
   - source: sync_merge
     target: code_style_reviewer
+  - source: qa_design_review
+    target: security_scanner
   - source: security_scanner
     target: reviewer
   - source: doc_writer
@@ -95,6 +113,18 @@ edges:
 conditional_edges:
   - source: architecture_review
     router: route_after_architecture_review
+    routes:
+      plan_design_review: plan_design_review
+      workspace_prep: workspace_prep
+      __end__: __end__
+  - source: plan_design_review
+    router: route_after_plan_design_review
+    routes:
+      design_consultation: design_consultation
+      workspace_prep: workspace_prep
+      __end__: __end__
+  - source: design_consultation
+    router: route_after_design_consultation
     routes:
       workspace_prep: workspace_prep
       __end__: __end__
@@ -116,9 +146,18 @@ conditional_edges:
     routes:
       fixer: fixer
       browser_qa: browser_qa
+      runtime_qa: runtime_qa
       security_scanner: security_scanner
+      __end__: __end__
   - source: browser_qa
     router: route_after_browser_qa
+    routes:
+      fixer: fixer
+      qa_design_review: qa_design_review
+      security_scanner: security_scanner
+      __end__: __end__
+  - source: runtime_qa
+    router: route_after_runtime_qa
     routes:
       fixer: fixer
       security_scanner: security_scanner
@@ -129,9 +168,11 @@ conditional_edges:
       code_style_reviewer: code_style_reviewer
       tester: tester
       browser_qa: browser_qa
+      runtime_qa: runtime_qa
       reviewer: reviewer
       code_acceptance: code_acceptance
       acceptance_gate: acceptance_gate
+      __end__: __end__
   - source: reviewer
     router: route_after_review
     routes:

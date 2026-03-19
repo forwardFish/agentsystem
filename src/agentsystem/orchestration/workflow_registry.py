@@ -11,9 +11,13 @@ from agentsystem.agents.architecture_review_agent import route_after_architectur
 from agentsystem.agents.browser_qa_agent import route_after_browser_qa
 from agentsystem.agents.code_acceptance_agent import route_after_code_acceptance
 from agentsystem.agents.code_style_reviewer_agent import route_after_code_style_review
+from agentsystem.agents.design_consultation_agent import route_after_design_consultation
 from agentsystem.agents.fix_agent import route_after_fix
+from agentsystem.agents.plan_design_review_agent import route_after_plan_design_review
+from agentsystem.agents.qa_design_review_agent import route_after_qa_design_review
 from agentsystem.agents.review_agent import route_after_review
 from agentsystem.agents.router_agent import route_after_test, task_router
+from agentsystem.agents.runtime_qa_agent import route_after_runtime_qa
 from agentsystem.orchestration.agent_manifest_registry import AgentManifest, get_agent_manifest
 
 
@@ -26,9 +30,13 @@ RouterHandler = Callable[..., str | list[str]]
 ROUTER_CATALOG: dict[str, RouterHandler] = {
     "task_router": task_router,
     "route_after_architecture_review": route_after_architecture_review,
+    "route_after_plan_design_review": route_after_plan_design_review,
+    "route_after_design_consultation": route_after_design_consultation,
     "route_after_code_style_review": route_after_code_style_review,
     "route_after_test": route_after_test,
     "route_after_browser_qa": route_after_browser_qa,
+    "route_after_runtime_qa": route_after_runtime_qa,
+    "route_after_qa_design_review": route_after_qa_design_review,
     "route_after_fix": route_after_fix,
     "route_after_review": route_after_review,
     "route_after_code_acceptance": route_after_code_acceptance,

@@ -1,11 +1,40 @@
 workflow_plugin_id: software_engineering
 manifest_version: v1
 modes:
+  - mode_id: plan-ceo-review
+    name: Plan CEO Review
+    version: v1
+    description: Reframe the request at product level and surface the highest-value user outcome before implementation starts.
+    template_dir: .claude/agents/plan-ceo-review
+    runtime_ready: false
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - workflow_manifest
+      - product_scope_notes
+    required_inputs:
+      - goal
+      - user_problem
+      - constraints
+      - success_signal
+    expected_artifacts:
+      - .meta/<repo>/plan_ceo_review/product_review_report.md
+      - .meta/<repo>/plan_ceo_review/opportunity_map.json
+    agent_manifest_ids:
+      - software_engineering.requirement_analysis
+      - software_engineering.architecture_review
+    metadata:
+      kind: planning
+      host_surface: claude_skill
+      status: template_only
+
   - mode_id: plan-eng-review
     name: Plan Engineering Review
     version: v1
-    description: 在改代码前先产出实现结构、边界条件和测试计划。
+    description: Produce implementation structure, edge cases, and a test plan before code-writing nodes start.
     template_dir: .claude/agents/plan-eng-review
+    runtime_ready: true
     entry_mode: requirement_analysis
     stop_after: architecture_review
     report_only: true
@@ -28,11 +57,136 @@ modes:
     metadata:
       kind: planning
       host_surface: claude_skill
+      status: executable
+
+  - mode_id: plan-design-review
+    name: Plan Design Review
+    version: v1
+    description: Audit a surface from a senior product design perspective and produce a design-quality report without changing code.
+    template_dir: .claude/agents/plan-design-review
+    runtime_ready: true
+    entry_mode: plan_design_review
+    stop_after: plan_design_review
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - browser_runtime
+      - design_notes
+      - design_benchmark
+    required_inputs:
+      - goal
+      - route_scope
+      - reference_urls
+      - browser_actions
+      - design_constraints
+    expected_artifacts:
+      - .meta/<repo>/plan_design_review/design_review_report.md
+      - .meta/<repo>/plan_design_review/design_scorecard.json
+      - DESIGN.md
+    agent_manifest_ids:
+      - software_engineering.plan_design_review
+      - software_engineering.browser_qa
+      - software_engineering.frontend_dev
+    metadata:
+      kind: design
+      host_surface: claude_skill
+      status: executable
+
+  - mode_id: design-consultation
+    name: Design Consultation
+    version: v1
+    description: Define a target visual system, propose interaction direction, and package a design implementation brief for later execution.
+    template_dir: .claude/agents/design-consultation
+    runtime_ready: true
+    entry_mode: design_consultation
+    stop_after: design_consultation
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - design_notes
+      - competitor_scan
+    required_inputs:
+      - product_goal
+      - audience
+      - surface_scope
+      - existing_brand_constraints
+    expected_artifacts:
+      - DESIGN.md
+      - .meta/<repo>/design_consultation/design_consultation_report.md
+      - .meta/<repo>/design_consultation/preview_notes.json
+      - .meta/<repo>/design_consultation/design_preview.html
+    agent_manifest_ids:
+      - software_engineering.design_consultation
+      - software_engineering.frontend_dev
+      - software_engineering.doc_writer
+    metadata:
+      kind: design
+      host_surface: claude_skill
+      status: executable
+
+  - mode_id: review
+    name: Review
+    version: v1
+    description: Run a production-risk review focused on issues that pass CI but can still fail in real usage.
+    template_dir: .claude/agents/review
+    runtime_ready: false
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - diff_summary
+      - risk_classify
+    required_inputs:
+      - goal
+      - related_files
+      - change_summary
+      - deployment_context
+    expected_artifacts:
+      - .meta/<repo>/review/review_report.md
+      - .meta/<repo>/review/risk_register.json
+    agent_manifest_ids:
+      - software_engineering.reviewer
+    metadata:
+      kind: verification
+      host_surface: claude_skill
+      status: template_only
+
+  - mode_id: ship
+    name: Ship
+    version: v1
+    description: Prepare a ready-to-merge release package by syncing branch state, validating readiness, and assembling release evidence.
+    template_dir: .claude/agents/ship
+    runtime_ready: false
+    report_only: false
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - command_exec
+      - git_state
+    required_inputs:
+      - goal
+      - branch_name
+      - release_scope
+      - validation_status
+    expected_artifacts:
+      - .meta/<repo>/ship/ship_readiness_report.md
+      - .meta/<repo>/ship/release_package.json
+    agent_manifest_ids:
+      - software_engineering.acceptance_gate
+      - software_engineering.doc_writer
+    metadata:
+      kind: release
+      host_surface: claude_skill
+      status: template_only
+
   - mode_id: browse
     name: Browse
     version: v1
-    description: 给 agentsystem 一个轻量的运行时浏览与探测模式，只出报告，不修代码。
+    description: Give agents a lightweight eyes-on-surface mode that probes and reports without modifying code.
     template_dir: .claude/agents/browse
+    runtime_ready: true
     entry_mode: browser_qa
     stop_after: browser_qa
     report_only: true
@@ -55,11 +209,14 @@ modes:
     metadata:
       kind: qa
       host_surface: claude_skill
+      status: executable
+
   - mode_id: qa
     name: QA
     version: v1
-    description: 运行测试与 Browser QA，并在 blocking finding 时允许进入 fixer 回路。
+    description: Run tests plus browser QA and allow a fixer loop to improve health score and ship readiness.
     template_dir: .claude/agents/qa
+    runtime_ready: true
     entry_mode: tester
     stop_after: browser_qa
     report_only: false
@@ -88,11 +245,14 @@ modes:
     metadata:
       kind: qa
       host_surface: claude_skill
+      status: executable
+
   - mode_id: qa-only
     name: QA Only
     version: v1
-    description: 与 QA 相同的验证路径，但永远不进入 fixer，只保留报告与证据。
+    description: Run the QA verification path in report-only mode, preserving findings and evidence without invoking fixer.
     template_dir: .claude/agents/qa-only
+    runtime_ready: true
     entry_mode: tester
     stop_after: browser_qa
     report_only: true
@@ -119,3 +279,152 @@ modes:
     metadata:
       kind: qa
       host_surface: claude_skill
+      status: executable
+
+  - mode_id: qa-design-review
+    name: QA Design Review
+    version: v1
+    description: Combine design audit expectations with frontend-safe remediation planning and before/after evidence requirements.
+    template_dir: .claude/agents/qa-design-review
+    runtime_ready: true
+    entry_mode: browser_qa
+    stop_after: qa_design_review
+    report_only: false
+    fixer_allowed: true
+    allowed_tools:
+      - browser_runtime
+      - repo_context
+      - css_scope_check
+    required_inputs:
+      - surface_scope
+      - screenshots
+      - design_constraints
+      - related_files
+    expected_artifacts:
+      - .meta/<repo>/qa_design_review/qa_design_review_report.md
+      - .meta/<repo>/qa_design_review/before_after_report.md
+      - .meta/<repo>/qa_design_review/design_scorecard.json
+    agent_manifest_ids:
+      - software_engineering.browser_qa
+      - software_engineering.frontend_dev
+      - software_engineering.fixer
+      - software_engineering.qa_design_review
+    metadata:
+      kind: design
+      host_surface: claude_skill
+      status: executable
+
+  - mode_id: design-review
+    name: Design Review
+    version: v1
+    description: Run a post-browse design audit with before/after evidence, scoring, and fixer-compatible issue routing.
+    template_dir: .claude/agents/design-review
+    runtime_ready: true
+    entry_mode: browser_qa
+    stop_after: qa_design_review
+    report_only: false
+    fixer_allowed: true
+    default_browser_qa_mode: quick
+    allowed_tools:
+      - browser_runtime
+      - repo_context
+      - design_notes
+      - design_benchmark
+    required_inputs:
+      - browser_urls
+      - reference_urls
+      - route_scope
+      - primary_files
+    expected_artifacts:
+      - .meta/<repo>/browser_qa/browser_qa_report.md
+      - .meta/<repo>/qa_design_review/qa_design_review_report.md
+      - .meta/<repo>/qa_design_review/before_after_report.md
+    agent_manifest_ids:
+      - software_engineering.browser_qa
+      - software_engineering.qa_design_review
+      - software_engineering.fixer
+    metadata:
+      kind: design
+      host_surface: claude_skill
+      status: executable
+
+  - mode_id: setup-browser-cookies
+    name: Setup Browser Cookies
+    version: v1
+    description: Prepare authenticated browser session import instructions for later browser QA without requiring manual login every run.
+    template_dir: .claude/agents/setup-browser-cookies
+    runtime_ready: false
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - browser_runtime
+      - session_files
+      - repo_context
+    required_inputs:
+      - browser_profile_source
+      - target_surface
+      - auth_expectations
+    expected_artifacts:
+      - .meta/<repo>/browser_runtime/cookie_import_plan.md
+      - .meta/<repo>/browser_runtime/session_seed.json
+    agent_manifest_ids:
+      - software_engineering.browser_qa
+    metadata:
+      kind: qa
+      host_surface: claude_skill
+      status: template_only
+
+  - mode_id: retro
+    name: Retro
+    version: v1
+    description: Summarize what happened in a delivery cycle, identify what went well, and surface growth opportunities per contributor.
+    template_dir: .claude/agents/retro
+    runtime_ready: false
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - diff_summary
+      - audit_log
+    required_inputs:
+      - time_window
+      - contributors
+      - shipped_scope
+      - incident_notes
+    expected_artifacts:
+      - .meta/<repo>/retro/retro_report.md
+      - .meta/<repo>/retro/contributor_notes.json
+    agent_manifest_ids:
+      - software_engineering.reviewer
+      - software_engineering.doc_writer
+    metadata:
+      kind: governance
+      host_surface: claude_skill
+      status: template_only
+
+  - mode_id: document-release
+    name: Document Release
+    version: v1
+    description: Update repository-facing delivery documentation so shipped behavior and operating notes stay aligned.
+    template_dir: .claude/agents/document-release
+    runtime_ready: false
+    report_only: false
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - docs_diff
+      - command_exec
+    required_inputs:
+      - shipped_scope
+      - release_notes
+      - doc_targets
+      - operating_changes
+    expected_artifacts:
+      - .meta/<repo>/document_release/document_release_report.md
+      - .meta/<repo>/document_release/doc_sync_plan.json
+    agent_manifest_ids:
+      - software_engineering.doc_writer
+    metadata:
+      kind: documentation
+      host_surface: claude_skill
+      status: template_only
