@@ -15,6 +15,12 @@ def merge_lists(left: list[Any] | None, right: list[Any] | None) -> list[Any]:
     return [*(left or []), *(right or [])]
 
 
+def merge_last_non_empty(left: Any, right: Any) -> Any:
+    if right not in (None, ""):
+        return right
+    return left
+
+
 class SubTask(BaseModel):
     id: str
     type: str
@@ -26,10 +32,14 @@ class SubTask(BaseModel):
 class AgentRole(str, Enum):
     REQUIREMENT = "Requirement"
     ARCHITECTURE_REVIEW = "ArchitectureReview"
+    PLAN_DESIGN_REVIEW = "PlanDesignReview"
+    DESIGN_CONSULTATION = "DesignConsultation"
     BUILDER = "Builder"
     SYNC = "Sync"
     TESTER = "Tester"
     BROWSER_QA = "BrowserQA"
+    RUNTIME_QA = "RuntimeQA"
+    QA_DESIGN_REVIEW = "QADesignReview"
     SECURITY_SCANNER = "SecurityScanner"
     FIXER = "Fixer"
     REVIEWER = "Reviewer"
@@ -118,6 +128,43 @@ def add_issue(state: "DevState", issue: Issue) -> None:
     state["issues_to_fix"] = issues
 
 
+def add_executed_mode(state: "DevState", mode_id: str) -> None:
+    mode = str(mode_id).strip()
+    if not mode:
+        return
+    executed = list(state.get("executed_modes") or [])
+    if mode not in executed:
+        executed.append(mode)
+    state["executed_modes"] = executed
+    execution_order = list(state.get("mode_execution_order") or [])
+    execution_order.append(mode)
+    state["mode_execution_order"] = execution_order
+
+
+def build_mode_coverage(
+    required_modes: list[str] | None,
+    advisory_modes: list[str] | None,
+    executed_modes: list[str] | None,
+) -> dict[str, Any]:
+    required = [str(item).strip() for item in (required_modes or []) if str(item).strip()]
+    advisory = [str(item).strip() for item in (advisory_modes or []) if str(item).strip()]
+    executed = [str(item).strip() for item in (executed_modes or []) if str(item).strip()]
+    executed_set = set(executed)
+    missing_required = [mode for mode in required if mode not in executed_set]
+    advisory_executed = [mode for mode in advisory if mode in executed_set]
+    return {
+        "required": required,
+        "executed": executed,
+        "advisory": advisory,
+        "missing_required": missing_required,
+        "executed_required_count": sum(1 for mode in required if mode in executed_set),
+        "required_count": len(required),
+        "advisory_executed": advisory_executed,
+        "advisory_executed_count": len(advisory_executed),
+        "all_required_executed": not missing_required,
+    }
+
+
 def resolve_issue(state: "DevState", issue_id: str) -> None:
     remaining: list[dict[str, Any]] = []
     resolved: list[dict[str, Any]] = list(state.get("resolved_issues") or [])
@@ -137,6 +184,23 @@ class DevState(TypedDict, total=False):
     user_requirement: str
     repo_b_path: str
     task_payload: dict[str, Any] | None
+    story_kind: str | None
+    risk_level: str | None
+    has_browser_surface: bool | None
+    requires_auth: bool | None
+    qa_strategy: str | None
+    required_modes: list[str] | None
+    advisory_modes: list[str] | None
+    next_recommended_actions: list[str] | None
+    executed_modes: Annotated[list[str] | None, merge_lists]
+    effective_qa_mode: str | None
+    auto_upgrade_to_qa: bool | None
+    needs_design_review: bool | None
+    needs_qa_design_review: bool | None
+    needs_design_consultation: bool | None
+    needs_ceo_review_advice: bool | None
+    agent_activation_plan: dict[str, Any] | None
+    agent_mode_coverage: dict[str, Any] | None
     skill_mode: str | None
     skill_mode_name: str | None
     skill_mode_description: str | None
@@ -165,6 +229,21 @@ class DevState(TypedDict, total=False):
     architecture_review_report: str | None
     architecture_review_summary: str | None
     architecture_test_plan: dict[str, Any] | None
+    plan_design_review_success: bool | None
+    plan_design_review_dir: str | None
+    plan_design_review_report: str | None
+    design_consultation_success: bool | None
+    design_consultation_dir: str | None
+    design_consultation_report: str | None
+    design_contract_path: str | None
+    design_preview_path: str | None
+    runtime_qa_success: bool | None
+    runtime_qa_passed: bool | None
+    runtime_qa_report: str | None
+    runtime_qa_dir: str | None
+    runtime_qa_findings: list[str] | None
+    runtime_qa_warnings: list[str] | None
+    runtime_qa_report_only: bool | None
     acceptance_checklist: list[str] | None
     story_inputs: list[str] | None
     story_process: list[str] | None
@@ -196,6 +275,10 @@ class DevState(TypedDict, total=False):
     browser_qa_ship_readiness: str | None
     browser_qa_mode: str | None
     browser_qa_report_only: bool | None
+    qa_design_review_success: bool | None
+    qa_design_review_passed: bool | None
+    qa_design_review_report: str | None
+    qa_design_review_dir: str | None
     security_report: str | None
     review_success: bool | None
     review_passed: bool | None
@@ -224,7 +307,16 @@ class DevState(TypedDict, total=False):
     fixer_needed: bool | None
     fixer_success: bool | None
     fix_attempts: int
+    fix_fingerprint_history: Annotated[list[str] | None, merge_lists]
     fix_return_to: str | None
+    failure_type: str | None
+    interruption_reason: str | None
+    last_node: Annotated[str | None, merge_last_non_empty]
+    review_issue_signature: str | None
+    review_issue_history: Annotated[list[str] | None, merge_lists]
+    mode_execution_order: Annotated[list[str] | None, merge_lists]
+    mode_artifact_paths: dict[str, str] | None
+    failure_snapshot_path: str | None
     current_step: str
     error_message: str | None
     shared_blackboard: dict[str, Any] | None

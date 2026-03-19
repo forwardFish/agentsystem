@@ -119,23 +119,41 @@ def _collect_changed_files(state: DevState) -> list[str]:
         if not isinstance(payload, dict):
             continue
         for item in payload.get("updated_files", []):
-            text = str(item).replace("\\", "/")
-            if "/apps/" in text:
-                text = "apps/" + text.split("/apps/", 1)[1]
-            elif "/docs/" in text:
-                text = "docs/" + text.split("/docs/", 1)[1]
-            elif "/scripts/" in text:
-                text = "scripts/" + text.split("/scripts/", 1)[1]
-            changed.append(text)
-    if not changed:
-        changed.extend(str(item).replace("\\", "/") for item in (state.get("staged_files") or []))
+            changed.append(_normalize_changed_path(str(item)))
+    changed.extend(_normalize_changed_path(str(item)) for item in (state.get("staged_files") or []))
     unique: list[str] = []
     seen: set[str] = set()
     for item in changed:
+        if _is_ignored_changed_path(item):
+            continue
         if item not in seen:
             seen.add(item)
             unique.append(item)
     return unique
+
+
+def _normalize_changed_path(path: str) -> str:
+    text = str(path).replace("\\", "/")
+    if "/apps/" in text:
+        return "apps/" + text.split("/apps/", 1)[1]
+    if "/docs/" in text:
+        return "docs/" + text.split("/docs/", 1)[1]
+    if "/scripts/" in text:
+        return "scripts/" + text.split("/scripts/", 1)[1]
+    if text.startswith(("apps/", "docs/", "scripts/", ".agents/", "config/", "tasks/")):
+        return text
+    return text
+
+
+def _is_ignored_changed_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    return (
+        normalized.startswith("tasks/runtime/")
+        or normalized.startswith("docs/handoff/")
+        or "__pycache__/" in normalized
+        or normalized.endswith(".pyc")
+        or ".pytest_cache/" in normalized
+    )
 
 
 def _check_line_hygiene(relative_path: str, content: str) -> list[str]:

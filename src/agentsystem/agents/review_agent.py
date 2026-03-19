@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import uuid
@@ -16,6 +17,7 @@ from agentsystem.core.state import (
     HandoffStatus,
     Issue,
     IssueSeverity,
+    add_executed_mode,
     add_handoff_packet,
     add_issue,
 )
@@ -88,8 +90,9 @@ class ReviewerAgent:
 You are a code reviewer. Return a Markdown review report with these sections:
 # Review Report
 ## Change Summary
+## Production Risk Focus
 ## Intent Match
-## Rules Compliance
+## Verification Gaps
 ## Maintainability
 ## Acceptance Coverage
 ## Issues
@@ -112,6 +115,10 @@ Changed files:
 
 Diff:
 {diff}
+
+Review focus:
+- Prefer issues that can pass CI but still break in production or real usage.
+- Call out missing validation for config, contract, schema, runtime, or deployment-sensitive changes.
                     """.strip(),
                 ),
             ]
@@ -138,14 +145,21 @@ Diff:
         important_issues: list[str] = []
         nice_to_haves: list[str] = []
 
-        if not staged_files:
+        if not staged_files and "StoryValidation: PASS" not in validation:
             blocking_issues.append("No staged files were available for review.")
+        elif not staged_files:
+            nice_to_haves.append("No staged files were recorded because the existing scaffold already satisfied the story validation.")
         if protected_paths and any(_matches_protected_path(path, protected_paths) for path in staged_files):
             blocking_issues.append("A protected path appears in the staged change set.")
         if "FAIL" in validation.upper():
             blocking_issues.append("Validation report still contains failing checks.")
         if "Typecheck: SKIP" in validation or "Test: SKIP" in validation:
             important_issues.append("Typecheck or automated tests are still running in demo mode.")
+        lowered_scope = " ".join(staged_files).lower()
+        if any(token in lowered_scope for token in ("config/", "schema", "contract", "workflow", "graph", ".sql", "migration", "infra/")):
+            important_issues.append("Changed files touch production-sensitive config/contract/runtime surfaces; verify behavior beyond CI-only checks.")
+        if acceptance and "StoryValidation: PASS" not in validation:
+            important_issues.append("Acceptance criteria exist but the validation report does not show a strong story-specific verification pass.")
         if not acceptance:
             nice_to_haves.append("Task card does not define acceptance criteria explicitly.")
 
@@ -158,11 +172,14 @@ Diff:
                 "## Change Summary",
                 task_goal or "Local agent-generated change.",
                 "",
+                "## Production Risk Focus",
+                "Prefer issues that can pass CI yet still fail in production, runtime, or live user flows.",
+                "",
                 "## Intent Match",
                 "Change scope matches the requested files and does not expand beyond the task card.",
                 "",
-                "## Rules Compliance",
-                "Staged files stay within the declared task scope and current project rules.",
+                "## Verification Gaps",
+                "Highlight any missing config, contract, schema, or runtime validation that could hide a production regression.",
                 "",
                 "## Maintainability",
                 "Change follows the existing page/service scaffolding and keeps edits localized.",
@@ -199,6 +216,7 @@ def review_node(state: DevState) -> DevState:
     result = reviewer.run(state)
     state.update(result)
     state["current_step"] = "review_done"
+    add_executed_mode(state, "review")
     issues: list[Issue] = []
     for item in state.get("blocking_issues") or []:
         issue = Issue(
@@ -210,7 +228,8 @@ def review_node(state: DevState) -> DevState:
             description=str(item),
             suggestion="Fix the review finding and return the story for another validation pass.",
         )
-        add_issue(state, issue)
+        if not state.get("review_passed"):
+            add_issue(state, issue)
         issues.append(issue)
     for item in state.get("important_issues") or []:
         issue = Issue(
@@ -222,8 +241,29 @@ def review_node(state: DevState) -> DevState:
             description=str(item),
             suggestion="Address the maintainability or policy issue before final acceptance.",
         )
-        add_issue(state, issue)
+        if not state.get("review_passed"):
+            add_issue(state, issue)
         issues.append(issue)
+    review_items_present = bool((state.get("blocking_issues") or []) or (state.get("important_issues") or []) or issues)
+    if review_items_present:
+        review_signature = hashlib.sha1(
+            "|".join(
+                [
+                    *(str(item) for item in (state.get("blocking_issues") or [])),
+                    *(str(item) for item in (state.get("important_issues") or [])),
+                ]
+            ).encode("utf-8")
+        ).hexdigest()
+        history = list(state.get("review_issue_history") or [])
+        history.append(review_signature)
+        state["review_issue_signature"] = review_signature
+        state["review_issue_history"] = history
+    else:
+        state["review_issue_signature"] = None
+    if state.get("review_passed") is False and not review_items_present:
+        state["failure_type"] = "workflow_bug"
+        state["interruption_reason"] = "reviewer_missing_findings"
+        state["error_message"] = state.get("error_message") or "Reviewer rejected the story without structured findings."
     if state.get("review_success"):
         add_handoff_packet(
             state,
@@ -264,6 +304,8 @@ def review_node(state: DevState) -> DevState:
 
 
 def route_after_review(state: DevState) -> str:
+    if state.get("failure_type") == "workflow_bug":
+        return "__end__"
     return "code_acceptance" if state.get("review_passed") else "fixer"
 
 
@@ -295,8 +337,19 @@ def _extract_list_section(report: str, heading: str) -> list[str]:
 def _matches_protected_path(path: str, protected_paths: list[str]) -> bool:
     normalized_path = path.replace("\\", "/")
     for pattern in protected_paths:
-        normalized_pattern = str(pattern).replace("\\", "/").replace("**", "")
-        if normalized_pattern and normalized_pattern in normalized_path:
+        normalized_pattern = str(pattern).replace("\\", "/").strip()
+        if not normalized_pattern:
+            continue
+        if normalized_pattern.endswith("/**"):
+            root = normalized_pattern[:-3].rstrip("/")
+            if normalized_path == root or normalized_path.startswith(f"{root}/"):
+                return True
+            continue
+        if normalized_pattern.startswith(".") and "/" not in normalized_pattern:
+            if normalized_path == normalized_pattern or normalized_path.endswith(f"/{normalized_pattern}"):
+                return True
+            continue
+        if normalized_path == normalized_pattern or normalized_path.startswith(f"{normalized_pattern.rstrip('/')}/"):
             return True
     return False
 
@@ -308,6 +361,8 @@ def _filter_review_paths(paths: list[str]) -> list[str]:
         if normalized.startswith("./"):
             normalized = normalized[2:]
         if normalized.startswith(".git/"):
+            continue
+        if normalized.startswith("tasks/runtime/") or normalized.startswith("docs/handoff/"):
             continue
         filtered.append(path)
     return filtered

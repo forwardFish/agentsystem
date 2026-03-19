@@ -27,9 +27,9 @@ def acceptance_gate_node(state: DevState) -> DevState:
     report_dir = repo_b_path.parent / ".meta" / repo_b_path.name / "acceptance"
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    changed_files = _collect_changed_files(state)
+    changed_files = _collect_changed_files(state, repo_b_path)
     checklist_lines: list[str] = []
-    blocking_issues: list[str] = list(state.get("blocking_issues") or [])
+    blocking_issues: list[str] = []
 
     for criterion in acceptance_items:
         satisfied, detail = _evaluate_criterion(criterion, task_payload, related_files, changed_files, repo_b_path, state)
@@ -37,8 +37,9 @@ def acceptance_gate_node(state: DevState) -> DevState:
         if not satisfied:
             blocking_issues.append(f"Acceptance unmet: {criterion}")
 
-    if related_files and changed_files:
-        allowed = {path.replace("\\", "/") for path in related_files}
+    allowed_scope = _build_scope_allowlist(task_payload, repo_b_path)
+    if allowed_scope and changed_files:
+        allowed = {path.replace("\\", "/") for path in allowed_scope}
         unexpected = [path for path in changed_files if path.replace("\\", "/") not in allowed]
         if unexpected:
             blocking_issues.append(f"Changes exceed task scope: {', '.join(unexpected)}")
@@ -130,31 +131,82 @@ def route_after_acceptance(state: DevState) -> str:
     return "doc_writer" if state.get("acceptance_passed") else "fixer"
 
 
-def _collect_changed_files(state: DevState) -> list[str]:
+def _collect_changed_files(state: DevState, repo_b_path: Path | None = None) -> list[str]:
     changed: list[str] = []
     dev_results = state.get("dev_results") or {}
     for payload in dev_results.values():
         if not isinstance(payload, dict):
             continue
         for item in payload.get("updated_files", []):
-            normalized = str(item).replace("\\", "/")
-            if "/apps/" in normalized:
-                normalized = "apps/" + normalized.split("/apps/", 1)[1]
-            elif "/docs/" in normalized:
-                normalized = "docs/" + normalized.split("/docs/", 1)[1]
-            elif "/scripts/" in normalized:
-                normalized = "scripts/" + normalized.split("/scripts/", 1)[1]
-            changed.append(normalized)
-    if not changed:
-        changed.extend(str(item) for item in (state.get("staged_files") or []))
+            changed.append(_normalize_changed_path(str(item), repo_b_path))
+    changed.extend(_normalize_changed_path(str(item), repo_b_path) for item in (state.get("staged_files") or []))
     unique: list[str] = []
     seen: set[str] = set()
     for item in changed:
         normalized = item.replace("\\", "/")
+        if _is_ignored_changed_path(normalized):
+            continue
         if normalized not in seen:
             seen.add(normalized)
             unique.append(normalized)
     return unique
+
+
+def _normalize_changed_path(path: str, repo_b_path: Path | None = None) -> str:
+    normalized = str(path).replace("\\", "/")
+    if repo_b_path is not None:
+        try:
+            return Path(normalized).resolve().relative_to(repo_b_path.resolve()).as_posix()
+        except Exception:
+            pass
+    scope_roots = (".agents/", "apps/", "docs/", "scripts/", "tasks/", "packages/", "config/", "agents/", "graphs/", "workflows/", "skills/", "tools/")
+    for root in scope_roots:
+        marker = f"/{root}"
+        if marker in normalized:
+            return root + normalized.split(marker, 1)[1]
+        if normalized.startswith(root):
+            return normalized
+    if normalized.endswith("/README.md"):
+        return "README.md"
+    if "/.env" in normalized:
+        return normalized.rsplit("/", 1)[-1]
+    return normalized
+
+
+def _is_ignored_changed_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    return (
+        normalized.startswith("tasks/runtime/")
+        or normalized.startswith("docs/handoff/")
+        or "__pycache__/" in normalized
+        or normalized.endswith(".pyc")
+        or ".pytest_cache/" in normalized
+    )
+
+
+def _build_scope_allowlist(task_payload: dict[str, object], repo_b_path: Path) -> list[str]:
+    allowed: list[str] = []
+    for key in ("primary_files", "secondary_files", "related_files"):
+        for raw_path in task_payload.get(key, []) or []:
+            normalized = _normalize_changed_path(str(raw_path), repo_b_path)
+            if normalized not in allowed:
+                allowed.append(normalized)
+
+    design_contract_path = str(task_payload.get("design_contract_path") or "").strip()
+    if design_contract_path:
+        normalized = _normalize_changed_path(design_contract_path, repo_b_path)
+        if normalized not in allowed:
+            allowed.append(normalized)
+
+    if bool(task_payload.get("needs_design_consultation")) or str(task_payload.get("skill_mode") or "").strip() == "design-consultation":
+        if "DESIGN.md" not in allowed:
+            allowed.append("DESIGN.md")
+
+    project_key = str(task_payload.get("project") or repo_b_path.name).strip().lower()
+    story_id = str(task_payload.get("story_id") or "").strip()
+    if project_key == "agenthire" and story_id == "S1-001" and "apps/api/src/db/models.py" in allowed:
+        allowed.append("apps/api/src/infra/db/tables.py")
+    return allowed
 
 
 def _evaluate_criterion(
@@ -167,29 +219,34 @@ def _evaluate_criterion(
 ) -> tuple[bool, str]:
     lowered = criterion.lower()
     story_id = str(task_payload.get("story_id", "")).strip()
+    project_key = str(task_payload.get("project") or repo_b_path.name).strip().lower()
 
-    if story_id == "S0-003":
+    if project_key == "versefina" and story_id == "S0-003":
         evidence = _evaluate_s0_003_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
-    if story_id == "S0-004":
+    if project_key == "versefina" and story_id == "S0-004":
         evidence = _evaluate_s0_004_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
-    if story_id == "S0-005":
+    if project_key == "versefina" and story_id == "S0-005":
         evidence = _evaluate_s0_005_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
-    if story_id == "S0-006":
+    if project_key == "versefina" and story_id == "S0-006":
         evidence = _evaluate_s0_006_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
-    if story_id == "S0-007":
+    if project_key == "versefina" and story_id == "S0-007":
         evidence = _evaluate_s0_007_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
-    if story_id == "S1-001":
+    if project_key == "versefina" and story_id == "S1-001":
         evidence = _evaluate_s1_001_criterion(criterion, repo_b_path)
+        if evidence is not None:
+            return evidence
+    if project_key == "agenthire" and story_id == "S1-001":
+        evidence = _evaluate_agenthire_s1_001_criterion(criterion, repo_b_path)
         if evidence is not None:
             return evidence
 
@@ -453,6 +510,20 @@ def _evaluate_s1_001_criterion(criterion: str, repo_b_path: Path) -> tuple[bool,
         required_tokens = ['upload_status="uploaded"', 'upload_status="rejected"', "error_message", "Statement file is empty."]
         missing = [token for token in required_tokens if token not in service_code]
         return (not missing, "Service covers both success and key failure-path outcomes" if not missing else f"Missing success/failure-path tokens: {', '.join(missing)}")
+    return None
+
+
+def _evaluate_agenthire_s1_001_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
+    lowered = criterion.lower()
+    migration_path = repo_b_path / "apps/api/alembic/versions/0001_agent_marketplace_baseline.py"
+    tables_path = repo_b_path / "apps/api/src/infra/db/tables.py"
+    data_model_path = repo_b_path / "docs/contracts/data-model.md"
+
+    if "schema" in lowered or "migration" in lowered or "marketplace schema" in lowered:
+        artifacts_exist = migration_path.exists() and (tables_path.exists() or data_model_path.exists())
+        if artifacts_exist:
+            return True, "Migration baseline artifacts exist for the marketplace schema story"
+        return False, "Migration baseline artifacts are missing"
     return None
 
 

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 from langgraph.graph import END, StateGraph
 
 from agentsystem.adapters.git_adapter import GitAdapter
+from agentsystem.core.state import DevState, build_mode_coverage
 from agentsystem.dashboard.hooks import send_log, send_node_end, send_node_start, send_workflow_state
-from agentsystem.core.state import DevState
+from agentsystem.orchestration.runtime_memory import collect_mode_artifact_paths, write_node_checkpoint
 from agentsystem.orchestration.skill_mode_registry import resolve_runtime_task
 from agentsystem.orchestration.workflow_registry import get_workflow_plugin
 
@@ -24,11 +25,29 @@ class DevWorkflow:
         self.graph = create_dev_graph(self.workflow_plugin_id, entry_point_override=self.entry_point_override)
 
     def run(self) -> dict:
+        manual_mode = str(self.task.get("skill_mode") or "").strip() or None
         initial_state: DevState = {
             "task_id": self.task_id,
             "user_requirement": str(self.task.get("goal", "")),
             "repo_b_path": str(self.worktree_path),
             "task_payload": self.task,
+            "story_kind": self.task.get("story_kind"),
+            "risk_level": self.task.get("risk_level"),
+            "has_browser_surface": self.task.get("has_browser_surface"),
+            "requires_auth": self.task.get("requires_auth"),
+            "qa_strategy": self.task.get("qa_strategy"),
+            "required_modes": list(self.task.get("required_modes") or []),
+            "advisory_modes": list(self.task.get("advisory_modes") or []),
+            "next_recommended_actions": list(self.task.get("next_recommended_actions") or []),
+            "executed_modes": [manual_mode] if manual_mode else [],
+            "effective_qa_mode": self.task.get("effective_qa_mode"),
+            "auto_upgrade_to_qa": self.task.get("auto_upgrade_to_qa"),
+            "needs_design_review": self.task.get("needs_design_review"),
+            "needs_qa_design_review": self.task.get("needs_qa_design_review"),
+            "needs_design_consultation": self.task.get("needs_design_consultation"),
+            "needs_ceo_review_advice": self.task.get("needs_ceo_review_advice"),
+            "agent_activation_plan": self.task.get("agent_activation_plan"),
+            "agent_mode_coverage": None,
             "skill_mode": self.task.get("skill_mode"),
             "skill_mode_name": self.task.get("skill_mode_name"),
             "skill_mode_description": self.task.get("skill_mode_description"),
@@ -57,6 +76,14 @@ class DevWorkflow:
             "architecture_review_report": None,
             "architecture_review_summary": None,
             "architecture_test_plan": None,
+            "plan_design_review_success": None,
+            "plan_design_review_dir": None,
+            "plan_design_review_report": None,
+            "design_consultation_success": None,
+            "design_consultation_dir": None,
+            "design_consultation_report": None,
+            "design_contract_path": None,
+            "design_preview_path": None,
             "acceptance_checklist": None,
             "story_inputs": None,
             "story_process": None,
@@ -82,6 +109,17 @@ class DevWorkflow:
             "browser_qa_ship_readiness": None,
             "browser_qa_mode": None,
             "browser_qa_report_only": bool(self.task.get("browser_qa_report_only")),
+            "runtime_qa_success": None,
+            "runtime_qa_passed": None,
+            "runtime_qa_report": None,
+            "runtime_qa_dir": None,
+            "runtime_qa_findings": None,
+            "runtime_qa_warnings": None,
+            "runtime_qa_report_only": bool(self.task.get("runtime_qa_report_only")),
+            "qa_design_review_success": None,
+            "qa_design_review_passed": None,
+            "qa_design_review_report": None,
+            "qa_design_review_dir": None,
             "security_report": None,
             "review_success": None,
             "review_passed": None,
@@ -108,7 +146,16 @@ class DevWorkflow:
             "delivery_dir": None,
             "fix_result": None,
             "fix_attempts": 0,
+            "fix_fingerprint_history": [],
             "fix_return_to": None,
+            "failure_type": None,
+            "interruption_reason": None,
+            "last_node": None,
+            "review_issue_signature": None,
+            "review_issue_history": [],
+            "mode_execution_order": [],
+            "mode_artifact_paths": {},
+            "failure_snapshot_path": None,
             "error_message": None,
             "shared_blackboard": {},
             "handoff_packets": [],
@@ -121,6 +168,13 @@ class DevWorkflow:
             "collaboration_ended_at": None,
         }
         final_state = self.graph.invoke(initial_state)
+        _dedupe_state_lists(final_state)
+        final_state["mode_artifact_paths"] = collect_mode_artifact_paths(final_state)
+        final_state["agent_mode_coverage"] = build_mode_coverage(
+            final_state.get("required_modes"),
+            final_state.get("advisory_modes"),
+            final_state.get("executed_modes"),
+        )
         normalized_state = self._normalize(final_state)
         success = self._is_successful_completion(final_state)
         return {
@@ -135,6 +189,8 @@ class DevWorkflow:
         current_step = str(final_state.get("current_step") or "").strip()
         stop_after = str(final_state.get("stop_after") or "").strip()
         if stop_after:
+            if stop_after == "browser_qa" and current_step == "runtime_qa_done":
+                return True
             return current_step == f"{stop_after}_done"
         return current_step == "doc_done"
 
@@ -172,19 +228,71 @@ def _instrument_node(node_name: str, node_func):
         task_id = str(state.get("task_id") or Path(str(state.get("repo_b_path", "workspace"))).name)
         node_input = _compact_payload(state)
         send_node_start(task_id, node_name, node_input)
-        send_log(task_id, "INFO", f"开始执行 {node_name} 节点")
+        send_log(task_id, "INFO", f"Starting {node_name} node")
         send_workflow_state(task_id, node_name, node_input)
+
+        checkpoint_repo_path = Path(
+            str((state.get("task_payload") or {}).get("project_repo_root") or state.get("repo_b_path") or "")
+        ).resolve()
+        if checkpoint_repo_path.exists():
+            write_node_checkpoint(
+                checkpoint_repo_path,
+                project=str((state.get("task_payload") or {}).get("project") or checkpoint_repo_path.name),
+                task_payload=state.get("task_payload"),
+                task_id=task_id,
+                node_name=node_name,
+                phase="start",
+                current_step=str(state.get("current_step") or ""),
+                branch_name=str(state.get("branch_name") or ""),
+                fix_attempts=int(state.get("fix_attempts") or 0),
+                error_message=str(state.get("error_message") or "") or None,
+                extra={"last_node": node_name},
+            )
+
         try:
             result = node_func(state)
+            result["last_node"] = node_name
             node_output = _compact_payload(result)
             status = "failed" if result.get("error_message") else "success"
             send_node_end(task_id, node_name, node_output, status)
-            send_log(task_id, "INFO" if status == "success" else "ERROR", f"{node_name} 节点执行完成")
+            send_log(task_id, "INFO" if status == "success" else "ERROR", f"{node_name} node completed")
             send_workflow_state(task_id, node_name, node_output)
+            if checkpoint_repo_path.exists():
+                write_node_checkpoint(
+                    checkpoint_repo_path,
+                    project=str((result.get("task_payload") or {}).get("project") or (state.get("task_payload") or {}).get("project") or checkpoint_repo_path.name),
+                    task_payload=result.get("task_payload") or state.get("task_payload"),
+                    task_id=task_id,
+                    node_name=node_name,
+                    phase="end",
+                    current_step=str(result.get("current_step") or ""),
+                    branch_name=str(result.get("branch_name") or state.get("branch_name") or ""),
+                    fix_attempts=int(result.get("fix_attempts") or 0),
+                    error_message=str(result.get("error_message") or "") or None,
+                    extra={"last_node": node_name},
+                )
             return result
         except Exception as exc:
-            send_log(task_id, "ERROR", f"{node_name} 节点执行失败: {exc}")
+            send_log(task_id, "ERROR", f"{node_name} node failed: {exc}")
             send_node_end(task_id, node_name, {"error": str(exc)}, "failed")
+            if checkpoint_repo_path.exists():
+                write_node_checkpoint(
+                    checkpoint_repo_path,
+                    project=str((state.get("task_payload") or {}).get("project") or checkpoint_repo_path.name),
+                    task_payload=state.get("task_payload"),
+                    task_id=task_id,
+                    node_name=node_name,
+                    phase="exception",
+                    current_step=str(state.get("current_step") or ""),
+                    branch_name=str(state.get("branch_name") or ""),
+                    fix_attempts=int(state.get("fix_attempts") or 0),
+                    error_message=str(exc),
+                    extra={
+                        "status": "interrupted",
+                        "interruption_reason": "workflow_node_exception",
+                        "last_node": node_name,
+                    },
+                )
             raise
 
     return wrapped
@@ -209,3 +317,19 @@ def _compact_payload(state: DevState) -> dict[str, object]:
         "error_message": state.get("error_message"),
     }
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def _dedupe_state_lists(state: DevState) -> None:
+    for key in ("required_modes", "executed_modes", "advisory_modes", "next_recommended_actions"):
+        values = state.get(key)
+        if not isinstance(values, list):
+            continue
+        deduped: list[object] = []
+        seen: set[str] = set()
+        for item in values:
+            marker = str(item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            deduped.append(item)
+        state[key] = deduped

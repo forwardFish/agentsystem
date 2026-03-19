@@ -39,7 +39,13 @@ class WorkspaceManager:
 
     def _release_lock(self, path: Path) -> None:
         if path.exists():
-            path.unlink()
+            try:
+                path.unlink()
+            except PermissionError:
+                # On Windows, a just-written lock file can briefly remain undeletable
+                # even after the owning task has already unwound. Leave stale cleanup
+                # as best-effort so the original worktree failure is not masked.
+                return
 
     def _task_meta_dir(self, task_id: str) -> Path:
         return self.meta_dir / task_id
@@ -67,6 +73,23 @@ class WorkspaceManager:
     def _is_git_repo(self) -> bool:
         return (self.repo_root / ".git").exists()
 
+    def _clear_stale_git_locks(self) -> None:
+        git_dir = self.repo_root / ".git"
+        if not git_dir.is_dir():
+            return
+        candidates: list[Path] = []
+        index_lock = git_dir / "index.lock"
+        if index_lock.exists():
+            candidates.append(index_lock)
+        refs_dir = git_dir / "refs"
+        if refs_dir.exists():
+            candidates.extend(sorted(refs_dir.rglob("*.lock")))
+        for candidate in candidates:
+            try:
+                candidate.unlink()
+            except OSError:
+                continue
+
     def create_worktree(self, task_id: str, branch: str) -> Path:
         task_lock = self._task_lock_path(task_id)
         branch_lock = self._branch_lock_path(branch)
@@ -80,7 +103,10 @@ class WorkspaceManager:
         worktree_path = self.worktree_root / task_id
         try:
             if self._is_git_repo():
-                self._create_git_worktree(worktree_path, branch)
+                try:
+                    self._create_git_worktree(worktree_path, branch)
+                except Exception:
+                    self._create_snapshot_workspace(worktree_path, branch, task_id)
             else:
                 worktree_path.mkdir(parents=True, exist_ok=False)
         except Exception:
@@ -110,20 +136,67 @@ class WorkspaceManager:
         return worktree_path
 
     def _create_git_worktree(self, worktree_path: Path, branch: str) -> None:
+        base_branch = "main"
+        self._clear_stale_git_locks()
         branch_exists = subprocess.run(
             ["git", "-C", str(self.repo_root), "rev-parse", "--verify", branch],
             capture_output=True,
             text=True,
         ).returncode == 0
+        if branch_exists:
+            # Reusing deterministic task ids is fine, but the branch must be rebased to the
+            # current main tip or the worktree can silently resurrect stale repository state.
+            subprocess.run(
+                ["git", "-C", str(self.repo_root), "branch", "-f", branch, base_branch],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
         command = ["git", "-C", str(self.repo_root), "worktree", "add"]
         if not branch_exists:
             command.extend(["-b", branch])
-        command.extend([str(worktree_path), branch if branch_exists else "main"])
+        command.extend([str(worktree_path), branch if branch_exists else base_branch])
         subprocess.run(
             command,
             check=True,
             capture_output=True,
             text=True,
+        )
+
+    def _create_snapshot_workspace(self, worktree_path: Path, branch: str, task_id: str) -> None:
+        snapshot_ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "pytest-cache-files-*")
+        shutil.rmtree(worktree_path, ignore_errors=True)
+        shutil.copytree(self.repo_root, worktree_path, ignore=snapshot_ignore)
+
+        snapshot_meta_dir = self._task_meta_dir(task_id)
+        snapshot_base_dir = snapshot_meta_dir / "snapshot_base"
+        shutil.rmtree(snapshot_base_dir, ignore_errors=True)
+        shutil.copytree(self.repo_root, snapshot_base_dir, ignore=snapshot_ignore)
+
+        base_commit = ""
+        if self._is_git_repo():
+            result = subprocess.run(
+                ["git", "-C", str(self.repo_root), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                base_commit = result.stdout.strip()
+
+        (snapshot_meta_dir / "snapshot_state.json").write_text(
+            json.dumps(
+                {
+                    "mode": "snapshot",
+                    "branch": branch,
+                    "base_branch": "main",
+                    "base_commit": base_commit,
+                    "current_commit": base_commit,
+                    "created_at": datetime.now().isoformat(timespec="seconds"),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
         )
 
     def clean_worktree(self, task_id: str, *, archive: bool = True) -> None:

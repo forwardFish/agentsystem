@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import sys
 import webbrowser
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Callable
 
 import click
 import uvicorn
@@ -16,9 +19,25 @@ if str(SRC_DIR) not in sys.path:
 from main_production import run_prod_task
 from agentsystem.adapters.config_reader import SystemConfigReader
 from agentsystem.adapters.git_adapter import GitAdapter
+from agentsystem.core.state import build_mode_coverage
 from agentsystem.core.task_card import TaskCard
+from agentsystem.orchestration.agent_activation_resolver import apply_agent_activation_policy
+from agentsystem.orchestration.sprint_hooks import run_sprint_post_hooks, run_sprint_pre_hooks
+from agentsystem.orchestration.runtime_memory import (
+    collect_mode_artifact_paths,
+    ensure_runtime_layout,
+    locate_story_context,
+    read_resume_state,
+    update_agent_coverage_report,
+    update_story_acceptance_review,
+    update_story_status,
+    write_current_handoff,
+    write_resume_state,
+    write_story_handoff,
+)
 from agentsystem.dashboard.main import app as dashboard_app
 from agentsystem.orchestration.workspace_manager import WorkspaceManager
+from agentsystem.agents.plan_ceo_review_agent import generate_plan_ceo_review_package
 from agentsystem.agents.requirements_analyst_agent import analyze_requirement, split_requirement_file
 from scripts.fix_encoding import fix_tree_encoding
 from scripts.render_agent_skills import render_agent_skill, render_all_agent_skills, validate_rendered_agent_package
@@ -30,6 +49,954 @@ def _load_env_config(env: str) -> dict:
     return SystemConfigReader().load(ROOT_DIR / "config" / config_name)
 
 
+def _resolve_project_repo_path(config: dict, project: str) -> Path:
+    repo_map = config.get("repo", {}) if isinstance(config, dict) else {}
+    if not isinstance(repo_map, dict) or project not in repo_map:
+        raise KeyError(f"Unknown project {project!r}; available repos: {sorted(repo_map.keys()) if isinstance(repo_map, dict) else []}")
+    return Path(str(repo_map[project])).resolve()
+
+
+def _resolve_tasks_root(repo_b_path: Path, project: str) -> Path:
+    if project in {"versefina", "finahunt", "agentHire"}:
+        return repo_b_path / "tasks"
+    if (repo_b_path / "tasks").exists():
+        return repo_b_path / "tasks"
+    return ROOT_DIR / "tasks"
+
+
+def _resolve_requirement_input(requirement: str | None, requirement_file: str | None) -> tuple[str | None, Path | None]:
+    inline_text = str(requirement or "").strip() or None
+    file_path = Path(requirement_file).resolve() if requirement_file else None
+    if inline_text and file_path:
+        raise click.ClickException("Use either --requirement or --requirement-file, not both.")
+    if not inline_text and not file_path:
+        raise click.ClickException("Either --requirement or --requirement-file is required.")
+    if file_path and not file_path.exists():
+        raise click.ClickException(f"Requirement file does not exist: {file_path}")
+    return inline_text, file_path
+
+
+def _find_default_requirement_file(repo_b_path: Path, project: str) -> Path | None:
+    requirements_dir = repo_b_path / "docs" / "requirements"
+    if not requirements_dir.exists():
+        return None
+
+    project_key = str(project).strip().lower()
+    patterns_by_project = {
+        "agenthire": [
+            "*phase_1_execution_requirement*.md",
+            "*mvp_v0_1_phase_1_execution_requirement*.md",
+            "*phase_1_requirement*.md",
+            "*.md",
+        ],
+    }
+    patterns = patterns_by_project.get(project_key, ["*.md"])
+    for pattern in patterns:
+        matches = sorted(
+            (path for path in requirements_dir.glob(pattern) if path.is_file()),
+            key=lambda item: (item.stat().st_mtime, item.name),
+            reverse=True,
+        )
+        if matches:
+            return matches[0].resolve()
+    return None
+
+
+def _resolve_requirement_input_for_project(
+    repo_b_path: Path,
+    project: str,
+    requirement: str | None,
+    requirement_file: str | None,
+) -> tuple[str | None, Path | None]:
+    inline_text = str(requirement or "").strip() or None
+    file_path = Path(requirement_file).resolve() if requirement_file else None
+    if inline_text and file_path:
+        raise click.ClickException("Use either --requirement or --requirement-file, not both.")
+    if file_path and not file_path.exists():
+        raise click.ClickException(f"Requirement file does not exist: {file_path}")
+    if inline_text or file_path:
+        return inline_text, file_path
+
+    default_requirement = _find_default_requirement_file(repo_b_path, project)
+    if default_requirement:
+        return None, default_requirement
+
+    raise click.ClickException("Either --requirement or --requirement-file is required.")
+
+
+def _build_backlog_from_requirement(
+    *,
+    env: str,
+    project: str,
+    prefix: str,
+    sprint: str,
+    requirement: str | None,
+    requirement_file: str | None,
+) -> tuple[dict[str, object], Path, Path]:
+    config = _load_env_config(env)
+    repo_b_path = _resolve_project_repo_path(config, project)
+    tasks_root = _resolve_tasks_root(repo_b_path, project)
+    inline_text, file_path = _resolve_requirement_input_for_project(repo_b_path, project, requirement, requirement_file)
+    if inline_text:
+        result = analyze_requirement(repo_b_path, tasks_root, inline_text, sprint=sprint, prefix=prefix)
+    else:
+        result = split_requirement_file(repo_b_path, tasks_root, str(file_path), prefix=prefix)
+    return result, repo_b_path, tasks_root
+
+
+def _sort_sprint_paths(paths: list[Path]) -> list[Path]:
+    def sort_key(path: Path) -> tuple[int, str]:
+        name = path.name
+        try:
+            number = int(name.split("_", 2)[1])
+        except Exception:
+            number = 10**6
+        return (number, name)
+
+    return sorted(paths, key=sort_key)
+
+
+def _load_existing_backlog_result(repo_b_path: Path, project: str, prefix: str) -> tuple[dict[str, object], Path, Path]:
+    tasks_root = _resolve_tasks_root(repo_b_path, project)
+    backlog_root = tasks_root / prefix
+    if not backlog_root.exists() or not (backlog_root / "sprint_overview.md").exists():
+        raise click.ClickException(f"Existing backlog does not exist: {backlog_root}")
+    sprint_dirs = _sort_sprint_paths([path for path in backlog_root.iterdir() if path.is_dir() and path.name.startswith("sprint_")])
+    story_cards = [str(path) for sprint_dir in sprint_dirs for path in sorted(sprint_dir.rglob("S*.yaml"))]
+    return (
+        {
+            "backlog_root": str(backlog_root),
+            "overview_path": str(backlog_root / "sprint_overview.md"),
+            "sprint_dirs": [str(path) for path in sprint_dirs],
+            "story_cards": story_cards,
+        },
+        repo_b_path,
+        tasks_root,
+    )
+
+
+def _resolve_backlog_for_auto_delivery(
+    *,
+    env: str,
+    project: str,
+    prefix: str,
+    sprint: str,
+    requirement: str | None,
+    requirement_file: str | None,
+) -> tuple[dict[str, object], Path, Path]:
+    config = _load_env_config(env)
+    repo_b_path = _resolve_project_repo_path(config, project)
+    if not requirement and not requirement_file:
+        existing_backlog = _resolve_tasks_root(repo_b_path, project) / prefix
+        if existing_backlog.exists() and (existing_backlog / "sprint_overview.md").exists():
+            return _load_existing_backlog_result(repo_b_path, project, prefix)
+    return _build_backlog_from_requirement(
+        env=env,
+        project=project,
+        prefix=prefix,
+        sprint=sprint,
+        requirement=requirement,
+        requirement_file=requirement_file,
+    )
+
+
+def _load_successful_story_index(project: str) -> dict[str, dict[str, object]]:
+    audit_dir = ROOT_DIR / "runs"
+    index: dict[str, dict[str, object]] = {}
+    for audit_path in sorted(audit_dir.glob("prod_audit_*.json")):
+        try:
+            payload = json.loads(audit_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if payload.get("project") != project or not payload.get("success"):
+            continue
+        result = payload.get("result", {}) if isinstance(payload.get("result"), dict) else {}
+        task_payload = result.get("task_payload", {}) if isinstance(result.get("task_payload"), dict) else {}
+        story_id = str(task_payload.get("story_id") or task_payload.get("task_id") or "").strip()
+        if not story_id:
+            continue
+        created_at = str(payload.get("created_at") or "")
+        existing = index.get(story_id)
+        if existing and str(existing.get("created_at") or "") >= created_at:
+            continue
+        index[story_id] = {
+            "story_id": story_id,
+            "task_id": payload.get("task_id"),
+            "branch": payload.get("branch"),
+            "commit": payload.get("commit"),
+            "audit_path": str(audit_path),
+            "created_at": created_at,
+            "backlog_id": task_payload.get("backlog_id"),
+            "sprint_id": task_payload.get("sprint_id"),
+            "artifact_dir": payload.get("artifact_dir"),
+            "audit_payload": payload,
+            "result_payload": result,
+            "task_payload": task_payload,
+            "source": "existing_success_audit",
+            "skipped": True,
+        }
+    return index
+
+
+def _load_backlog_story_specs(backlog_root: Path) -> list[dict[str, object]]:
+    specs: list[dict[str, object]] = []
+    if not backlog_root.exists():
+        return specs
+    for sprint_dir in _sort_sprint_paths([path for path in backlog_root.iterdir() if path.is_dir() and path.name.startswith("sprint_")]):
+        execution_file = sprint_dir / "execution_order.txt"
+        if not execution_file.exists():
+            continue
+        story_ids = [line.strip() for line in execution_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        for position, story_id in enumerate(story_ids):
+            story_file = next(sprint_dir.rglob(f"{story_id}_*.yaml"), None)
+            specs.append(
+                {
+                    "backlog_id": backlog_root.name,
+                    "sprint_id": sprint_dir.name,
+                    "story_id": story_id,
+                    "story_file": story_file,
+                    "position": position,
+                }
+            )
+    return specs
+
+
+def _read_registry_entries(path: Path, key: str) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    entries = payload.get(key) if isinstance(payload, dict) else []
+    return entries if isinstance(entries, list) else []
+
+
+def _runtime_story_key(backlog_id: str | None, sprint_id: str | None, story_id: str | None) -> tuple[str, str, str]:
+    return (str(backlog_id or ""), str(sprint_id or ""), str(story_id or ""))
+
+
+def _runtime_task_from_story_spec(spec: dict[str, object], repo_b_path: Path, project: str, audit_task_payload: dict[str, object] | None) -> dict[str, object]:
+    story_file = spec.get("story_file")
+    raw_payload: dict[str, object]
+    if isinstance(story_file, Path) and story_file.exists():
+        parsed = yaml.safe_load(story_file.read_text(encoding="utf-8"))
+        raw_payload = parsed if isinstance(parsed, dict) else {}
+        task = TaskCard.model_validate(raw_payload).to_runtime_dict()
+        task.update(locate_story_context(story_file, repo_b_path))
+        task["story_file"] = str(story_file)
+    else:
+        raw_payload = dict(audit_task_payload or {})
+        try:
+            task = TaskCard.model_validate(raw_payload).to_runtime_dict()
+        except Exception:
+            task = dict(raw_payload)
+        task.setdefault("tasks_root", str(repo_b_path / "tasks"))
+        task.setdefault("backlog_id", spec.get("backlog_id"))
+        task.setdefault("sprint_id", spec.get("sprint_id"))
+        task.setdefault("story_id", spec.get("story_id"))
+    task["project"] = project
+    task["project_repo_root"] = str(repo_b_path)
+    task["backlog_root"] = str(repo_b_path / "tasks" / str(task.get("backlog_id") or spec.get("backlog_id") or ""))
+    return apply_agent_activation_policy(task, repo_b_path)
+
+
+def _build_reconciled_coverage(audit_snapshot: dict[str, object], runtime_task: dict[str, object]) -> dict[str, object]:
+    result_payload = audit_snapshot.get("result_payload") if isinstance(audit_snapshot.get("result_payload"), dict) else {}
+    task_payload = audit_snapshot.get("task_payload") if isinstance(audit_snapshot.get("task_payload"), dict) else {}
+    executed_modes = list(result_payload.get("executed_modes") or [])
+    required_modes = list(runtime_task.get("required_modes") or result_payload.get("required_modes") or task_payload.get("required_modes") or [])
+    advisory_modes = list(runtime_task.get("advisory_modes") or result_payload.get("advisory_modes") or task_payload.get("advisory_modes") or [])
+    mode_execution_order = list(result_payload.get("mode_execution_order") or executed_modes)
+    mode_artifact_paths = result_payload.get("mode_artifact_paths") if isinstance(result_payload.get("mode_artifact_paths"), dict) else {}
+    if not mode_artifact_paths:
+        mode_artifact_paths = collect_mode_artifact_paths(result_payload)
+    coverage = build_mode_coverage(required_modes, advisory_modes, executed_modes)
+    return {
+        "required_modes": required_modes,
+        "executed_modes": executed_modes,
+        "advisory_modes": advisory_modes,
+        "mode_execution_order": mode_execution_order,
+        "mode_artifact_paths": mode_artifact_paths,
+        "agent_mode_coverage": coverage,
+    }
+
+
+def _reconcile_success_story(
+    *,
+    repo_b_path: Path,
+    project: str,
+    spec: dict[str, object],
+    audit_snapshot: dict[str, object],
+) -> dict[str, object]:
+    runtime_task = _runtime_task_from_story_spec(spec, repo_b_path, project, audit_snapshot.get("task_payload") if isinstance(audit_snapshot, dict) else None)
+    coverage_payload = _build_reconciled_coverage(audit_snapshot, runtime_task)
+    story_id = str(spec.get("story_id") or "")
+    backlog_id = str(spec.get("backlog_id") or runtime_task.get("backlog_id") or "")
+    sprint_id = str(spec.get("sprint_id") or runtime_task.get("sprint_id") or "")
+    audit_path = str(audit_snapshot.get("audit_path") or "")
+    artifact_dir = str(audit_snapshot.get("artifact_dir") or "")
+    task_id = str(audit_snapshot.get("task_id") or "")
+    commit = str(audit_snapshot.get("commit") or "") or None
+    created_at = str(audit_snapshot.get("created_at") or datetime.now().isoformat(timespec="seconds"))
+    result_payload = audit_snapshot.get("result_payload") if isinstance(audit_snapshot.get("result_payload"), dict) else {}
+    story_handoff_path = write_story_handoff(
+        repo_b_path,
+        story_id,
+        {
+            "project": project,
+            "backlog_id": backlog_id,
+            "sprint_id": sprint_id,
+            "story_id": story_id,
+            "task_name": runtime_task.get("task_name") or runtime_task.get("goal"),
+            "current_node": result_payload.get("last_node") or "doc_writer",
+            "status": "done",
+            "last_success_story": story_id,
+            "resume_from_story": story_id,
+            "root_cause": "Story completed successfully (reconciled from historical success audit).",
+            "next_action": "Continue to the next story in the execution order.",
+            "resume_command": f"python cli.py auto-deliver --project {project} --env test --prefix {backlog_id or 'backlog_v1'} --auto-run",
+            "evidence_paths": [item for item in (audit_path, artifact_dir) if item],
+        },
+    )
+    update_story_status(
+        repo_b_path,
+        {
+            "project": project,
+            "backlog_id": backlog_id,
+            "sprint_id": sprint_id,
+            "story_id": story_id,
+            "task_id": task_id,
+            "status": "done",
+            "branch": audit_snapshot.get("branch"),
+            "commit": commit,
+            "started_at": result_payload.get("collaboration_started_at") or created_at,
+            "finished_at": result_payload.get("collaboration_ended_at") or created_at,
+            "verified_at": created_at,
+            "last_node": result_payload.get("last_node") or "doc_writer",
+            "audit_path": audit_path,
+            "resume_token": story_id,
+            "source": "agentsystem_reconciled_success_audit",
+            "summary": "Reconciled from historical success audit.",
+            "validation_summary": str(result_payload.get("test_results") or ""),
+            "delivery_report": str(result_payload.get("delivery_dir") or ""),
+            "evidence": [item for item in (audit_path, artifact_dir, str(story_handoff_path)) if item],
+            "repository": project,
+        },
+    )
+    update_story_acceptance_review(
+        repo_b_path,
+        {
+            "project": project,
+            "backlog_id": backlog_id,
+            "sprint_id": sprint_id,
+            "story_id": story_id,
+            "reviewer": "agentsystem",
+            "review_type": "machine",
+            "verdict": "approved" if coverage_payload["agent_mode_coverage"].get("all_required_executed") else "needs_followup",
+            "acceptance_status": "approved" if coverage_payload["agent_mode_coverage"].get("all_required_executed") else "needs_followup",
+            "summary": "Reconciled automatic acceptance from historical success audit.",
+            "review_findings_summary": {"blocking": [], "important": [], "nice_to_haves": []},
+            "notes": str(story_handoff_path),
+            "checked_at": created_at,
+            "agent_mode_coverage": coverage_payload["agent_mode_coverage"],
+            "evidence_paths": [item for item in (audit_path, artifact_dir, str(story_handoff_path)) if item],
+        },
+    )
+    update_agent_coverage_report(
+        repo_b_path,
+        {
+            "project": project,
+            "backlog_id": backlog_id,
+            "sprint_id": sprint_id,
+            "story_id": story_id,
+            "required_modes": coverage_payload["required_modes"],
+            "executed_modes": coverage_payload["executed_modes"],
+            "advisory_modes": coverage_payload["advisory_modes"],
+            "mode_execution_order": coverage_payload["mode_execution_order"],
+            "mode_artifact_paths": coverage_payload["mode_artifact_paths"],
+            "agent_mode_coverage": coverage_payload["agent_mode_coverage"],
+            "status": "done",
+            "audit_path": audit_path,
+        },
+    )
+    return {
+        **audit_snapshot,
+        "backlog_id": backlog_id,
+        "sprint_id": sprint_id,
+        "story_id": story_id,
+        "status": "done",
+        "required_modes": coverage_payload["required_modes"],
+        "executed_modes": coverage_payload["executed_modes"],
+        "advisory_modes": coverage_payload["advisory_modes"],
+        "mode_execution_order": coverage_payload["mode_execution_order"],
+        "mode_artifact_paths": coverage_payload["mode_artifact_paths"],
+        "agent_mode_coverage": coverage_payload["agent_mode_coverage"],
+        "handoff_path": str(story_handoff_path),
+    }
+
+
+def _reconcile_backlog_successes(project: str, repo_b_path: Path, backlog_root: Path) -> dict[str, dict[str, object]]:
+    ensure_runtime_layout(repo_b_path)
+    successful_audits = _load_successful_story_index(project)
+    reconciled: dict[str, dict[str, object]] = {}
+    for spec in _load_backlog_story_specs(backlog_root):
+        story_id = str(spec.get("story_id") or "")
+        audit_snapshot = successful_audits.get(story_id)
+        if not audit_snapshot:
+            continue
+        snapshot_backlog_id = str(audit_snapshot.get("backlog_id") or "")
+        if snapshot_backlog_id and snapshot_backlog_id != backlog_root.name:
+            continue
+        reconciled[story_id] = _reconcile_success_story(
+            repo_b_path=repo_b_path,
+            project=project,
+            spec=spec,
+            audit_snapshot=audit_snapshot,
+        )
+    return reconciled
+
+
+def _refresh_auto_delivery_counts(payload: dict[str, object]) -> None:
+    sprints = payload.get("sprints") or []
+    if not isinstance(sprints, list):
+        payload["completed_story_count"] = 0
+        payload["failed_story_count"] = 0
+        return
+    payload["completed_story_count"] = sum(len(item.get("completed_stories") or []) for item in sprints if isinstance(item, dict))
+    payload["failed_story_count"] = sum(len(item.get("failed_stories") or []) for item in sprints if isinstance(item, dict))
+
+
+def _resolve_resume_cursor(
+    repo_b_path: Path,
+    backlog_root: str,
+    successful_story_index: dict[str, dict[str, object]],
+) -> tuple[str | None, str | None, str | None, str | None]:
+    backlog_path = Path(backlog_root)
+    resume_state = read_resume_state(repo_b_path)
+    interruption_reason = None
+    if str(resume_state.get("status") or "") == "interrupted":
+        if not str(resume_state.get("backlog_root") or "") or str(resume_state.get("backlog_root") or "") == str(backlog_path):
+            interruption_reason = str(resume_state.get("interruption_reason") or "").strip() or None
+
+    last_success_story: str | None = None
+    for spec in _load_backlog_story_specs(backlog_path):
+        story_id = str(spec.get("story_id") or "")
+        if story_id in successful_story_index:
+            last_success_story = story_id
+            continue
+        return (
+            str(spec.get("sprint_id") or "").strip() or None,
+            story_id or None,
+            last_success_story,
+            interruption_reason,
+        )
+    return None, None, last_success_story, interruption_reason
+
+
+def _persist_auto_delivery_runtime(
+    repo_b_path: Path,
+    summary_path: Path,
+    payload: dict[str, object],
+    *,
+    next_action: str,
+    cleanup_note: str,
+) -> None:
+    checkpoint_at = datetime.now().isoformat(timespec="seconds")
+    payload["last_updated_at"] = checkpoint_at
+    payload["last_checkpoint_at"] = checkpoint_at
+    _refresh_auto_delivery_counts(payload)
+    _write_auto_delivery_summary(payload, summary_path)
+    clear_keys = (
+        ["current_story", "current_node", "resume_from_story", "interruption_reason", "error_message", "failure_snapshot_path"]
+        if str(payload.get("status") or "") == "completed"
+        else []
+    )
+    write_resume_state(
+        repo_b_path,
+        {
+            "project": payload.get("project"),
+            "backlog_id": Path(str(payload.get("backlog_root") or "")).name if payload.get("backlog_root") else None,
+            "backlog_root": payload.get("backlog_root"),
+            "sprint_id": payload.get("current_sprint"),
+            "story_id": payload.get("current_story") or payload.get("last_success_story"),
+            "current_node": payload.get("current_node"),
+            "status": payload.get("status"),
+            "last_success_story": payload.get("last_success_story"),
+            "resume_from_story": payload.get("resume_from_story"),
+            "interruption_reason": payload.get("interruption_reason"),
+        },
+        clear_keys=clear_keys,
+    )
+    write_current_handoff(
+        repo_b_path,
+        {
+            "project": payload.get("project"),
+            "backlog_id": Path(str(payload.get("backlog_root") or "")).name if payload.get("backlog_root") else None,
+            "sprint_id": payload.get("current_sprint"),
+            "story_id": payload.get("current_story") or payload.get("resume_from_story") or payload.get("last_success_story"),
+            "current_node": payload.get("current_node"),
+            "status": payload.get("status"),
+            "last_success_story": payload.get("last_success_story"),
+            "resume_from_story": payload.get("resume_from_story"),
+            "interruption_reason": payload.get("interruption_reason"),
+            "root_cause": payload.get("error_message")
+            or payload.get("interruption_reason")
+            or ("Automatic delivery completed." if str(payload.get("status") or "") == "completed" else "Auto delivery state persisted."),
+            "next_action": next_action,
+            "resume_command": f"python cli.py auto-deliver --project {payload.get('project')} --env {payload.get('env')} --prefix {Path(str(payload.get('backlog_root') or '')).name or 'backlog_v1'} --auto-run",
+            "evidence_paths": [str(summary_path)],
+            "cleanup_note": cleanup_note,
+        },
+    )
+
+
+def _execute_auto_delivery(
+    *,
+    backlog_result: dict[str, object],
+    repo_b_path: Path,
+    tasks_root: Path,
+    env: str,
+    project: str,
+    release: bool,
+    echo: Callable[[str], Any] | None = None,
+) -> Path:
+    printer = echo or click.echo
+    sprint_dirs = [Path(item).resolve() for item in (backlog_result.get("sprint_dirs") or [])]
+    backlog_root_path = Path(str(backlog_result["backlog_root"])).resolve()
+    backlog_root = str(backlog_root_path)
+    successful_story_index = _reconcile_backlog_successes(project, repo_b_path, backlog_root_path)
+    resume_sprint_id, resume_story_id, last_success_story, interruption_reason = _resolve_resume_cursor(
+        repo_b_path,
+        backlog_root,
+        successful_story_index,
+    )
+    if resume_sprint_id and not any(sprint_dir.name == resume_sprint_id for sprint_dir in sprint_dirs):
+        resume_sprint_id = None
+        resume_story_id = None
+        last_success_story = None
+        interruption_reason = None
+    backlog_summary: dict[str, object] = {
+        "project": project,
+        "env": env,
+        "repo_path": str(repo_b_path),
+        "tasks_root": str(tasks_root),
+        "backlog_root": backlog_root,
+        "story_count": len(backlog_result["story_cards"]),
+        "auto_run": True,
+        "release": release,
+        "status": "running",
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "current_sprint": resume_sprint_id,
+        "current_story": resume_story_id,
+        "current_node": None,
+        "last_success_story": last_success_story,
+        "resume_from_story": resume_story_id,
+        "interruption_reason": interruption_reason,
+        "sprints": [],
+    }
+    summary_path = _write_auto_delivery_summary(backlog_summary)
+
+    if resume_story_id is None:
+        backlog_summary["status"] = "completed"
+        backlog_summary["current_sprint"] = None
+        backlog_summary["current_story"] = None
+        backlog_summary["current_node"] = None
+        backlog_summary["resume_from_story"] = None
+        backlog_summary["interruption_reason"] = None
+        backlog_summary["error_message"] = None
+        _persist_auto_delivery_runtime(
+            repo_b_path,
+            summary_path,
+            backlog_summary,
+            next_action="Automatic delivery already matches the current backlog state.",
+            cleanup_note="No cleanup required.",
+        )
+        printer(f"Auto delivery summary: {summary_path}")
+        printer(f"Completed stories: {backlog_summary['completed_story_count']}")
+        printer(f"Failed stories: {backlog_summary['failed_story_count']}")
+        return summary_path
+
+    _persist_auto_delivery_runtime(
+        repo_b_path,
+        summary_path,
+        backlog_summary,
+        next_action="Resume or continue automatic story delivery from the recorded cursor.",
+        cleanup_note="No cleanup required before continuing.",
+    )
+
+    try:
+        for sprint_dir in sprint_dirs:
+            printer(f"Running sprint: {sprint_dir.name}")
+            sprint_snapshot: dict[str, object] = {
+                "sprint_dir": str(sprint_dir),
+                "story_count": 0,
+                "completed_stories": [],
+                "failed_stories": [],
+                "pre_hook": None,
+                "post_hook": None,
+                "status": "running",
+            }
+            backlog_summary["sprints"].append(sprint_snapshot)
+            backlog_summary["current_sprint"] = sprint_dir.name
+            _persist_auto_delivery_runtime(
+                repo_b_path,
+                summary_path,
+                backlog_summary,
+                next_action=f"Execute sprint {sprint_dir.name}.",
+                cleanup_note="No cleanup required before continuing.",
+            )
+
+            def progress_callback(current: dict[str, object]) -> None:
+                sprint_snapshot.clear()
+                sprint_snapshot.update(current)
+                backlog_summary["current_sprint"] = sprint_dir.name
+                backlog_summary["current_story"] = current.get("current_story")
+                backlog_summary["current_node"] = current.get("current_node")
+                backlog_summary["last_success_story"] = current.get("last_success_story") or backlog_summary.get("last_success_story")
+                backlog_summary["resume_from_story"] = current.get("resume_from_story") or backlog_summary.get("resume_from_story")
+                backlog_summary["interruption_reason"] = current.get("interruption_reason") or backlog_summary.get("interruption_reason")
+                backlog_summary["error_message"] = current.get("error_message") or backlog_summary.get("error_message")
+                backlog_summary["status"] = current.get("status") or backlog_summary.get("status")
+                _persist_auto_delivery_runtime(
+                    repo_b_path,
+                    summary_path,
+                    backlog_summary,
+                    next_action="Continue with the current sprint cursor.",
+                    cleanup_note="No cleanup required before continuing.",
+                )
+
+            sprint_result = _run_sprint_directory(
+                sprint_dir,
+                repo_b_path=repo_b_path,
+                env=env,
+                project=project,
+                release=release,
+                start_story_id=resume_story_id if sprint_dir.name == resume_sprint_id else None,
+                continue_on_failure=False,
+                echo=printer,
+                successful_story_index=successful_story_index,
+                progress_callback=progress_callback,
+            )
+            progress_callback(sprint_result)
+            resume_story_id = None
+        backlog_summary["status"] = "completed"
+        backlog_summary["current_story"] = None
+        backlog_summary["current_node"] = None
+        backlog_summary["resume_from_story"] = None
+        backlog_summary["interruption_reason"] = None
+        backlog_summary["error_message"] = None
+    except click.ClickException:
+        backlog_summary["status"] = "interrupted"
+        _persist_auto_delivery_runtime(
+            repo_b_path,
+            summary_path,
+            backlog_summary,
+            next_action="Inspect the last failed story and resume from the checkpoint.",
+            cleanup_note="A failed worktree may need inspection before retry.",
+        )
+        raise
+    except Exception as exc:
+        backlog_summary["status"] = "interrupted"
+        backlog_summary["interruption_reason"] = str(backlog_summary.get("interruption_reason") or "auto_delivery_exception")
+        backlog_summary["error_message"] = backlog_summary.get("error_message") or str(exc)
+        _persist_auto_delivery_runtime(
+            repo_b_path,
+            summary_path,
+            backlog_summary,
+            next_action="Inspect the last failed story and resume from the checkpoint.",
+            cleanup_note="A failed worktree may need inspection before retry.",
+        )
+        raise click.ClickException(str(exc)) from exc
+
+    _persist_auto_delivery_runtime(
+        repo_b_path,
+        summary_path,
+        backlog_summary,
+        next_action="Automatic delivery completed or reached the end of the current backlog.",
+        cleanup_note="No cleanup required.",
+    )
+    printer(f"Auto delivery summary: {summary_path}")
+    printer(f"Completed stories: {backlog_summary['completed_story_count']}")
+    printer(f"Failed stories: {backlog_summary['failed_story_count']}")
+    return summary_path
+
+
+def _run_sprint_directory(
+    sprint_dir: Path,
+    *,
+    repo_b_path: Path,
+    env: str,
+    project: str,
+    release: bool,
+    start_from: int = 0,
+    start_story_id: str | None = None,
+    continue_on_failure: bool = False,
+    echo: callable | None = None,
+    successful_story_index: dict[str, dict[str, object]] | None = None,
+    progress_callback: Callable[[dict[str, object]], Any] | None = None,
+) -> dict[str, object]:
+    printer = echo or click.echo
+    target_dir = sprint_dir.resolve()
+    execution_file = target_dir / "execution_order.txt"
+    if not target_dir.exists() or not execution_file.exists():
+        raise click.ClickException(f"Sprint directory or execution_order.txt is missing: {target_dir}")
+
+    story_ids = [line.strip() for line in execution_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if start_story_id and start_story_id in story_ids:
+        start_from = story_ids.index(start_story_id)
+    if start_from < 0 or start_from >= len(story_ids):
+        raise click.ClickException(f"start-from is out of range: {start_from}")
+
+    pre_hook = run_sprint_pre_hooks(target_dir, project=project, release=release)
+    printer(f"Sprint advisory saved: {pre_hook['advice_path']}")
+
+    completed: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
+    successful_story_index = successful_story_index or {}
+
+    def publish_progress(
+        *,
+        status: str = "running",
+        current_story: str | None = None,
+        current_node: str | None = None,
+        resume_from_story: str | None = None,
+        interruption_reason: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        if progress_callback is None:
+            return
+        progress_callback(
+            {
+                "sprint_dir": str(target_dir),
+                "story_count": len(story_ids[start_from:]),
+                "completed_stories": list(completed),
+                "failed_stories": list(failed),
+                "pre_hook": pre_hook,
+                "post_hook": None,
+                "status": status,
+                "current_story": current_story,
+                "current_node": current_node,
+                "last_success_story": completed[-1].get("story_id") if completed else None,
+                "resume_from_story": resume_from_story if resume_from_story is not None else (failed[-1].get("story_id") if failed else None),
+                "interruption_reason": interruption_reason if interruption_reason is not None else (failed[-1].get("error") if failed else None),
+                "error_message": error_message if error_message is not None else (failed[-1].get("error") if failed else None),
+            }
+        )
+
+    def persist_interruption(story_id: str, reason: str, message: str, evidence_paths: list[str], current_node: str | None = None) -> None:
+        write_resume_state(
+            repo_b_path,
+            {
+                "project": project,
+                "backlog_root": str(target_dir.parent),
+                "backlog_id": target_dir.parent.name,
+                "sprint_id": target_dir.name,
+                "story_id": story_id,
+                "current_node": current_node,
+                "status": "interrupted",
+                "resume_from_story": story_id,
+                "interruption_reason": reason,
+                "error_message": message,
+            },
+        )
+        write_current_handoff(
+            repo_b_path,
+            {
+                "project": project,
+                "backlog_id": target_dir.parent.name,
+                "sprint_id": target_dir.name,
+                "story_id": story_id,
+                "current_node": current_node,
+                "status": "interrupted",
+                "resume_from_story": story_id,
+                "interruption_reason": reason,
+                "root_cause": message,
+                "next_action": f"Fix the blocker for {story_id}, then resume automatic delivery from this story.",
+                "resume_command": f"python cli.py auto-deliver --project {project} --env {env} --prefix {target_dir.parent.name} --auto-run",
+                "evidence_paths": evidence_paths,
+                "cleanup_note": "Inspect the failed story and rerun from the latest checkpoint.",
+            },
+        )
+
+    for index, story_id in enumerate(story_ids[start_from:], start=start_from + 1):
+        successful_snapshot = successful_story_index.get(story_id)
+        if successful_snapshot:
+            completed.append(dict(successful_snapshot))
+            printer(f"[{index}/{len(story_ids)}] Skipping {story_id} (reconciled success audit)")
+            write_resume_state(
+                repo_b_path,
+                {
+                    "project": project,
+                    "backlog_root": str(target_dir.parent),
+                    "backlog_id": target_dir.parent.name,
+                    "sprint_id": target_dir.name,
+                    "story_id": story_id,
+                    "status": "running",
+                    "last_success_story": story_id,
+                    "resume_from_story": story_ids[index] if index < len(story_ids) else story_id,
+                },
+                clear_keys=["interruption_reason", "error_message", "failure_type", "failure_snapshot_path"],
+            )
+            publish_progress()
+            continue
+
+        story_file = next(target_dir.rglob(f"{story_id}_*.yaml"), None)
+        if story_file is None:
+            message = f"Story card not found for {story_id}"
+            failed.append({"story_id": story_id, "error": message})
+            printer(f"[{index}/{len(story_ids)}] {story_id} failed: {message}")
+            persist_interruption(story_id, "story_card_missing", message, [])
+            publish_progress(
+                status="interrupted",
+                current_story=story_id,
+                resume_from_story=story_id,
+                interruption_reason="story_card_missing",
+                error_message=message,
+            )
+            if continue_on_failure:
+                continue
+            raise click.ClickException(message)
+
+        printer(f"[{index}/{len(story_ids)}] Running {story_id}")
+        update_story_status(
+            repo_b_path,
+            {
+                "project": project,
+                "backlog_id": target_dir.parent.name,
+                "sprint_id": target_dir.name,
+                "story_id": story_id,
+                "status": "running",
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "source": "agentsystem_runtime",
+                "repository": project,
+            },
+        )
+        write_resume_state(
+            repo_b_path,
+            {
+                "project": project,
+                "backlog_root": str(target_dir.parent),
+                "backlog_id": target_dir.parent.name,
+                "sprint_id": target_dir.name,
+                "story_id": story_id,
+                "status": "running",
+                "resume_from_story": story_id,
+            },
+        )
+        write_current_handoff(
+            repo_b_path,
+            {
+                "project": project,
+                "backlog_id": target_dir.parent.name,
+                "sprint_id": target_dir.name,
+                "story_id": story_id,
+                "status": "running",
+                "resume_from_story": story_id,
+                "root_cause": "Story execution in progress.",
+                "next_action": f"Execute story {story_id}.",
+                "resume_command": f"python cli.py auto-deliver --project {project} --env {env} --prefix {target_dir.parent.name} --auto-run",
+                "evidence_paths": [str(story_file)],
+                "cleanup_note": "No cleanup required before continuing.",
+            },
+        )
+        try:
+            output = run_prod_task(story_file, env, project=project)
+        except Exception as exc:
+            failed.append({"story_id": story_id, "error": str(exc)})
+            printer(f"  Failed: {exc}")
+            persist_interruption(story_id, "run_prod_task_exception", str(exc), [str(story_file)])
+            publish_progress(
+                status="interrupted",
+                current_story=story_id,
+                resume_from_story=story_id,
+                interruption_reason="run_prod_task_exception",
+                error_message=str(exc),
+            )
+            if not continue_on_failure:
+                raise click.ClickException(f"Task execution failed for {story_id}: {exc}") from exc
+            continue
+
+        if output.get("success"):
+            completed.append({"story_id": story_id, "task_id": output.get("task_id"), "commit": output.get("commit")})
+            printer(f"  Branch: {output['branch']}")
+            printer(f"  Commit: {output['commit']}")
+            write_resume_state(
+                repo_b_path,
+                {
+                    "project": project,
+                    "backlog_root": str(target_dir.parent),
+                    "backlog_id": target_dir.parent.name,
+                    "sprint_id": target_dir.name,
+                    "story_id": story_id,
+                    "status": "running",
+                    "last_success_story": story_id,
+                    "resume_from_story": story_ids[index] if index < len(story_ids) else story_id,
+                    "current_node": "doc_writer",
+                    "error_message": None,
+                    "interruption_reason": None,
+                },
+                clear_keys=["interruption_reason", "error_message", "failure_type", "failure_snapshot_path"],
+            )
+            publish_progress()
+            continue
+
+        failure_message = str(output.get("error") or "workflow_failed")
+        failure_reason = str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("interruption_reason") or failure_message)
+        failed.append({"story_id": story_id, "error": failure_message, "task_id": output.get("task_id")})
+        printer(f"  Failed: {failure_message}")
+        persist_interruption(
+            story_id,
+            failure_reason,
+            failure_message,
+            [item for item in (str(story_file), str(output.get("audit_path") or "")) if item],
+            current_node=str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("last_node") or "") or None,
+        )
+        publish_progress(
+            status="interrupted",
+            current_story=story_id,
+            current_node=str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("last_node") or "") or None,
+            resume_from_story=story_id,
+            interruption_reason=failure_reason,
+            error_message=failure_message,
+        )
+        if continue_on_failure:
+            continue
+        raise click.ClickException(f"Task execution failed for {story_id}: {failure_message}")
+
+    post_hook = run_sprint_post_hooks(target_dir, project=project, release=release)
+    printer(f"Sprint document-release report: {post_hook['document_release_path']}")
+    printer(f"Sprint retro report: {post_hook['retro_path']}")
+    if post_hook.get("ship_advice_path"):
+        printer(f"Sprint ship advice: {post_hook['ship_advice_path']}")
+
+    return {
+        "sprint_dir": str(target_dir),
+        "story_count": len(story_ids[start_from:]),
+        "completed_stories": completed,
+        "failed_stories": failed,
+        "pre_hook": pre_hook,
+        "post_hook": post_hook,
+        "status": "completed",
+        "current_story": None,
+        "current_node": "doc_writer" if not failed else None,
+        "last_success_story": completed[-1].get("story_id") if completed else None,
+        "resume_from_story": failed[-1].get("story_id") if failed else None,
+        "interruption_reason": failed[-1].get("error") if failed else None,
+        "error_message": failed[-1].get("error") if failed else None,
+    }
+
+
+def _write_auto_delivery_summary(payload: dict[str, object], summary_path: Path | None = None) -> Path:
+    output_dir = ROOT_DIR / "runs" / "auto_delivery"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if summary_path is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        summary_path = output_dir / f"auto_delivery_{timestamp}.json"
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary_path
+
+
 @click.group()
 def cli() -> None:
     """AgentSystem command line tool."""
@@ -38,8 +1005,9 @@ def cli() -> None:
 @cli.command("run-task")
 @click.option("--task-file", required=True, help="Task card file path")
 @click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--project", help="Target project/repository id, for example versefina or finahunt")
 @click.option("--resume", is_flag=True, help="Resume from checkpoint (reserved)")
-def run_task(task_file: str, env: str, resume: bool) -> None:
+def run_task(task_file: str, env: str, project: str | None, resume: bool) -> None:
     task_path = Path(task_file)
     if not task_path.exists():
         click.echo(f"Task card file does not exist: {task_file}", err=True)
@@ -58,7 +1026,7 @@ def run_task(task_file: str, env: str, resume: bool) -> None:
         click.echo("resume is reserved; the current local workflow always starts from the task card.")
 
     try:
-        output = run_prod_task(task_path, env)
+        output = run_prod_task(task_path, env, project=project)
     except Exception as exc:
         click.echo(f"Task execution failed: {exc}", err=True)
         raise SystemExit(1) from exc
@@ -73,13 +1041,21 @@ def run_task(task_file: str, env: str, resume: bool) -> None:
 @click.option("--requirement", "-r", required=True, help="Large natural-language requirement")
 @click.option("--sprint", "-s", default="1", show_default=True, help="Fallback sprint number for generic requirements")
 @click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
 @click.option("--prefix", "-p", default="backlog_v1", show_default=True, help="Output backlog directory name")
-def analyze(requirement: str, sprint: str, env: str, prefix: str) -> None:
+def analyze(requirement: str, sprint: str, env: str, project: str, prefix: str) -> None:
     """Analyze a large requirement and generate backlog artifacts."""
-    config = _load_env_config(env)
-    repo_b_path = Path(config["repo"]["versefina"]).resolve()
-    result = analyze_requirement(repo_b_path, ROOT_DIR / "tasks", requirement, sprint=sprint, prefix=prefix)
+    result, _repo_b_path, tasks_root = _build_backlog_from_requirement(
+        env=env,
+        project=project,
+        prefix=prefix,
+        sprint=sprint,
+        requirement=requirement,
+        requirement_file=None,
+    )
     click.echo("Requirement analysis completed")
+    click.echo(f"  Project: {project}")
+    click.echo(f"  Tasks root: {tasks_root}")
     click.echo(f"  Backlog root: {result['backlog_root']}")
     click.echo(f"  Overview: {result['overview_path']}")
     click.echo(f"  Story count: {len(result['story_cards'])}")
@@ -94,13 +1070,21 @@ def analyze(requirement: str, sprint: str, env: str, prefix: str) -> None:
     help="Requirement markdown file path",
 )
 @click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
 @click.option("--prefix", "-p", default="backlog_v1", show_default=True, help="Output backlog directory name")
-def split_requirement(requirement_file: str, env: str, prefix: str) -> None:
+def split_requirement(requirement_file: str, env: str, project: str, prefix: str) -> None:
     """Split a requirement markdown file into formal backlog_v1 sprint artifacts."""
-    config = _load_env_config(env)
-    repo_b_path = Path(config["repo"]["versefina"]).resolve()
-    result = split_requirement_file(repo_b_path, ROOT_DIR / "tasks", requirement_file, prefix=prefix)
+    result, _repo_b_path, tasks_root = _build_backlog_from_requirement(
+        env=env,
+        project=project,
+        prefix=prefix,
+        sprint="1",
+        requirement=None,
+        requirement_file=requirement_file,
+    )
     click.echo("Requirement split completed")
+    click.echo(f"  Project: {project}")
+    click.echo(f"  Tasks root: {tasks_root}")
     click.echo(f"  Backlog root: {result['backlog_root']}")
     click.echo(f"  Overview: {result['overview_path']}")
     click.echo(f"  Story count: {len(result['story_cards'])}")
@@ -111,7 +1095,9 @@ def split_requirement(requirement_file: str, env: str, prefix: str) -> None:
 @click.option("--sprint", help="Legacy sprint number, for example 1")
 @click.option("--start-from", default=0, show_default=True, help="Story index to start from")
 @click.option("--env", default="test", show_default=True, help="Runtime environment")
-def run_sprint(sprint_dir: str | None, sprint: str | None, start_from: int, env: str) -> None:
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
+@click.option("--release", is_flag=True, help="Mark this sprint run as a release candidate and emit ship advice")
+def run_sprint(sprint_dir: str | None, sprint: str | None, start_from: int, env: str, project: str, release: bool) -> None:
     """Run all story cards in a generated sprint directory."""
     if not sprint_dir and not sprint:
         click.echo("Either --sprint-dir or --sprint is required.", err=True)
@@ -121,28 +1107,149 @@ def run_sprint(sprint_dir: str | None, sprint: str | None, start_from: int, env:
         target_dir = Path(sprint_dir).resolve()
     else:
         target_dir = ROOT_DIR / "tasks" / f"sprint_{sprint}"
-
-    execution_file = target_dir / "execution_order.txt"
-    if not target_dir.exists() or not execution_file.exists():
-        click.echo(f"Sprint directory or execution_order.txt is missing: {target_dir}", err=True)
-        raise SystemExit(1)
-
-    story_ids = [line.strip() for line in execution_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if start_from < 0 or start_from >= len(story_ids):
-        click.echo(f"start-from is out of range: {start_from}", err=True)
-        raise SystemExit(1)
-
-    for index, story_id in enumerate(story_ids[start_from:], start=start_from + 1):
-        story_file = next(target_dir.rglob(f"{story_id}_*.yaml"), None)
-        if story_file is None:
-            click.echo(f"Story card not found for {story_id}", err=True)
-            raise SystemExit(1)
-        click.echo(f"[{index}/{len(story_ids)}] Running {story_id}")
-        output = run_prod_task(story_file, env)
-        click.echo(f"  Branch: {output['branch']}")
-        click.echo(f"  Commit: {output['commit']}")
-
+    _run_sprint_directory(
+        target_dir,
+        env=env,
+        project=project,
+        release=release,
+        start_from=start_from,
+        continue_on_failure=False,
+        echo=click.echo,
+    )
     click.echo(f"Sprint completed: {target_dir}")
+
+
+@cli.command("auto-deliver")
+@click.option("--requirement", "-r", help="Large natural-language requirement")
+@click.option("--requirement-file", "-f", help="Requirement markdown file path")
+@click.option("--sprint", "-s", default="1", show_default=True, help="Fallback sprint number for generic requirements")
+@click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
+@click.option("--prefix", "-p", default="backlog_v1", show_default=True, help="Output backlog directory name")
+@click.option("--auto-run", is_flag=True, help="After backlog generation, immediately execute every sprint/story until completion")
+@click.option("--release", is_flag=True, help="Mark sprint runs as release candidates and emit ship advice")
+def auto_deliver(
+    requirement: str | None,
+    requirement_file: str | None,
+    sprint: str,
+    env: str,
+    project: str,
+    prefix: str,
+    auto_run: bool,
+    release: bool,
+) -> None:
+    """Generate backlog artifacts from a requirement and optionally execute the full delivery chain."""
+    result, repo_b_path, tasks_root = _resolve_backlog_for_auto_delivery(
+        env=env,
+        project=project,
+        prefix=prefix,
+        sprint=sprint,
+        requirement=requirement,
+        requirement_file=requirement_file,
+    )
+    click.echo("Auto delivery backlog generation completed")
+    click.echo(f"  Project: {project}")
+    click.echo(f"  Repo: {repo_b_path}")
+    click.echo(f"  Tasks root: {tasks_root}")
+    click.echo(f"  Backlog root: {result['backlog_root']}")
+    click.echo(f"  Story count: {len(result['story_cards'])}")
+
+    if not auto_run:
+        click.echo("Auto-run is off; backlog generation stopped here.")
+        click.echo("Re-run with --auto-run to execute every sprint and story automatically.")
+        return
+
+    _execute_auto_delivery(
+        backlog_result=result,
+        repo_b_path=repo_b_path,
+        tasks_root=tasks_root,
+        env=env,
+        project=project,
+        release=release,
+        echo=click.echo,
+    )
+
+
+@cli.command("plan-ceo-review")
+@click.option("--requirement", "-r", help="Natural-language requirement input")
+@click.option("--requirement-file", "-f", help="Requirement markdown file path")
+@click.option("--title", help="Optional requirement title override")
+@click.option("--user-problem", help="Explicit user problem statement")
+@click.option("--constraints", help="Optional constraints, separated by newlines or semicolons")
+@click.option("--success-signal", help="Optional success signals, separated by newlines or semicolons")
+@click.option("--audience", help="Optional target audience")
+@click.option("--delivery-mode", type=click.Choice(["interactive", "auto"]), default="interactive", show_default=True)
+@click.option("--sprint", "-s", default="1", show_default=True, help="Fallback sprint number for generic requirements")
+@click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
+@click.option("--prefix", "-p", default="backlog_v1", show_default=True, help="Output backlog directory name")
+@click.option("--release", is_flag=True, help="Mark sprint runs as release candidates and emit ship advice")
+def plan_ceo_review(
+    requirement: str | None,
+    requirement_file: str | None,
+    title: str | None,
+    user_problem: str | None,
+    constraints: str | None,
+    success_signal: str | None,
+    audience: str | None,
+    delivery_mode: str,
+    sprint: str,
+    env: str,
+    project: str,
+    prefix: str,
+    release: bool,
+) -> None:
+    """Generate a product-level requirement document, then optionally continue into auto delivery."""
+    config = _load_env_config(env)
+    repo_b_path = _resolve_project_repo_path(config, project)
+    inline_text, file_path = _resolve_requirement_input_for_project(repo_b_path, project, requirement, requirement_file)
+    requirement_text = inline_text or Path(file_path).read_text(encoding="utf-8")
+
+    package = generate_plan_ceo_review_package(
+        repo_b_path,
+        project=project,
+        requirement_text=requirement_text,
+        title=title,
+        user_problem=user_problem,
+        constraints=constraints,
+        success_signal=success_signal,
+        audience=audience,
+        delivery_mode=delivery_mode,
+        source_requirement_path=file_path,
+    )
+
+    click.echo("Plan CEO review completed")
+    click.echo(f"  Project: {project}")
+    click.echo(f"  Requirement doc: {package['requirement_doc_path']}")
+    click.echo(f"  Review report: {package['review_report_path']}")
+    click.echo(f"  Opportunity map: {package['opportunity_map_path']}")
+
+    if delivery_mode != "auto":
+        click.echo("Delivery mode is interactive; stopped after requirement document generation.")
+        for action in package.get("next_recommended_actions") or []:
+            click.echo(f"  Next: {action}")
+        return
+
+    result, resolved_repo_b_path, tasks_root = _build_backlog_from_requirement(
+        env=env,
+        project=project,
+        prefix=prefix,
+        sprint=sprint,
+        requirement=None,
+        requirement_file=str(package["requirement_doc_path"]),
+    )
+    click.echo("Plan CEO review handoff accepted; starting auto delivery.")
+    click.echo(f"  Backlog root: {result['backlog_root']}")
+    click.echo(f"  Story count: {len(result['story_cards'])}")
+    _execute_auto_delivery(
+        backlog_result=result,
+        repo_b_path=resolved_repo_b_path,
+        tasks_root=tasks_root,
+        env=env,
+        project=project,
+        release=release,
+        echo=click.echo,
+    )
 
 
 @cli.command("list-tasks")
