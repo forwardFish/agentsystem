@@ -1,0 +1,66 @@
+policy_id: global_agent_activation
+version: v1
+defaults:
+  required_modes:
+    - plan-eng-review
+    - review
+    - qa-only
+classification:
+  ui_prefixes:
+    - apps/web/
+    - dashboard/static/
+    - frontend/
+  ui_extensions:
+    - .tsx
+    - .jsx
+    - .css
+    - .scss
+    - .html
+  api_prefixes:
+    - apps/api/
+    - backend/
+  runtime_prefixes:
+    - agents/
+    - graphs/
+    - workflows/
+    - packages/
+    - config/spec/
+    - tools/gate_check/
+  database_tokens:
+    - migration
+    - schema
+    - .sql
+  high_risk_tokens:
+    - schema
+    - contract
+    - config/
+    - migration
+    - db/
+    - database
+    - infra/
+    - devops
+    - workflow
+    - graph
+  design_tokens:
+    - page.tsx
+    - layout.tsx
+    - component
+    - feature
+qa:
+  default_mode: qa-only
+  high_risk_mode: qa
+advisory:
+  plan-ceo-review:
+    story_kinds:
+      - ui
+      - mixed
+    min_risk: medium
+  design-consultation:
+    story_kinds:
+      - ui
+      - mixed
+    min_risk: high
+  setup-browser-cookies:
+    requires_auth: true
+  ship:
+    sprint_only: true

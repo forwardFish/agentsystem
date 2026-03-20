@@ -360,6 +360,14 @@
       `;
     }
 
+    function renderModePills(items, emptyText = "None") {
+      const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (!normalized.length) {
+        return `<div class="text-sm text-slate-400">${emptyText}</div>`;
+      }
+      return `<div class="flex flex-wrap gap-2">${normalized.map((item) => `<span class="pill not_started">${item}</span>`).join("")}</div>`;
+    }
+
     function renderTabs() {
       ["summary", "reports", "events", "collab"].forEach((name) => {
         document.getElementById(`tab-${name}`).classList.toggle("active", name === activeTab);
@@ -443,7 +451,13 @@
 
     function renderWorkflowSummary(workflow) {
       const agentManifestIds = Array.isArray(workflow?.agent_manifest_ids) ? workflow.agent_manifest_ids.filter(Boolean) : [];
-      const hasWorkflow = Boolean(workflow?.workflow_plugin_id || workflow?.workflow_manifest_path || agentManifestIds.length);
+      const hasWorkflow = Boolean(
+        workflow?.workflow_plugin_id
+        || workflow?.workflow_manifest_path
+        || agentManifestIds.length
+        || workflow?.story_kind
+        || workflow?.risk_level
+      );
       if (!hasWorkflow) {
         return `<div class="text-sm text-slate-400">No workflow manifest metadata recorded for this run.</div>`;
       }
@@ -452,7 +466,20 @@
           ["Workflow Plugin", workflow?.workflow_plugin_id],
           ["Workflow Manifest", workflow?.workflow_manifest_path],
           ["Agent Manifest Count", workflow?.agent_manifest_count ? String(workflow.agent_manifest_count) : String(agentManifestIds.length || 0)],
+          ["Story Kind", workflow?.story_kind],
+          ["Risk Level", workflow?.risk_level],
+          ["QA Strategy", workflow?.qa_strategy],
+          ["Effective QA Mode", workflow?.effective_qa_mode],
         ])}
+        <div class="mt-4 grid gap-4 md:grid-cols-3">
+          <div><div class="section-label mb-2">Required Modes</div>${renderModePills(workflow?.required_modes, "No required modes recorded.")}</div>
+          <div><div class="section-label mb-2">Executed Modes</div>${renderModePills(workflow?.executed_modes, "No executed modes recorded.")}</div>
+          <div><div class="section-label mb-2">Advisory Modes</div>${renderModePills(workflow?.advisory_modes, "No advisory modes recorded.")}</div>
+        </div>
+        <div class="mt-4">
+          <div class="section-label mb-2">Next Recommended Actions</div>
+          ${renderList(workflow?.next_recommended_actions, "No follow-up actions recorded.")}
+        </div>
         <div class="mt-4">
           <div class="section-label mb-2">Agent Manifest IDs</div>
           ${renderList(agentManifestIds, "No agent manifests recorded.")}
@@ -675,6 +702,10 @@
           ["Business Value", story.business_value],
           ["Blast Radius", story.blast_radius],
           ["Execution Mode", story.execution_mode || story.mode],
+          ["Story Kind", workflow.story_kind || completion.story_kind || story.story_kind],
+          ["Risk Level", workflow.risk_level || completion.risk_level || story.risk_level],
+          ["QA Strategy", workflow.qa_strategy || completion.qa_strategy || story.qa_strategy],
+          ["Effective QA Mode", workflow.effective_qa_mode || completion.effective_qa_mode || story.effective_qa_mode],
           ["Sprint", story.sprint],
           ["Epic", story.epic],
           ["Fix Attempts", String(completion.fix_attempts || 0)],
@@ -719,6 +750,9 @@
         ["Branch", latestRun.branch],
         ["Commit", latestRun.commit],
         ["Success", latestRun.success === true ? "yes" : latestRun.success === false ? "no" : businessValidated ? "verified" : "-"],
+        ["Story Kind", latestRun.story_kind || workflow.story_kind],
+        ["Risk Level", latestRun.risk_level || workflow.risk_level],
+        ["QA Strategy", latestRun.qa_strategy || workflow.qa_strategy],
       ]);
 
       document.getElementById("run-summary").insertAdjacentHTML("beforeend", `
@@ -733,6 +767,22 @@
         <div>
           <div class="section-label mb-2">Agent Manifest IDs</div>
           ${renderList(workflow.agent_manifest_ids, "No agent manifests recorded.")}
+        </div>
+        <div>
+          <div class="section-label mb-2">Required Modes</div>
+          ${renderModePills(workflow.required_modes, "No required modes recorded.")}
+        </div>
+        <div>
+          <div class="section-label mb-2">Executed Modes</div>
+          ${renderModePills(workflow.executed_modes, "No executed modes recorded.")}
+        </div>
+        <div>
+          <div class="section-label mb-2">Advisory Modes</div>
+          ${renderModePills(workflow.advisory_modes, "No advisory modes recorded.")}
+        </div>
+        <div>
+          <div class="section-label mb-2">Next Recommended Actions</div>
+          ${renderList(workflow.next_recommended_actions, "No follow-up actions recorded.")}
         </div>
       `);
       document.getElementById("business-validation").innerHTML = renderValidation(latestRun);

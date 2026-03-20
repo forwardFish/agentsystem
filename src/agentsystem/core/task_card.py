@@ -12,6 +12,7 @@ def _clean_string_list(values: list[str] | tuple[str, ...] | None) -> list[str]:
 class TaskCard(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    project: str | None = None
     task_id: str | None = None
     task_name: str | None = None
     sprint: str | None = None
@@ -21,6 +22,8 @@ class TaskCard(BaseModel):
     business_value: str | None = None
     execution_mode: Literal["Fast", "Safe"] | None = None
     mode: Literal["Fast", "Safe"] | None = None
+    agent_policy: Literal["auto", "manual"] | None = None
+    requires_auth: bool | None = None
     goal: str = Field(min_length=1)
     entry_criteria: list[str] = Field(default_factory=list)
     acceptance_criteria: list[str] = Field(min_length=1)
@@ -64,6 +67,8 @@ class TaskCard(BaseModel):
             self.mode = self.execution_mode
         if not self.execution_mode and self.mode:
             self.execution_mode = self.mode
+        if not self.agent_policy:
+            self.agent_policy = "auto"
 
         if not self.explicitly_not_doing and self.not_do:
             self.explicitly_not_doing = _clean_string_list(self.not_do)
@@ -90,6 +95,7 @@ class TaskCard(BaseModel):
         payload = self.model_dump()
         payload["mode"] = self.mode or self.execution_mode
         payload["execution_mode"] = self.execution_mode or self.mode
+        payload["agent_policy"] = self.agent_policy or "auto"
         return payload
 
     def _default_story_inputs(self) -> list[str]:

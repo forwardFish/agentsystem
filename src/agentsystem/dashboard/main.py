@@ -12,12 +12,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .project_registry import ProjectRegistration, RuntimeSurface
+from .snake import SnakeAdvanceRequest, SnakeNewGameRequest, advance_game, create_new_game
 from .versefina_runtime_showcase import load_versefina_runtime_showcase_data
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 RUNS_DIR = BASE_DIR / "runs"
 EVENTS_DIR = RUNS_DIR / "events"
 ARTIFACTS_DIR = RUNS_DIR / "artifacts"
+SPRINT_RUNS_DIR = RUNS_DIR / "sprints"
 REPO_META_DIR = BASE_DIR / "repo-worktree" / ".meta"
 TASKS_DIR = BASE_DIR / "tasks"
 STORY_STATUS_REGISTRY = TASKS_DIR / "story_status_registry.json"
@@ -25,8 +27,12 @@ STORY_ACCEPTANCE_REVIEW_REGISTRY = TASKS_DIR / "story_acceptance_reviews.json"
 FINAHUNT_TASKS_DIR = BASE_DIR.parent / "finahunt" / "tasks"
 FINAHUNT_STORY_STATUS_REGISTRY = FINAHUNT_TASKS_DIR / "story_status_registry.json"
 FINAHUNT_STORY_ACCEPTANCE_REVIEW_REGISTRY = FINAHUNT_TASKS_DIR / "story_acceptance_reviews.json"
+AGENTHIRE_TASKS_DIR = BASE_DIR.parent / "agentHire" / "tasks"
+AGENTHIRE_STORY_STATUS_REGISTRY = AGENTHIRE_TASKS_DIR / "story_status_registry.json"
+AGENTHIRE_STORY_ACCEPTANCE_REVIEW_REGISTRY = AGENTHIRE_TASKS_DIR / "story_acceptance_reviews.json"
 FINAHUNT_RUNTIME_DIR = BASE_DIR.parent / "finahunt" / "workspace" / "artifacts" / "runtime"
 VERSEFINA_RUNTIME_DIR = BASE_DIR.parent / "versefina" / ".runtime"
+MAX_INDEXED_AUDIT_BYTES = 5 * 1024 * 1024
 
 
 class StoryAcceptanceReviewPayload(BaseModel):
@@ -76,6 +82,11 @@ async def get_story_dashboard() -> FileResponse:
     return FileResponse(Path(__file__).parent / "static" / "story.html")
 
 
+@app.get("/snake")
+async def get_snake_dashboard() -> FileResponse:
+    return FileResponse(Path(__file__).parent / "static" / "snake.html")
+
+
 @app.get("/projects/{project_id}/runtime")
 async def get_project_runtime_dashboard(project_id: str):
     return _runtime_dashboard_response(project_id)
@@ -114,6 +125,16 @@ async def get_metrics(project: str = "versefina") -> JSONResponse:
 @app.get("/api/projects")
 async def get_projects() -> JSONResponse:
     return JSONResponse({"projects": load_projects()})
+
+
+@app.post("/api/snake/new")
+async def post_snake_new_game(payload: SnakeNewGameRequest) -> JSONResponse:
+    return JSONResponse(create_new_game(width=payload.width, height=payload.height, seed=payload.seed).model_dump())
+
+
+@app.post("/api/snake/tick")
+async def post_snake_tick(payload: SnakeAdvanceRequest) -> JSONResponse:
+    return JSONResponse(advance_game(payload.state, requested_direction=payload.requested_direction).model_dump())
 
 
 @app.get("/api/projects/{project_id}/runtime/showcase")
@@ -311,6 +332,10 @@ def load_task_detail(task_id: str) -> dict[str, Any]:
             archive_dir / "delivery" / "story_delivery_report.md",
             meta_dir / "delivery" / "story_delivery_report.md",
         ),
+        "runtime_qa_report": _read_first_available_text(
+            archive_dir / "runtime_qa" / "runtime_qa_report.md",
+            meta_dir / "runtime_qa" / "runtime_qa_report.md",
+        ),
         "result_report": _read_first_available_text(
             archive_dir / "delivery" / "story_result_report.md",
             meta_dir / "delivery" / "story_result_report.md",
@@ -428,8 +453,7 @@ def _collect_story_metrics_records(project_id: str) -> list[dict[str, Any]]:
                 "acceptance_met": 0,
             }
             if run_info.get("source") == "agentsystem_audit" and run_info.get("task_id"):
-                detail = load_task_detail(str(run_info["task_id"]))
-                audit_log = detail.get("audit_log", {})
+                audit_log = _load_task_audit_log(str(run_info["task_id"]))
                 result = audit_log.get("result", {}) if isinstance(audit_log, dict) else {}
                 task_payload = result.get("task_payload", {}) if isinstance(result, dict) else {}
                 acceptance_items = task_payload.get("acceptance_criteria", []) if isinstance(task_payload, dict) else []
@@ -447,6 +471,17 @@ def _collect_story_metrics_records(project_id: str) -> list[dict[str, Any]]:
     return records
 
 
+def _load_task_audit_log(task_id: str) -> dict[str, Any]:
+    run_file = RUNS_DIR / f"prod_audit_{task_id}.json"
+    if not run_file.exists():
+        return {}
+    try:
+        payload = json.loads(run_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def load_projects() -> list[dict[str, Any]]:
     projects: list[dict[str, Any]] = []
     for project in _build_project_registry().values():
@@ -461,6 +496,7 @@ def load_projects() -> list[dict[str, Any]]:
                 "backlog_count": len(backlogs),
                 "has_runtime": project.has_runtime,
                 "runtime_dashboard_path": f"/projects/{project.id}/runtime" if project.has_runtime else None,
+                "coverage_status": _load_project_coverage_status(project.id),
             }
         )
     return projects
@@ -504,6 +540,7 @@ def load_backlog_detail(backlog_id: str, project_id: str = "versefina") -> dict[
 def load_sprint_detail(backlog_id: str, sprint_id: str, project_id: str = "versefina") -> dict[str, Any]:
     sprint_dir = _get_tasks_dir(project_id) / backlog_id / sprint_id
     story_index = _load_story_run_index(project_id)
+    sprint_runs_dir = SPRINT_RUNS_DIR / project_id / sprint_id
     execution_order = [line.strip() for line in _read_optional_text(sprint_dir / "execution_order.txt").splitlines() if line.strip()]
     epics: list[dict[str, Any]] = []
     for epic_doc in sorted(sprint_dir.glob("epic_*.md")):
@@ -537,6 +574,10 @@ def load_sprint_detail(backlog_id: str, sprint_id: str, project_id: str = "verse
         "id": sprint_id,
         "sprint_plan_markdown": _read_optional_text(sprint_dir / "sprint_plan.md"),
         "quality_report_markdown": _read_optional_text(sprint_dir / "sprint_quality_report.md"),
+        "sprint_agent_advice": _read_json_file(sprint_runs_dir / "sprint_agent_advice.json") or {},
+        "document_release_report_markdown": _read_optional_text(sprint_runs_dir / "document_release_report.md"),
+        "retro_report_markdown": _read_optional_text(sprint_runs_dir / "retro_report.md"),
+        "ship_advice": _read_json_file(sprint_runs_dir / "ship_advice.json") or {},
         "execution_order": execution_order,
         "epics": epics,
     }
@@ -565,6 +606,15 @@ def load_story_detail(backlog_id: str, sprint_id: str, story_id: str, project_id
         }
     payload = _merge_story_contract(payload, task_detail.get("audit_log") if isinstance(task_detail, dict) else {})
     human_review = load_story_acceptance_review(project_id, backlog_id, sprint_id, story_id)
+    runtime_coverage = _load_runtime_story_coverage(project_id, backlog_id, sprint_id, story_id)
+    workflow = _merge_runtime_story_workflow(
+        task_detail.get("workflow") if isinstance(task_detail, dict) else {},
+        runtime_coverage,
+        human_review,
+    )
+    if isinstance(task_detail, dict):
+        task_detail = dict(task_detail)
+        task_detail["workflow"] = workflow
     acceptance_template = _build_acceptance_template(payload, task_detail.get("completion") or {}, human_review)
     return {
         "project": project_id,
@@ -575,7 +625,7 @@ def load_story_detail(backlog_id: str, sprint_id: str, story_id: str, project_id
         "latest_task_id": run_info.get("task_id") if run_info else None,
         "latest_run": run_info,
         "task_detail": task_detail,
-        "workflow": task_detail.get("workflow") if isinstance(task_detail, dict) else {},
+        "workflow": workflow,
         "human_review": human_review,
         "acceptance_template": acceptance_template,
     }
@@ -800,6 +850,22 @@ def _merge_story_contract(story_payload: dict[str, Any], audit_log: dict[str, An
             payload[key] = [str(item).strip() for item in runtime_value if str(item).strip()]
         else:
             payload[key] = []
+    for key in (
+        "story_kind",
+        "risk_level",
+        "qa_strategy",
+        "effective_qa_mode",
+        "requires_auth",
+        "has_browser_surface",
+        "required_modes",
+        "advisory_modes",
+        "next_recommended_actions",
+    ):
+        if key in payload and payload.get(key) not in (None, "", []):
+            continue
+        runtime_value = runtime_task_payload.get(key)
+        if runtime_value not in (None, "", []):
+            payload[key] = runtime_value
     return payload
 
 
@@ -863,13 +929,36 @@ def _build_acceptance_template(
     }
 
 
+def _build_mode_coverage(required_modes: list[str], advisory_modes: list[str], executed_modes: list[str]) -> dict[str, Any]:
+    executed_set = {str(item) for item in executed_modes if str(item).strip()}
+    required = [str(item) for item in required_modes if str(item).strip()]
+    advisory = [str(item) for item in advisory_modes if str(item).strip()]
+    missing_required = [mode for mode in required if mode not in executed_set]
+    advisory_executed = [mode for mode in advisory if mode in executed_set]
+    return {
+        "required": required,
+        "executed": list(executed_modes),
+        "advisory": advisory,
+        "missing_required": missing_required,
+        "executed_required_count": sum(1 for mode in required if mode in executed_set),
+        "required_count": len(required),
+        "advisory_executed": advisory_executed,
+        "advisory_executed_count": len(advisory_executed),
+        "all_required_executed": not missing_required,
+    }
+
+
 def _extract_completion(payload: dict[str, Any]) -> dict[str, Any]:
     result = payload.get("result", {}) if isinstance(payload, dict) else {}
     task_payload = result.get("task_payload", {}) if isinstance(result, dict) else {}
+    required_modes = list(result.get("required_modes") or task_payload.get("required_modes") or [])
+    executed_modes = list(result.get("executed_modes") or [])
+    advisory_modes = list(result.get("advisory_modes") or task_payload.get("advisory_modes") or [])
     return {
         "tests_passed": bool(result.get("test_passed")),
         "browser_qa_passed": result.get("browser_qa_passed"),
         "browser_qa_health_score": result.get("browser_qa_health_score"),
+        "runtime_qa_passed": result.get("runtime_qa_passed"),
         "code_style_review_passed": bool(result.get("code_style_review_passed")),
         "review_passed": bool(result.get("review_passed")),
         "code_acceptance_passed": bool(result.get("code_acceptance_passed")),
@@ -879,6 +968,15 @@ def _extract_completion(payload: dict[str, Any]) -> dict[str, Any]:
         "acceptance_criteria": list(task_payload.get("acceptance_criteria") or []),
         "story_id": task_payload.get("story_id") or task_payload.get("task_id"),
         "task_name": task_payload.get("task_name") or task_payload.get("goal"),
+        "story_kind": result.get("story_kind") or task_payload.get("story_kind"),
+        "risk_level": result.get("risk_level") or task_payload.get("risk_level"),
+        "qa_strategy": result.get("qa_strategy") or task_payload.get("qa_strategy"),
+        "effective_qa_mode": result.get("effective_qa_mode") or task_payload.get("effective_qa_mode"),
+        "required_modes": required_modes,
+        "executed_modes": executed_modes,
+        "advisory_modes": advisory_modes,
+        "next_recommended_actions": list(result.get("next_recommended_actions") or task_payload.get("next_recommended_actions") or []),
+        "mode_coverage": _build_mode_coverage(required_modes, advisory_modes, executed_modes),
     }
 
 
@@ -888,11 +986,24 @@ def _extract_workflow(payload: dict[str, Any]) -> dict[str, Any]:
         result = {}
     task_payload = result.get("task_payload", {}) if isinstance(result.get("task_payload"), dict) else {}
     agent_manifest_ids = [str(item) for item in (result.get("workflow_agent_manifest_ids") or []) if item]
+    required_modes = list(result.get("required_modes") or task_payload.get("required_modes") or [])
+    executed_modes = list(result.get("executed_modes") or [])
+    advisory_modes = list(result.get("advisory_modes") or task_payload.get("advisory_modes") or [])
     return {
         "workflow_plugin_id": result.get("workflow_plugin_id") or task_payload.get("workflow_plugin") or task_payload.get("workflow_plugin_id"),
         "workflow_manifest_path": result.get("workflow_manifest_path"),
         "agent_manifest_ids": agent_manifest_ids,
         "agent_manifest_count": len(agent_manifest_ids),
+        "story_kind": result.get("story_kind") or task_payload.get("story_kind"),
+        "risk_level": result.get("risk_level") or task_payload.get("risk_level"),
+        "qa_strategy": result.get("qa_strategy") or task_payload.get("qa_strategy"),
+        "effective_qa_mode": result.get("effective_qa_mode") or task_payload.get("effective_qa_mode"),
+        "required_modes": required_modes,
+        "executed_modes": executed_modes,
+        "advisory_modes": advisory_modes,
+        "next_recommended_actions": list(result.get("next_recommended_actions") or task_payload.get("next_recommended_actions") or []),
+        "agent_activation_plan": result.get("agent_activation_plan") or task_payload.get("agent_activation_plan") or {},
+        "mode_coverage": result.get("agent_mode_coverage") or _build_mode_coverage(required_modes, advisory_modes, executed_modes),
     }
 
 
@@ -950,6 +1061,11 @@ def _load_story_run_index(project_id: str = "versefina") -> dict[str, dict[str, 
     if RUNS_DIR.exists():
         for run_file in sorted(RUNS_DIR.glob("prod_audit_*.json"), key=lambda item: item.stat().st_mtime):
             try:
+                if run_file.stat().st_size > MAX_INDEXED_AUDIT_BYTES:
+                    continue
+            except OSError:
+                continue
+            try:
                 payload = json.loads(run_file.read_text(encoding="utf-8"))
             except Exception:
                 continue
@@ -973,6 +1089,14 @@ def _load_story_run_index(project_id: str = "versefina") -> dict[str, dict[str, 
                 "commit": payload.get("commit"),
                 "created_at": payload.get("created_at") or run_file.stat().st_mtime,
                 "source": "agentsystem_audit",
+                "repository": task_project or project_id,
+                "story_kind": payload.get("story_kind") or result.get("story_kind") or task_payload.get("story_kind"),
+                "risk_level": payload.get("risk_level") or result.get("risk_level") or task_payload.get("risk_level"),
+                "qa_strategy": payload.get("qa_strategy") or result.get("qa_strategy") or task_payload.get("qa_strategy"),
+                "required_modes": list(payload.get("required_modes") or result.get("required_modes") or task_payload.get("required_modes") or []),
+                "executed_modes": list(payload.get("executed_modes") or result.get("executed_modes") or []),
+                "advisory_modes": list(payload.get("advisory_modes") or result.get("advisory_modes") or task_payload.get("advisory_modes") or []),
+                "next_recommended_actions": list(payload.get("next_recommended_actions") or result.get("next_recommended_actions") or task_payload.get("next_recommended_actions") or []),
             }
     for entry in _load_story_status_registry(project_id):
         story_id = entry.get("story_id")
@@ -1019,14 +1143,19 @@ def _load_story_status_registry(project_id: str = "versefina") -> list[dict[str,
 
 
 def load_story_acceptance_review(project_id: str, backlog_id: str, sprint_id: str, story_id: str) -> dict[str, Any] | None:
-    for review in _load_story_acceptance_reviews(project_id):
+    matches = [
+        review
+        for review in _load_story_acceptance_reviews(project_id)
         if (
             str(review.get("backlog_id")) == backlog_id
             and str(review.get("sprint_id")) == sprint_id
             and str(review.get("story_id")) == story_id
-        ):
-            return review
-    return None
+        )
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: str(item.get("checked_at") or item.get("updated_at") or ""))
+    return matches[-1]
 
 
 def save_story_acceptance_review(
@@ -1092,6 +1221,74 @@ def _get_story_acceptance_review_registry(project_id: str) -> Path:
     return _get_project_registration(project_id).story_acceptance_review_registry
 
 
+def _load_project_coverage_status(project_id: str) -> str:
+    report_path = _get_tasks_dir(project_id) / "runtime" / "agent_coverage_report.json"
+    if not report_path.exists():
+        return "missing"
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "missing"
+    return str(payload.get("coverage_status") or "missing")
+
+
+def _load_runtime_story_coverage(project_id: str, backlog_id: str, sprint_id: str, story_id: str) -> dict[str, Any] | None:
+    report_path = _get_tasks_dir(project_id) / "runtime" / "agent_coverage_report.json"
+    if not report_path.exists():
+        return None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    stories = payload.get("stories") if isinstance(payload, dict) else []
+    if not isinstance(stories, list):
+        return None
+    matches = [
+        item
+        for item in stories
+        if isinstance(item, dict)
+        and str(item.get("backlog_id") or "") == backlog_id
+        and str(item.get("sprint_id") or "") == sprint_id
+        and str(item.get("story_id") or "") == story_id
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: str(item.get("audit_path") or item.get("story_id") or ""))
+    return matches[-1]
+
+
+def _merge_runtime_story_workflow(
+    workflow: dict[str, Any] | None,
+    runtime_coverage: dict[str, Any] | None,
+    human_review: dict[str, Any] | None,
+) -> dict[str, Any]:
+    merged = dict(workflow or {})
+    if isinstance(runtime_coverage, dict):
+        for key in ("required_modes", "executed_modes", "advisory_modes", "mode_execution_order", "mode_artifact_paths"):
+            value = runtime_coverage.get(key)
+            if value not in (None, "", []):
+                merged[key] = value
+
+    review_coverage = (human_review or {}).get("agent_mode_coverage") if isinstance(human_review, dict) else None
+    if isinstance(review_coverage, dict):
+        if not merged.get("required_modes"):
+            merged["required_modes"] = list(review_coverage.get("required") or [])
+        if not merged.get("executed_modes"):
+            merged["executed_modes"] = list(review_coverage.get("executed") or [])
+        if not merged.get("advisory_modes"):
+            merged["advisory_modes"] = list(review_coverage.get("advisory") or [])
+
+    required_modes = list(merged.get("required_modes") or [])
+    executed_modes = list(merged.get("executed_modes") or [])
+    advisory_modes = list(merged.get("advisory_modes") or [])
+    merged["mode_coverage"] = (
+        (runtime_coverage or {}).get("agent_mode_coverage")
+        or review_coverage
+        or _build_mode_coverage(required_modes, advisory_modes, executed_modes)
+    )
+    return merged
+
+
 def _get_project_registration(project_id: str) -> ProjectRegistration:
     registry = _build_project_registry()
     return registry.get(project_id) or registry["versefina"]
@@ -1123,6 +1320,14 @@ def _build_project_registry() -> dict[str, ProjectRegistration]:
                 showcase_loader=load_finahunt_runtime_showcase,
                 runs_loader=load_finahunt_runtime_runs,
             ),
+        ),
+        "agentHire": ProjectRegistration(
+            id="agentHire",
+            name="AgentHire",
+            description="Agent Marketplace Phase 1 backlog and delivery evidence",
+            tasks_dir=AGENTHIRE_TASKS_DIR,
+            story_status_registry=AGENTHIRE_STORY_STATUS_REGISTRY,
+            story_acceptance_review_registry=AGENTHIRE_STORY_ACCEPTANCE_REVIEW_REGISTRY,
         ),
     }
 

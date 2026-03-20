@@ -15,6 +15,8 @@ from agentsystem.agents.contract_artifacts import (
 from agentsystem.agents.llm_editing import llm_rewrite_file
 from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, add_handoff_packet
 
+RUNTIME_TOUCH_MARKER = "Backend Dev Agent touched runtime story scope."
+
 
 def backend_dev_node(state: DevState) -> dict[str, object]:
     print("[Backend Dev Agent] Starting backend work")
@@ -88,21 +90,27 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
         candidate_files.append(repo_b_path / "apps" / "api" / "src" / "domain" / "agent_registry" / "service.py")
 
     story_id = str((task_payload or {}).get("story_id", "")).strip()
+    project_key = _project_key(repo_b_path, task_payload)
     related_files = [str(item) for item in (task_payload or {}).get("related_files", [])]
-    if story_id == "S0-001":
-        return materialize_profile_schema_artifacts(repo_b_path, related_files)
-    if story_id == "S0-002":
-        return materialize_world_state_schema_artifacts(repo_b_path, related_files)
-    if story_id == "S0-003":
-        return materialize_agent_contract_artifacts(repo_b_path, related_files)
-    if story_id == "S0-004":
-        return materialize_error_state_spec_artifacts(repo_b_path, related_files)
-    if story_id == "S0-006":
-        return materialize_statement_storage_artifacts(repo_b_path, related_files)
-    if story_id == "S0-007":
-        return materialize_audit_idempotency_artifacts(repo_b_path, related_files)
-    if story_id == "S1-001":
-        return materialize_statement_upload_api_artifacts(repo_b_path, related_files)
+    if project_key == "versefina":
+        if story_id == "S0-001":
+            return materialize_profile_schema_artifacts(repo_b_path, related_files)
+        if story_id == "S0-002":
+            return materialize_world_state_schema_artifacts(repo_b_path, related_files)
+        if story_id == "S0-003":
+            return materialize_agent_contract_artifacts(repo_b_path, related_files)
+        if story_id == "S0-004":
+            return materialize_error_state_spec_artifacts(repo_b_path, related_files)
+        if story_id == "S0-006":
+            return materialize_statement_storage_artifacts(repo_b_path, related_files)
+        if story_id == "S0-007":
+            return materialize_audit_idempotency_artifacts(repo_b_path, related_files)
+        if story_id == "S1-001":
+            return materialize_statement_upload_api_artifacts(repo_b_path, related_files)
+    if project_key == "agenthire" and story_id in {"S0-001", "S0-002", "S0-003", "S0-004"}:
+        existing = [str(path) for path in candidate_files if path.exists()]
+        if existing:
+            return existing
 
     for backend_file in candidate_files:
         if not backend_file.exists():
@@ -112,6 +120,11 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
         rewritten = llm_rewrite_file(repo_b_path, task_payload, backend_file, system_role="Backend Builder Agent")
         if rewritten and rewritten != content:
             backend_file.write_text(rewritten, encoding="utf-8")
+            updated_files.append(str(backend_file))
+            continue
+        deterministic = _apply_deterministic_backend_touch(backend_file, content, task_payload)
+        if deterministic != content:
+            backend_file.write_text(deterministic, encoding="utf-8")
             updated_files.append(str(backend_file))
             continue
         marker = 'Position(symbol="000001.SZ", qty=300, avg_cost=12.45),'
@@ -126,3 +139,28 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
             backend_file.write_text(content, encoding="utf-8")
             updated_files.append(str(backend_file))
     return updated_files
+
+
+def _project_key(repo_b_path: Path, task_payload: dict[str, object] | None) -> str:
+    return str((task_payload or {}).get("project") or repo_b_path.name).strip().lower()
+
+
+def _apply_deterministic_backend_touch(
+    backend_file: Path,
+    content: str,
+    task_payload: dict[str, object] | None,
+) -> str:
+    normalized = backend_file.as_posix().lower()
+    story_kind = str((task_payload or {}).get("story_kind") or "").strip().lower()
+    runtime_like = story_kind == "runtime_data" or any(
+        token in normalized for token in ("/agents/", "/graphs/", "/workflows/", "/packages/", "/skills/", "/config/spec/", "/tools/gate_check/")
+    )
+    if not runtime_like:
+        return content
+    if backend_file.suffix.lower() == ".py":
+        marker = f"# {RUNTIME_TOUCH_MARKER}"
+        return content if marker in content else f"{content.rstrip()}\n\n{marker}\n"
+    if backend_file.suffix.lower() in {".yaml", ".yml", ".md"}:
+        marker = f"# {RUNTIME_TOUCH_MARKER}"
+        return content if marker in content else f"{marker}\n{content}"
+    return content

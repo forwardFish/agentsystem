@@ -1,0 +1,45 @@
+{
+  "mode_id": "document-release",
+  "name": "Document Release",
+  "version": "v1",
+  "description": "Update repository-facing delivery documentation so shipped behavior and operating notes stay aligned.",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": false,
+  "entry_mode": null,
+  "stop_after": null,
+  "report_only": false,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "repo_context",
+    "docs_diff",
+    "command_exec"
+  ],
+  "required_inputs": [
+    "shipped_scope",
+    "release_notes",
+    "doc_targets",
+    "operating_changes"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/document_release/document_release_report.md",
+    ".meta/<repo>/document_release/doc_sync_plan.json"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.doc_writer"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\doc_writer.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\document-release\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\document-release\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "documentation",
+    "host_surface": "claude_skill",
+    "status": "template_only",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\document-release\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\document-release\\SKILL.md"
+  }
+}

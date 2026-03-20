@@ -81,6 +81,26 @@ def requirement_analysis_node(state: DevState) -> DevState:
                         files_to_modify=[normalized],
                     )
                 )
+            elif normalized.startswith(
+                (
+                    "agents/",
+                    "graphs/",
+                    "workflows/",
+                    "packages/",
+                    "skills/",
+                    "config/spec/",
+                    "config/rules/",
+                    "tools/gate_check/",
+                )
+            ):
+                subtasks.append(
+                    SubTask(
+                        id=str(index),
+                        type="backend",
+                        description="Update the requested runtime or data module",
+                        files_to_modify=[normalized],
+                    )
+                )
             elif normalized.startswith("scripts/") or normalized.endswith(".sql"):
                 subtasks.append(
                     SubTask(

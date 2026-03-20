@@ -584,6 +584,7 @@ def _infer_fix_return_target(issues: list[dict[str, object]]) -> str:
     priorities = {
         AgentRole.CODE_STYLE_REVIEWER.value: "code_style_reviewer",
         AgentRole.TESTER.value: "tester",
+        AgentRole.QA_DESIGN_REVIEW.value: "browser_qa",
         AgentRole.BROWSER_QA.value: "browser_qa",
         AgentRole.RUNTIME_QA.value: "runtime_qa",
         AgentRole.REVIEWER.value: "reviewer",

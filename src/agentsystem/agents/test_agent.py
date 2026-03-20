@@ -108,6 +108,7 @@ def _record_test_handoff(state: DevState) -> None:
     test_dir.mkdir(parents=True, exist_ok=True)
     report_path = test_dir / "test_report.md"
     report_path.write_text(str(state.get("test_results") or ""), encoding="utf-8")
+    next_agent = AgentRole.BROWSER_QA if str(state.get("qa_strategy") or "browser") == "browser" else AgentRole.RUNTIME_QA
 
     if state.get("test_passed"):
         add_handoff_packet(
@@ -115,7 +116,7 @@ def _record_test_handoff(state: DevState) -> None:
             HandoffPacket(
                 packet_id=str(uuid.uuid4()),
                 from_agent=AgentRole.TESTER,
-                to_agent=AgentRole.BROWSER_QA,
+                to_agent=next_agent,
                 status=HandoffStatus.COMPLETED,
                 what_i_did="Executed configured validation commands and story-specific checks.",
                 what_i_produced=[
@@ -180,6 +181,9 @@ def _record_test_handoff(state: DevState) -> None:
 
 def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
     story_id = str(task_payload.get("story_id", "")).strip()
+    project_key = str(task_payload.get("project") or repo_b_path.name).strip().lower()
+    if project_key != "versefina":
+        return True, "No story-specific validation required."
     if story_id == "S0-001":
         return _validate_profile_schema_story(repo_b_path)
     if story_id == "S0-002":

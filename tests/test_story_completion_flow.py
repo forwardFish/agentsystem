@@ -12,7 +12,7 @@ from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.code_style_reviewer_agent import code_style_review_node, route_after_code_style_review
 from agentsystem.agents.doc_agent import doc_node
-from agentsystem.agents.fix_agent import fix_node, route_after_fix
+from agentsystem.agents.fix_agent import FIXER_COMMENT, fix_node, route_after_fix
 from agentsystem.agents.review_agent import review_node, route_after_review
 from agentsystem.agents.router_agent import route_after_test
 from agentsystem.agents.test_agent import _run_story_specific_validation
@@ -226,6 +226,86 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             self.assertFalse(updated["review_passed"])
             self.assertEqual(route_after_review(updated), "fixer")
             self.assertGreater(len(updated["issues_to_fix"]), 0)
+
+    def test_review_without_structured_findings_becomes_workflow_bug(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            repo_path.mkdir(parents=True)
+            Repo.init(repo_path)
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "goal": "Exercise reviewer guard path",
+                    "acceptance_criteria": ["README updated"],
+                },
+                "staged_files": [],
+                "test_results": "Lint: PASS",
+                "collaboration_trace_id": "trace-demo",
+                "handoff_packets": [],
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "all_deliverables": [],
+            }
+            with patch(
+                "agentsystem.agents.review_agent.ReviewerAgent.run",
+                return_value={
+                    "review_success": True,
+                    "review_passed": False,
+                    "review_dir": str(repo_path / ".meta" / "review"),
+                    "review_report": "# Review Report",
+                    "blocking_issues": [],
+                    "important_issues": [],
+                    "nice_to_haves": [],
+                    "error_message": None,
+                },
+            ):
+                updated = review_node(state)
+
+            self.assertEqual(updated["failure_type"], "workflow_bug")
+            self.assertEqual(updated["interruption_reason"], "reviewer_missing_findings")
+            self.assertEqual(route_after_review(updated), "__end__")
+
+    def test_review_pass_with_important_findings_keeps_fixer_queue_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            repo_path.mkdir(parents=True)
+            changed_file = repo_path / "README.md"
+            changed_file.write_text("demo change\n", encoding="utf-8")
+            repo = Repo.init(repo_path)
+            repo.git.add("README.md")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "goal": "Exercise review advisory findings",
+                    "acceptance_criteria": ["README updated"],
+                },
+                "staged_files": ["README.md"],
+                "test_results": "Lint: PASS",
+                "collaboration_trace_id": "trace-demo",
+                "handoff_packets": [],
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "all_deliverables": [],
+            }
+            with patch(
+                "agentsystem.agents.review_agent.ReviewerAgent.run",
+                return_value={
+                    "review_success": True,
+                    "review_passed": True,
+                    "review_dir": str(repo_path / ".meta" / "review"),
+                    "review_report": "# Review Report",
+                    "blocking_issues": [],
+                    "important_issues": ["Typecheck or automated tests are still running in demo mode."],
+                    "nice_to_haves": [],
+                    "error_message": None,
+                },
+            ):
+                updated = review_node(state)
+
+            self.assertTrue(updated["review_passed"])
+            self.assertEqual(route_after_review(updated), "code_acceptance")
+            self.assertEqual(updated["issues_to_fix"], [])
 
     def test_route_after_test_sends_successful_run_to_browser_qa(self) -> None:
         state = {
@@ -1010,6 +1090,48 @@ COMMIT;
             updated = fix_node(state)
             self.assertTrue(updated["fixer_success"])
             self.assertEqual(route_after_fix(updated), "code_style_reviewer")
+
+    def test_fixer_trims_trailing_spaces_for_code_style_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            file_path = repo_path / "apps" / "web" / "src" / "app" / "page.tsx"
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text("export default function Page() {  \n  return <main>demo</main>;  \n}\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S9-999",
+                    "primary_files": ["apps/web/src/app/page.tsx"],
+                    "related_files": ["apps/web/src/app/page.tsx"],
+                },
+                "test_passed": True,
+                "issues_to_fix": [
+                    {
+                        "issue_id": "issue-style-trailing",
+                        "severity": "blocking",
+                        "source_agent": "CodeStyleReviewer",
+                        "target_agent": "Fixer",
+                        "title": "Code style review issue",
+                        "description": "apps/web/src/app/page.tsx:1: trailing spaces are not allowed",
+                        "file_path": "apps/web/src/app/page.tsx",
+                    }
+                ],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-style-fix",
+            }
+
+            updated = fix_node(state)
+
+            self.assertTrue(updated["fixer_success"])
+            self.assertEqual(route_after_fix(updated), "code_style_reviewer")
+            self.assertNotIn(FIXER_COMMENT, file_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                file_path.read_text(encoding="utf-8"),
+                "export default function Page() {\n  return <main>demo</main>;\n}\n",
+            )
 
 
 if __name__ == "__main__":

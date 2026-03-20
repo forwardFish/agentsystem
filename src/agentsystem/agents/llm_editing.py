@@ -18,9 +18,6 @@ def llm_rewrite_file(
     *,
     system_role: str,
 ) -> str | None:
-    if not os.getenv("OPENAI_API_KEY"):
-        return None
-
     repo_root = Path(repo_b_path).resolve()
     target_path = Path(target_file)
     if not target_path.is_absolute():

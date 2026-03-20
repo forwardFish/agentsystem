@@ -1,0 +1,47 @@
+{
+  "mode_id": "plan-ceo-review",
+  "name": "Plan CEO Review",
+  "version": "v1",
+  "description": "Reframe the request at product level and surface the highest-value user outcome before implementation starts.",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": false,
+  "entry_mode": null,
+  "stop_after": null,
+  "report_only": true,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "repo_context",
+    "workflow_manifest",
+    "product_scope_notes"
+  ],
+  "required_inputs": [
+    "goal",
+    "user_problem",
+    "constraints",
+    "success_signal"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/plan_ceo_review/product_review_report.md",
+    ".meta/<repo>/plan_ceo_review/opportunity_map.json"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.requirement_analysis",
+    "software_engineering.architecture_review"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\requirement_analysis.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\architecture_review.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-ceo-review\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-ceo-review\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "planning",
+    "host_surface": "claude_skill",
+    "status": "template_only",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-ceo-review\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\plan-ceo-review\\SKILL.md"
+  }
+}

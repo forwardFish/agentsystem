@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agentsystem.core.state import DevState
+from agentsystem.core.state import DevState, add_executed_mode
 
 
 def task_router(state: DevState) -> list[str]:
@@ -26,13 +26,26 @@ def task_router(state: DevState) -> list[str]:
 
 
 def route_after_test(state: DevState) -> str:
-    if state.get("error_message"):
-        if state.get("browser_qa_report_only"):
-            return "browser_qa"
-        if state.get("fixer_allowed", True) and state.get("fix_attempts", 0) < 2:
+    qa_target = "browser_qa" if str(state.get("qa_strategy") or "browser") == "browser" else "runtime_qa"
+    report_only = bool(state.get("browser_qa_report_only")) if qa_target == "browser_qa" else bool(state.get("runtime_qa_report_only"))
+    if state.get("error_message") or state.get("test_passed") is False:
+        if (
+            (state.get("fixer_allowed", True) or state.get("auto_upgrade_to_qa"))
+            and state.get("fix_attempts", 0) < 2
+        ):
+            state["fixer_allowed"] = True
+            state["effective_qa_mode"] = "qa"
+            if qa_target == "browser_qa":
+                state["browser_qa_report_only"] = False
+                state["browser_qa_mode"] = "quick"
+            else:
+                state["runtime_qa_report_only"] = False
+            add_executed_mode(state, "qa")
             return "fixer"
+        if report_only:
+            return qa_target
         if str(state.get("stop_after") or "").strip() == "tester":
             return "__end__"
-    if state.get("test_passed") is False:
-        return "security_scanner"
-    return "browser_qa"
+    if str(state.get("stop_after") or "").strip() == "tester":
+        return "__end__"
+    return qa_target

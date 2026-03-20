@@ -63,6 +63,14 @@ class DashboardApiTestCase(unittest.TestCase):
                                 "software_engineering.requirement_analysis",
                                 "software_engineering.reviewer",
                             ],
+                            "story_kind": "runtime_data",
+                            "risk_level": "high",
+                            "qa_strategy": "runtime",
+                            "effective_qa_mode": "qa",
+                            "required_modes": ["plan-eng-review", "review", "qa-only", "qa"],
+                            "executed_modes": ["plan-eng-review", "qa", "review"],
+                            "advisory_modes": ["plan-ceo-review"],
+                            "next_recommended_actions": ["Run plan-ceo-review before locking the sprint scope."],
                             "test_passed": True,
                             "review_passed": True,
                             "code_acceptance_passed": True,
@@ -104,6 +112,15 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(detail["completion"]["fix_attempts"], 1)
             self.assertEqual(detail["workflow"]["workflow_plugin_id"], "software_engineering")
             self.assertEqual(detail["workflow"]["workflow_manifest_path"], "config/workflows/software_engineering.yaml")
+            self.assertEqual(detail["workflow"]["story_kind"], "runtime_data")
+            self.assertEqual(detail["workflow"]["risk_level"], "high")
+            self.assertEqual(detail["workflow"]["qa_strategy"], "runtime")
+            self.assertEqual(detail["workflow"]["effective_qa_mode"], "qa")
+            self.assertEqual(detail["workflow"]["required_modes"], ["plan-eng-review", "review", "qa-only", "qa"])
+            self.assertEqual(detail["workflow"]["executed_modes"], ["plan-eng-review", "qa", "review"])
+            self.assertEqual(detail["workflow"]["advisory_modes"], ["plan-ceo-review"])
+            self.assertEqual(detail["workflow"]["mode_coverage"]["missing_required"], ["qa-only"])
+            self.assertFalse(detail["workflow"]["mode_coverage"]["all_required_executed"])
             self.assertEqual(
                 detail["workflow"]["agent_manifest_ids"],
                 [
@@ -245,6 +262,147 @@ class DashboardApiTestCase(unittest.TestCase):
                     "software_engineering.doc_writer",
                 ],
             )
+
+    def test_load_sprint_detail_reads_agent_advice_and_closeout_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            tasks_dir = base / "tasks"
+            sprint_runs_dir = base / "runs" / "sprints" / "versefina" / "sprint_1_statement_to_agent"
+            backlog_dir = tasks_dir / "backlog_v1"
+            sprint_dir = backlog_dir / "sprint_1_statement_to_agent"
+            sprint_dir.mkdir(parents=True)
+            sprint_runs_dir.mkdir(parents=True)
+
+            (backlog_dir / "sprint_overview.md").write_text("# Backlog Overview", encoding="utf-8")
+            (sprint_dir / "sprint_plan.md").write_text("# Sprint Plan", encoding="utf-8")
+            (sprint_dir / "execution_order.txt").write_text("S1-001\n", encoding="utf-8")
+            (sprint_runs_dir / "sprint_agent_advice.json").write_text(
+                json.dumps(
+                    {
+                        "risk_level": "high",
+                        "story_kinds": ["ui", "runtime_data"],
+                        "advisory_modes": ["design-consultation"],
+                        "next_recommended_actions": ["Run design-consultation before large UI implementation starts."],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (sprint_runs_dir / "document_release_report.md").write_text("# Document Release", encoding="utf-8")
+            (sprint_runs_dir / "retro_report.md").write_text("# Retro", encoding="utf-8")
+            (sprint_runs_dir / "ship_advice.json").write_text(
+                json.dumps({"advisory_modes": ["ship"]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(dashboard_main, "TASKS_DIR", tasks_dir),
+                patch.object(dashboard_main, "SPRINT_RUNS_DIR", base / "runs" / "sprints"),
+            ):
+                detail = dashboard_main.load_sprint_detail("backlog_v1", "sprint_1_statement_to_agent")
+
+            self.assertEqual(detail["sprint_agent_advice"]["risk_level"], "high")
+            self.assertEqual(detail["sprint_agent_advice"]["advisory_modes"], ["design-consultation"])
+            self.assertEqual(detail["document_release_report_markdown"], "# Document Release")
+            self.assertEqual(detail["retro_report_markdown"], "# Retro")
+            self.assertEqual(detail["ship_advice"]["advisory_modes"], ["ship"])
+
+    def test_story_detail_prefers_runtime_coverage_over_stale_audit_modes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            tasks_dir = base / "tasks"
+            runs_dir = base / "runs"
+            backlog_dir = tasks_dir / "backlog_v1"
+            sprint_dir = backlog_dir / "sprint_1_statement_to_agent"
+            epic_dir = sprint_dir / "epic_demo"
+            epic_dir.mkdir(parents=True)
+            runs_dir.mkdir(parents=True)
+            (tasks_dir / "runtime").mkdir(parents=True)
+
+            (backlog_dir / "sprint_overview.md").write_text("# Backlog", encoding="utf-8")
+            (sprint_dir / "sprint_plan.md").write_text("# Sprint", encoding="utf-8")
+            (sprint_dir / "execution_order.txt").write_text("S1-001\n", encoding="utf-8")
+            (epic_dir / "S1-001_demo.yaml").write_text(
+                "\n".join(
+                    [
+                        "task_id: S1-001",
+                        "task_name: Runtime Coverage Demo",
+                        "story_id: S1-001",
+                        "blast_radius: L1",
+                        "goal: Demonstrate runtime coverage overlay",
+                        "acceptance_criteria:",
+                        "  - done",
+                        "related_files:",
+                        "  - apps/api/src/demo.py",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (tasks_dir / "story_status_registry.json").write_text(json.dumps({"stories": []}), encoding="utf-8")
+            (tasks_dir / "story_acceptance_reviews.json").write_text(json.dumps({"reviews": []}), encoding="utf-8")
+            (tasks_dir / "runtime" / "agent_coverage_report.json").write_text(
+                json.dumps(
+                    {
+                        "coverage_status": "complete",
+                        "stories": [
+                            {
+                                "backlog_id": "backlog_v1",
+                                "sprint_id": "sprint_1_statement_to_agent",
+                                "story_id": "S1-001",
+                                "required_modes": ["review", "qa"],
+                                "executed_modes": ["review", "qa"],
+                                "advisory_modes": [],
+                                "agent_mode_coverage": {
+                                    "required": ["review", "qa"],
+                                    "executed": ["review", "qa"],
+                                    "advisory": [],
+                                    "missing_required": [],
+                                    "all_required_executed": True,
+                                },
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (runs_dir / "prod_audit_task-s1-001.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "task-s1-001",
+                        "success": True,
+                        "result": {
+                            "task_payload": {
+                                "project": "versefina",
+                                "story_id": "S1-001",
+                                "task_id": "S1-001",
+                                "goal": "Demonstrate runtime coverage overlay",
+                                "acceptance_criteria": ["done"],
+                                "related_files": ["apps/api/src/demo.py"],
+                            },
+                            "required_modes": ["review", "qa-only", "qa"],
+                            "executed_modes": ["review", "qa"],
+                            "advisory_modes": [],
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(dashboard_main, "TASKS_DIR", tasks_dir),
+                patch.object(dashboard_main, "STORY_STATUS_REGISTRY", tasks_dir / "story_status_registry.json"),
+                patch.object(dashboard_main, "STORY_ACCEPTANCE_REVIEW_REGISTRY", tasks_dir / "story_acceptance_reviews.json"),
+                patch.object(dashboard_main, "RUNS_DIR", runs_dir),
+            ):
+                detail = dashboard_main.load_story_detail("backlog_v1", "sprint_1_statement_to_agent", "S1-001")
+
+            self.assertEqual(detail["workflow"]["required_modes"], ["review", "qa"])
+            self.assertTrue(detail["workflow"]["mode_coverage"]["all_required_executed"])
+            self.assertEqual(detail["task_detail"]["workflow"]["required_modes"], ["review", "qa"])
 
     def test_story_status_registry_marks_story_done_without_audit_log(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -439,6 +597,7 @@ class DashboardApiTestCase(unittest.TestCase):
             base = Path(tmp)
             versefina_tasks = base / "versefina_tasks"
             finahunt_tasks = base / "finahunt_tasks"
+            agenthire_tasks = base / "agenthire_tasks"
             versefina_tasks.mkdir(parents=True)
             finahunt_tasks.mkdir(parents=True)
 
@@ -473,12 +632,14 @@ class DashboardApiTestCase(unittest.TestCase):
                 patch.object(dashboard_main, "STORY_STATUS_REGISTRY", versefina_tasks / "story_status_registry.json"),
                 patch.object(dashboard_main, "FINAHUNT_TASKS_DIR", finahunt_tasks),
                 patch.object(dashboard_main, "FINAHUNT_STORY_STATUS_REGISTRY", finahunt_tasks / "story_status_registry.json"),
+                patch.object(dashboard_main, "AGENTHIRE_TASKS_DIR", agenthire_tasks),
+                patch.object(dashboard_main, "AGENTHIRE_STORY_STATUS_REGISTRY", agenthire_tasks / "story_status_registry.json"),
             ):
                 projects = dashboard_main.load_projects()
                 finahunt_backlogs = dashboard_main.load_backlogs("finahunt")
                 finahunt_detail = dashboard_main.load_backlog_detail("backlog_v1", "finahunt")
 
-            self.assertEqual({project["id"] for project in projects}, {"versefina", "finahunt"})
+            self.assertEqual({project["id"] for project in projects}, {"versefina", "finahunt", "agentHire"})
             self.assertEqual(finahunt_backlogs[0]["project"], "finahunt")
             self.assertEqual(finahunt_detail["project"], "finahunt")
             self.assertEqual(finahunt_detail["sprints"][0]["name"], "sprint_0_info_foundation")
@@ -742,7 +903,8 @@ class DashboardApiTestCase(unittest.TestCase):
             base = Path(tmp)
             versefina_tasks = base / "versefina_tasks"
             finahunt_tasks = base / "finahunt_tasks"
-            for tasks_root in [versefina_tasks, finahunt_tasks]:
+            agenthire_tasks = base / "agenthire_tasks"
+            for tasks_root in [versefina_tasks, finahunt_tasks, agenthire_tasks]:
                 backlog_dir = tasks_root / "backlog_v1"
                 backlog_dir.mkdir(parents=True)
                 (backlog_dir / "sprint_overview.md").write_text("# Backlog", encoding="utf-8")
@@ -753,6 +915,8 @@ class DashboardApiTestCase(unittest.TestCase):
                 patch.object(dashboard_main, "STORY_STATUS_REGISTRY", versefina_tasks / "story_status_registry.json"),
                 patch.object(dashboard_main, "FINAHUNT_TASKS_DIR", finahunt_tasks),
                 patch.object(dashboard_main, "FINAHUNT_STORY_STATUS_REGISTRY", finahunt_tasks / "story_status_registry.json"),
+                patch.object(dashboard_main, "AGENTHIRE_TASKS_DIR", agenthire_tasks),
+                patch.object(dashboard_main, "AGENTHIRE_STORY_STATUS_REGISTRY", agenthire_tasks / "story_status_registry.json"),
             ):
                 projects = dashboard_main.load_projects()
 
@@ -761,6 +925,8 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(project_index["versefina"]["runtime_dashboard_path"], "/projects/versefina/runtime")
             self.assertTrue(project_index["finahunt"]["has_runtime"])
             self.assertEqual(project_index["finahunt"]["runtime_dashboard_path"], "/projects/finahunt/runtime")
+            self.assertFalse(project_index["agentHire"]["has_runtime"])
+            self.assertIsNone(project_index["agentHire"]["runtime_dashboard_path"])
 
     def test_load_versefina_runtime_showcase_reads_runtime_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

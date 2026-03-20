@@ -11,6 +11,7 @@ from agentsystem.core.state import (
     DevState,
     HandoffPacket,
     HandoffStatus,
+    add_executed_mode,
     add_handoff_packet,
 )
 
@@ -108,6 +109,7 @@ def architecture_review_node(state: DevState) -> DevState:
     state["shared_blackboard"] = shared_blackboard
     state["current_step"] = "architecture_review_done"
     state["error_message"] = None
+    add_executed_mode(state, "plan-eng-review")
 
     task_scope_name = repo_b_path.name
     add_handoff_packet(
@@ -149,6 +151,8 @@ def architecture_review_node(state: DevState) -> DevState:
 def route_after_architecture_review(state: DevState) -> str:
     if str(state.get("stop_after") or "").strip() == "architecture_review":
         return "__end__"
+    if state.get("needs_design_review"):
+        return "plan_design_review"
     return "workspace_prep"
 
 

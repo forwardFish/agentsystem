@@ -13,6 +13,161 @@ CONTRACTS_DIR = "docs/contracts"
 API_DIR = "apps/api/src"
 WEB_DIR = "apps/web/src"
 
+AGENT_MARKETPLACE_V2_BACKLOG: list[dict[str, Any]] = [
+    {"name": "Evaluation Layer", "description": "Standardize deeper scorecards, pairwise comparison pages, and recommendation logic after Phase 1 discovery surfaces are stable."},
+    {"name": "Matching Broker", "description": "Add qualified request routing and builder matching once request leads show repeatable demand."},
+    {"name": "Service Wrapping", "description": "Wrap selected high-quality agents into callable services only after the curated marketplace proves usability."},
+    {"name": "Provider Portal", "description": "Delay open builder onboarding, self-serve listings, and monetization controls until curated operations are repeatable."},
+]
+
+AGENT_MARKETPLACE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
+    {
+        "number": 0,
+        "slug": "project_bootstrap",
+        "name": "Project Bootstrap",
+        "goal": "Create the agentHire repo skeleton, contracts, and automation-ready project rules so AgentSystem can execute Phase 1 work end-to-end.",
+        "out_of_scope": ["Do not implement marketplace business logic yet.", "Do not add external cloud services or deployment automation."],
+        "epics": [
+            {
+                "code": "0_1",
+                "slug": "repo_contracts",
+                "title": "Repo Contracts",
+                "description": "Define repo-local contracts, commands, and project layout expected by the software factory.",
+                "stories": [
+                    ("S0-001", "AgentHire Repo Contract Pack", "Create .agents contracts, command definitions, and review rules for agentHire."),
+                    ("S0-002", "Backend And Frontend Workspace Bootstrap", "Bootstrap FastAPI and Next.js application roots with local startup commands."),
+                    ("S0-003", "Project Environment And Seed Scripts", "Add env examples, seed placeholders, and developer scripts needed by automated delivery."),
+                    ("S0-004", "Backlog And Registry Foundation", "Create tasks registries, docs/contracts root, and baseline project documentation."),
+                ],
+            }
+        ],
+    },
+    {
+        "number": 1,
+        "slug": "foundation_and_contracts",
+        "name": "Foundation And Contracts",
+        "goal": "Establish the data model, migrations, API contracts, and admin session baseline for the curated Agent Marketplace.",
+        "out_of_scope": ["Do not build the public browsing experience yet.", "Do not implement direct marketplace transactions."],
+        "epics": [
+            {
+                "code": "1_1",
+                "slug": "data_foundation",
+                "title": "Data Foundation",
+                "description": "Lay down the schema, settings, and core data contracts for agents, evaluations, content, and request leads.",
+                "stories": [
+                    ("S1-001", "Marketplace Schema And Migration Baseline", "Define the Phase 1 database schema and migration baseline for catalog, evaluations, content, analytics, and leads."),
+                    ("S1-002", "Pydantic Contracts And API Envelope", "Create shared request/response contracts, error envelope, and pagination models."),
+                    ("S1-003", "Admin Session And Access Guard", "Implement minimal admin session auth backed by environment-configured credentials."),
+                    ("S1-004", "Taxonomy And Seed Import Contract", "Define taxonomy and seed import contracts for curated catalog ingestion."),
+                ],
+            }
+        ],
+    },
+    {
+        "number": 2,
+        "slug": "public_discovery_surfaces",
+        "name": "Public Discovery Surfaces",
+        "goal": "Ship the homepage, search, filters, and list experience that lets users discover curated agents by task, industry, and capability.",
+        "out_of_scope": ["Do not build direct in-platform agent execution.", "Do not build complex recommendation or ranking engines."],
+        "epics": [
+            {
+                "code": "2_1",
+                "slug": "catalog_discovery",
+                "title": "Catalog Discovery",
+                "description": "Expose homepage and listing surfaces backed by catalog and taxonomy read APIs.",
+                "stories": [
+                    ("S2-001", "Catalog List Query API", "Implement searchable, filterable, sortable catalog listing API for public discovery surfaces."),
+                    ("S2-002", "Taxonomy Query API", "Serve category buckets for industry, task, capability, integration, and pricing filters."),
+                    ("S2-003", "Homepage Discovery Surface", "Build the public homepage with hero search, featured agents, and category entry points."),
+                    ("S2-004", "Agent List Surface", "Build the list page with filter state, sorting, pagination, and card rendering."),
+                ],
+            }
+        ],
+    },
+    {
+        "number": 3,
+        "slug": "detail_evaluation_and_content",
+        "name": "Detail, Evaluation, And Content",
+        "goal": "Help users understand and compare curated agents through structured detail pages, evaluations, similar agents, and content entry pages.",
+        "out_of_scope": ["Do not build automated recommendation models.", "Do not open a provider upload workflow."],
+        "epics": [
+            {
+                "code": "3_1",
+                "slug": "detail_and_evaluation",
+                "title": "Detail And Evaluation",
+                "description": "Build the agent detail read model, evaluation surface, and CTA analytics hooks.",
+                "stories": [
+                    ("S3-001", "Agent Detail Read API", "Aggregate agent profile, categories, evaluation, integrations, use cases, and similar agents into one detail response."),
+                    ("S3-002", "Evaluation And Use-Case Persistence", "Persist and expose evaluation dimensions, pros/cons, use cases, and integrations."),
+                    ("S3-003", "Agent Detail Page", "Build the public detail page with evaluation sections, scenarios, pros/cons, and CTA entry points."),
+                    ("S3-004", "Similar Agents And CTA Analytics", "Add rule-based similar agent recommendations and CTA analytics capture."),
+                ],
+            },
+            {
+                "code": "3_2",
+                "slug": "content_surfaces",
+                "title": "Content Surfaces",
+                "description": "Support rankings, guides, and comparison articles as SEO and education surfaces.",
+                "stories": [
+                    ("S3-005", "Content Post API And Markdown Rendering", "Serve guide, ranking, and comparison content with markdown rendering support."),
+                    ("S3-006", "Content Pages And SEO Metadata", "Build content pages with metadata, structured headings, and public navigation entry points."),
+                ],
+            },
+        ],
+    },
+    {
+        "number": 4,
+        "slug": "leads_and_admin_cms",
+        "name": "Leads And Admin CMS",
+        "goal": "Give users a lightweight request path and give internal operators the admin tools needed to curate and publish catalog data.",
+        "out_of_scope": ["Do not add public user accounts.", "Do not build builder self-serve portals or chat workflows."],
+        "epics": [
+            {
+                "code": "4_1",
+                "slug": "request_leads",
+                "title": "Request Leads",
+                "description": "Capture custom agent demand when users cannot find a good fit in the curated directory.",
+                "stories": [
+                    ("S4-001", "Request Lead Submit API", "Implement the public request-lead submission endpoint with validation and persistence."),
+                    ("S4-002", "Need A Custom Agent Page", "Build the lightweight request form page and success state."),
+                    ("S4-003", "Lead Status Management", "Expose lead list and status transitions for internal operations."),
+                ],
+            },
+            {
+                "code": "4_2",
+                "slug": "admin_cms",
+                "title": "Admin CMS",
+                "description": "Allow internal operators to create, edit, publish, and unpublish agents, evaluations, taxonomy, and content.",
+                "stories": [
+                    ("S4-004", "Admin Agent CRUD Surface", "Create the admin CRUD flow for curated agent records."),
+                    ("S4-005", "Admin Evaluation Content And Taxonomy CRUD", "Add admin editing flows for evaluations, taxonomy, and content posts."),
+                    ("S4-006", "Publish Visibility Rules", "Enforce publish/unpublish visibility rules between admin and public surfaces."),
+                ],
+            },
+        ],
+    },
+    {
+        "number": 5,
+        "slug": "hardening_and_delivery_proof",
+        "name": "Hardening And Delivery Proof",
+        "goal": "Prove the Phase 1 marketplace can be seeded, tested, started locally, and driven by AgentSystem with backlog visibility and delivery evidence.",
+        "out_of_scope": ["Do not implement payment, subscriptions, or service wrapping.", "Do not extend into Phase 2-4 business workflows."],
+        "epics": [
+            {
+                "code": "5_1",
+                "slug": "quality_and_seed_data",
+                "title": "Quality And Seed Data",
+                "description": "Finish automated tests, seed data, local startup scripts, and delivery evidence for Phase 1.",
+                "stories": [
+                    ("S5-001", "Backend Frontend And Smoke Test Coverage", "Add test coverage for public catalog, request leads, admin auth, and key frontend routes."),
+                    ("S5-002", "Seed Catalog And Content Pack", "Provide 20 curated sample agents, taxonomy values, evaluations, and baseline content pages."),
+                    ("S5-003", "Automation Proof And Runbook", "Document and verify the local run path and AgentSystem auto-delivery proof for agentHire."),
+                ],
+            }
+        ],
+    },
+]
+
 
 FINANCE_BACKLOG_BLUEPRINT: list[dict[str, Any]] = [
     {
@@ -260,6 +415,23 @@ def _looks_like_finance_world(requirement: str) -> bool:
     return any(marker in requirement or marker in lowered for marker in markers)
 
 
+def _looks_like_agent_marketplace(requirement: str, repo_name: str = "") -> bool:
+    if str(repo_name or "").strip().lower() == "agenthire":
+        return True
+    lowered = requirement.lower()
+    markers = [
+        "agent marketplace",
+        "agenthire",
+        "curated agent directory",
+        "find the right agent",
+        "request lead",
+        "custom agent",
+        "agent evaluation",
+        "agent directory",
+    ]
+    return any(marker in lowered for marker in markers)
+
+
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -279,8 +451,87 @@ def _story_filename(story: dict[str, Any]) -> str:
     return f"{story['story_id']}_{_slugify(str(story['task_name']))}.yaml"
 
 
+def _infer_agent_marketplace_paths(story_id: str, title: str, epic_slug: str) -> tuple[list[str], list[str]]:
+    title_slug = _slugify(title)
+    if epic_slug == "repo_contracts":
+        if story_id == "S0-001":
+            return ([".agents/project.yaml", ".agents/commands.yaml"], [".agents/contracts.yaml", ".agents/rules.yaml", ".agents/review_policy.yaml"])
+        if story_id == "S0-002":
+            return (["apps/api/src/main.py", "apps/web/src/app/page.tsx"], ["apps/api/pyproject.toml", "apps/web/package.json"])
+        if story_id == "S0-003":
+            return ([".env.example", "scripts/seed_agent_marketplace.py"], ["apps/api/alembic.ini", "apps/web/.env.local.example"])
+        if story_id == "S0-004":
+            return (["tasks/story_status_registry.json", "docs/contracts/README.md"], ["tasks/story_acceptance_reviews.json", "README.md"])
+    if epic_slug == "data_foundation":
+        if story_id == "S1-001":
+            return (["apps/api/alembic/versions/0001_agent_marketplace_baseline.py"], ["apps/api/src/db/models.py", "docs/contracts/data-model.md"])
+        if story_id == "S1-002":
+            return (["apps/api/src/schemas/common.py", "apps/api/src/schemas/catalog.py"], ["docs/contracts/api/catalog-api.md", "docs/contracts/api/admin-api.md"])
+        if story_id == "S1-003":
+            return (["apps/api/src/modules/admin/session.py"], ["apps/api/src/routes/admin.py", "apps/web/src/lib/admin-session.ts"])
+        if story_id == "S1-004":
+            return (["scripts/seed_agent_marketplace.py", "docs/contracts/taxonomy.md"], ["apps/api/src/modules/catalog/taxonomy.py"])
+    if epic_slug == "catalog_discovery":
+        if story_id == "S2-001":
+            return (["apps/api/src/routes/catalog.py"], ["apps/api/src/modules/catalog/service.py", "apps/api/src/modules/catalog/repository.py"])
+        if story_id == "S2-002":
+            return (["apps/api/src/modules/catalog/taxonomy.py"], ["apps/api/src/routes/catalog.py", "docs/contracts/api/taxonomy-api.md"])
+        if story_id == "S2-003":
+            return (["apps/web/src/app/page.tsx"], ["apps/web/src/components/home/hero.tsx", "apps/web/src/components/agent/agent-card.tsx"])
+        if story_id == "S2-004":
+            return (["apps/web/src/app/agents/page.tsx"], ["apps/web/src/components/agent/filter-sidebar.tsx", "apps/web/src/components/agent/agent-list.tsx"])
+    if epic_slug == "detail_and_evaluation":
+        if story_id == "S3-001":
+            return (["apps/api/src/routes/agents.py"], ["apps/api/src/modules/agents/detail_service.py", "apps/api/src/modules/agents/similar_service.py"])
+        if story_id == "S3-002":
+            return (["apps/api/src/modules/evaluations/service.py"], ["apps/api/src/db/models.py", "docs/contracts/evaluation-model.md"])
+        if story_id == "S3-003":
+            return (["apps/web/src/app/agents/[slug]/page.tsx"], ["apps/web/src/components/agent/detail-sections.tsx", "apps/web/src/components/agent/evaluation-panel.tsx"])
+        if story_id == "S3-004":
+            return (["apps/api/src/routes/analytics.py"], ["apps/web/src/components/agent/similar-agent-strip.tsx", "apps/web/src/lib/analytics.ts"])
+    if epic_slug == "content_surfaces":
+        if story_id == "S3-005":
+            return (["apps/api/src/routes/content.py"], ["apps/api/src/modules/content/service.py", "docs/contracts/content-post.md"])
+        if story_id == "S3-006":
+            return (["apps/web/src/app/content/[slug]/page.tsx"], ["apps/web/src/lib/seo.ts", "apps/web/src/components/content/content-renderer.tsx"])
+    if epic_slug == "request_leads":
+        if story_id == "S4-001":
+            return (["apps/api/src/routes/request_leads.py"], ["apps/api/src/modules/leads/service.py", "docs/contracts/request-lead.md"])
+        if story_id == "S4-002":
+            return (["apps/web/src/app/request/page.tsx"], ["apps/web/src/components/request/request-form.tsx"])
+        if story_id == "S4-003":
+            return (["apps/api/src/modules/leads/admin_service.py"], ["apps/web/src/app/admin/request-leads/page.tsx", "apps/api/src/routes/admin.py"])
+    if epic_slug == "admin_cms":
+        if story_id == "S4-004":
+            return (["apps/web/src/app/admin/agents/page.tsx"], ["apps/api/src/routes/admin.py", "apps/web/src/components/admin/agent-editor.tsx"])
+        if story_id == "S4-005":
+            return (["apps/web/src/app/admin/content/page.tsx"], ["apps/web/src/app/admin/evaluations/page.tsx", "apps/web/src/app/admin/taxonomy/page.tsx"])
+        if story_id == "S4-006":
+            return (["apps/api/src/modules/publishing/visibility.py"], ["apps/api/src/routes/admin.py", "apps/web/src/middleware.ts"])
+    if epic_slug == "quality_and_seed_data":
+        if story_id == "S5-001":
+            return (["apps/api/tests/test_catalog_api.py", "apps/web/tests/homepage.test.tsx"], ["apps/web/tests/request-page.test.tsx", "apps/api/tests/test_admin_session.py"])
+        if story_id == "S5-002":
+            return (["scripts/seed_agent_marketplace.py", "apps/api/src/data/seed_agents.json"], ["apps/api/src/data/seed_content.json", "apps/api/src/data/seed_taxonomy.json"])
+        if story_id == "S5-003":
+            return (["README.md", "docs/contracts/runbook.md"], ["scripts/start_local.ps1", "tasks/backlog_v1/sprint_overview.md"])
+    return ([f"{CONTRACTS_DIR}/{title_slug}.md"], [f"{CONTRACTS_DIR}/examples/{title_slug}.example.json"])
+
+
 def _infer_paths(story_id: str, title: str, epic_slug: str) -> tuple[list[str], list[str]]:
     lowered = title.lower()
+    agent_marketplace_epics = {
+        "repo_contracts",
+        "data_foundation",
+        "catalog_discovery",
+        "detail_and_evaluation",
+        "content_surfaces",
+        "request_leads",
+        "admin_cms",
+        "quality_and_seed_data",
+    }
+    if epic_slug in agent_marketplace_epics:
+        return _infer_agent_marketplace_paths(story_id, title, epic_slug)
     if story_id.startswith("S0-00"):
         primary = [f"{CONTRACTS_DIR}/{_slugify(title)}.md" if "schema" not in lowered else f"{CONTRACTS_DIR}/{_slugify(title)}.schema.json"]
         secondary = [f"{CONTRACTS_DIR}/examples/{_slugify(title)}.example.json"] if "schema" in lowered else []
@@ -464,6 +715,8 @@ class RequirementsAnalystAgent:
         llm_backlog = self._maybe_generate_backlog_with_llm(requirement)
         if llm_backlog:
             return self._materialize_llm_backlog(llm_backlog, prefix)
+        if _looks_like_agent_marketplace(requirement, self.repo_b_path.name):
+            return self._materialize_agent_marketplace_backlog(prefix)
         if _looks_like_finance_world(requirement):
             return self._materialize_finance_backlog(prefix)
         return self._materialize_generic_backlog(requirement, str(sprint).strip() or "1", prefix)
@@ -475,23 +728,46 @@ class RequirementsAnalystAgent:
         return self.analyze(requirement_path.read_text(encoding="utf-8"), prefix=prefix)
 
     def _materialize_finance_backlog(self, prefix: str) -> dict[str, Any]:
+        return self._materialize_blueprint(
+            prefix=prefix,
+            blueprint=FINANCE_BACKLOG_BLUEPRINT,
+            overview_title="# 金融世界 MVP 正式 Backlog v1.0",
+            v2_items=V2_BACKLOG,
+        )
+
+    def _materialize_agent_marketplace_backlog(self, prefix: str) -> dict[str, Any]:
+        return self._materialize_blueprint(
+            prefix=prefix,
+            blueprint=AGENT_MARKETPLACE_BACKLOG_BLUEPRINT,
+            overview_title="# Agent Marketplace Phase 1 Backlog v1.0",
+            v2_items=AGENT_MARKETPLACE_V2_BACKLOG,
+        )
+
+    def _materialize_blueprint(
+        self,
+        *,
+        prefix: str,
+        blueprint: list[dict[str, Any]],
+        overview_title: str,
+        v2_items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         backlog_root = self.tasks_root / prefix
         backlog_root.mkdir(parents=True, exist_ok=True)
-        _write_text(backlog_root / "sprint_overview.md", self._build_overview_md(FINANCE_BACKLOG_BLUEPRINT))
-        _write_text(backlog_root / "backlog_v2.md", self._build_v2_md())
+        _write_text(backlog_root / "sprint_overview.md", self._build_generic_overview_md(blueprint, overview_title))
+        _write_text(backlog_root / "backlog_v2.md", self._build_generic_v2_md(v2_items))
 
         story_cards: list[dict[str, Any]] = []
         sprint_dirs: list[str] = []
-        for sprint in FINANCE_BACKLOG_BLUEPRINT:
+        for sprint in blueprint:
             sprint_dir = backlog_root / f"sprint_{sprint['number']}_{sprint['slug']}"
             sprint_dir.mkdir(parents=True, exist_ok=True)
             sprint_dirs.append(str(sprint_dir))
             execution_order: list[str] = []
-            _write_text(sprint_dir / "sprint_plan.md", self._build_sprint_plan_md(sprint))
+            _write_text(sprint_dir / "sprint_plan.md", self._build_generic_sprint_plan_md(sprint))
             for epic in sprint["epics"]:
                 epic_doc_name = f"epic_{epic['code']}_{epic['slug']}.md"
                 epic_dir_name = f"epic_{epic['code']}_{epic['slug']}"
-                _write_text(sprint_dir / epic_doc_name, self._build_epic_md(epic))
+                _write_text(sprint_dir / epic_doc_name, self._build_generic_epic_md(epic))
                 epic_dir = sprint_dir / epic_dir_name
                 epic_dir.mkdir(parents=True, exist_ok=True)
                 previous_story_id: str | None = None
@@ -597,6 +873,39 @@ class RequirementsAnalystAgent:
     def _build_v2_md(self) -> str:
         lines = ["# backlog_v2", "", "> 以下内容不进入当前 MVP 执行范围。", ""]
         for item in V2_BACKLOG:
+            lines.extend([f"## {item['name']}", item["description"], ""])
+        return "\n".join(lines)
+
+    def _build_generic_overview_md(self, sprints: list[dict[str, Any]], title: str) -> str:
+        lines = [
+            title,
+            "",
+            "## Sprint Overview",
+            "| Sprint | Name | Epic Count | Story Count | Goal |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for sprint in sprints:
+            story_count = sum(len(epic["stories"]) for epic in sprint["epics"])
+            lines.append(f"| Sprint {sprint['number']} | {sprint['name']} | {len(sprint['epics'])} | {story_count} | {sprint['goal']} |")
+        return "\n".join(lines) + "\n"
+
+    def _build_generic_sprint_plan_md(self, sprint: dict[str, Any]) -> str:
+        lines = [f"# Sprint {sprint['number']} {sprint['name']}", "", "## Sprint Goal", sprint["goal"], "", "## Out Of Scope"]
+        lines.extend(f"- [ ] {item}" for item in sprint["out_of_scope"])
+        lines.extend(["", "## Epic Overview", "| Epic | Story Count | Responsibility |", "| :--- | :--- | :--- |"])
+        for epic in sprint["epics"]:
+            lines.append(f"| {epic['title']} | {len(epic['stories'])} | {epic['description']} |")
+        return "\n".join(lines) + "\n"
+
+    def _build_generic_epic_md(self, epic: dict[str, Any]) -> str:
+        lines = [f"# Epic {epic['code']} {epic['title']}", "", epic["description"], "", "## Stories", "| Story ID | Story Name |", "| :--- | :--- |"]
+        for story_id, task_name, _goal in epic["stories"]:
+            lines.append(f"| {story_id} | {task_name} |")
+        return "\n".join(lines) + "\n"
+
+    def _build_generic_v2_md(self, items: list[dict[str, Any]]) -> str:
+        lines = ["# backlog_v2", "", "> The items below stay outside the current Phase 1 / MVP execution scope.", ""]
+        for item in items:
             lines.extend([f"## {item['name']}", item["description"], ""])
         return "\n".join(lines)
 

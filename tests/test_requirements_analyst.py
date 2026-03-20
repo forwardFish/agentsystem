@@ -80,9 +80,34 @@ class RequirementsAnalystAgentTestCase(unittest.TestCase):
         self.assertEqual(updated["parsed_not_do"], ["不新增后端 API"])
         self.assertTrue(updated["subtasks"])
 
+    def test_agenthire_requirement_generates_marketplace_backlog(self) -> None:
+        repo_b_path = Path("D:/lyh/agent/agent-frame/agentHire").resolve()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_root = Path(tmp) / "tasks"
+            agent = RequirementsAnalystAgent(repo_b_path, tasks_root)
+            result = agent.analyze(
+                "Agent Marketplace Phase 1: curated directory, evaluation pages, request leads, admin CMS, and local automation proof.",
+                prefix="backlog_v1",
+            )
+
+            backlog_root = tasks_root / "backlog_v1"
+            self.assertTrue((backlog_root / "sprint_0_project_bootstrap").exists())
+            self.assertTrue((backlog_root / "sprint_5_hardening_and_delivery_proof").exists())
+            self.assertTrue((backlog_root / "backlog_v2.md").exists())
+            overview_text = (backlog_root / "sprint_overview.md").read_text(encoding="utf-8")
+            self.assertIn("Agent Marketplace Phase 1 Backlog v1.0", overview_text)
+            self.assertGreaterEqual(len(result["story_cards"]), 20)
+
+            first_story_path = next((backlog_root / "sprint_0_project_bootstrap").rglob("S0-001_*.yaml"))
+            first_story = yaml.safe_load(first_story_path.read_text(encoding="utf-8"))
+            self.assertEqual(first_story["story_id"], "S0-001")
+            self.assertIn(".agents/project.yaml", first_story["primary_files"])
+            self.assertEqual(first_story["epic"], "Epic 0.1 Repo Contracts")
+
     def test_split_requirement_cli_creates_backlog_v1(self) -> None:
         runner = CliRunner()
-        backlog_root = Path("D:/lyh/agent/agent-frame/agentsystem/tasks") / "backlog_test"
+        backlog_root = Path("D:/lyh/agent/agent-frame/versefina/tasks") / "backlog_test"
         shutil.rmtree(backlog_root, ignore_errors=True)
         with tempfile.TemporaryDirectory() as tmp:
             requirement_file = Path(tmp) / "requirement.md"
