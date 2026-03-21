@@ -62,13 +62,23 @@ def test_node(state: DevState) -> DevState:
 
     print("[Test Agent] Evaluating typecheck")
     if typecheck_commands:
-        results.append("Typecheck: SKIP (demo mode)")
+        typecheck_success, typecheck_output = shell.run_commands(typecheck_commands)
+        results.append(f"Typecheck: {'PASS' if typecheck_success else 'FAIL'}")
+        if not typecheck_success:
+            print(f"[Test Agent] Typecheck output: {typecheck_output[:200]}")
+            state["error_message"] = f"Typecheck failed: {typecheck_output}"
+            state["test_passed"] = False
     else:
         results.append("Typecheck: SKIP (not configured)")
 
     print("[Test Agent] Evaluating tests")
     if test_commands:
-        results.append("Test: SKIP (demo mode)")
+        test_success, test_output = shell.run_commands(test_commands)
+        results.append(f"Test: {'PASS' if test_success else 'FAIL'}")
+        if not test_success:
+            print(f"[Test Agent] Test output: {test_output[:200]}")
+            state["error_message"] = f"Test failed: {test_output}"
+            state["test_passed"] = False
     else:
         results.append("Test: SKIP (not configured)")
 
@@ -181,26 +191,26 @@ def _record_test_handoff(state: DevState) -> None:
 
 def _run_story_specific_validation(repo_b_path: Path, task_payload: dict[str, object]) -> tuple[bool, str]:
     story_id = str(task_payload.get("story_id", "")).strip()
-    project_key = str(task_payload.get("project") or repo_b_path.name).strip().lower()
-    if project_key != "versefina":
+    validator = _resolve_story_specific_validator(story_id)
+    if validator is None:
         return True, "No story-specific validation required."
-    if story_id == "S0-001":
-        return _validate_profile_schema_story(repo_b_path)
-    if story_id == "S0-002":
-        return _validate_world_state_schema_story(repo_b_path, task_payload)
-    if story_id == "S0-003":
-        return _validate_agent_contract_story(repo_b_path, task_payload)
-    if story_id == "S0-004":
-        return _validate_error_state_spec_story(repo_b_path, task_payload)
-    if story_id == "S0-005":
-        return _validate_core_db_schema_story(repo_b_path, task_payload)
-    if story_id == "S0-006":
-        return _validate_statement_storage_story(repo_b_path, task_payload)
-    if story_id == "S0-007":
-        return _validate_audit_idempotency_story(repo_b_path, task_payload)
-    if story_id == "S1-001":
-        return _validate_statement_upload_api_story(repo_b_path, task_payload)
-    return True, "No story-specific validation required."
+    return validator(repo_b_path, task_payload)
+
+
+def _resolve_story_specific_validator(
+    story_id: str,
+) -> callable[[Path, dict[str, object]], tuple[bool, str]] | None:
+    validators: dict[str, callable[[Path, dict[str, object]], tuple[bool, str]]] = {
+        "S0-001": lambda repo_b_path, _task_payload: _validate_profile_schema_story(repo_b_path),
+        "S0-002": _validate_world_state_schema_story,
+        "S0-003": _validate_agent_contract_story,
+        "S0-004": _validate_error_state_spec_story,
+        "S0-005": _validate_core_db_schema_story,
+        "S0-006": _validate_statement_storage_story,
+        "S0-007": _validate_audit_idempotency_story,
+        "S1-001": _validate_statement_upload_api_story,
+    }
+    return validators.get(story_id)
 
 
 def _validate_profile_schema_story(repo_b_path: Path) -> tuple[bool, str]:

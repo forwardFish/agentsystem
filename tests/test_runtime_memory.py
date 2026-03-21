@@ -69,6 +69,23 @@ class RuntimeMemoryTestCase(unittest.TestCase):
                     "sprint_id": "sprint_0_project_bootstrap",
                     "story_id": "S0-001",
                     "status": "done",
+                    "formal_entry": True,
+                    "required_modes": ["plan-eng-review", "review", "qa"],
+                    "executed_modes": ["plan-eng-review", "review", "qa"],
+                    "advisory_modes": [],
+                    "agent_mode_coverage": {
+                        "required": ["plan-eng-review", "review", "qa"],
+                        "executed": ["plan-eng-review", "review", "qa"],
+                        "advisory": [],
+                        "missing_required": [],
+                        "all_required_executed": True,
+                    },
+                    "formal_acceptance_reviewer": "acceptance_gate",
+                    "implemented": True,
+                    "verified": True,
+                    "agentized": True,
+                    "accepted": True,
+                    "evidence": ["runs/prod_audit_task-demo.json"],
                 },
             )
             review_path = update_story_acceptance_review(
@@ -78,8 +95,22 @@ class RuntimeMemoryTestCase(unittest.TestCase):
                     "backlog_id": "backlog_v1",
                     "sprint_id": "sprint_0_project_bootstrap",
                     "story_id": "S0-001",
-                    "reviewer": "agentsystem",
+                    "reviewer": "acceptance_gate",
                     "verdict": "approved",
+                    "acceptance_status": "approved",
+                    "formal_entry": True,
+                    "agent_mode_coverage": {
+                        "required": ["plan-eng-review", "review", "qa"],
+                        "executed": ["plan-eng-review", "review", "qa"],
+                        "advisory": [],
+                        "missing_required": [],
+                        "all_required_executed": True,
+                    },
+                    "implemented": True,
+                    "verified": True,
+                    "agentized": True,
+                    "accepted": True,
+                    "evidence_paths": ["runs/prod_audit_task-demo.json"],
                 },
             )
             json_report, md_report = update_agent_coverage_report(
@@ -117,6 +148,40 @@ class RuntimeMemoryTestCase(unittest.TestCase):
             self.assertTrue(failure_path.exists())
             coverage_payload = json.loads(json_report.read_text(encoding="utf-8"))
             self.assertEqual(coverage_payload["coverage_status"], "complete")
+
+    def test_runtime_memory_downgrades_non_formal_success_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "finahunt"
+            (repo_root / "tasks").mkdir(parents=True)
+            (repo_root / "docs").mkdir(parents=True)
+
+            status_path = update_story_status(
+                repo_root,
+                {
+                    "project": "finahunt",
+                    "backlog_id": "backlog_v1",
+                    "sprint_id": "sprint_demo",
+                    "story_id": "S5-001",
+                    "status": "done",
+                },
+            )
+            review_path = update_story_acceptance_review(
+                repo_root,
+                {
+                    "project": "finahunt",
+                    "backlog_id": "backlog_v1",
+                    "sprint_id": "sprint_demo",
+                    "story_id": "S5-001",
+                    "reviewer": "agentsystem",
+                    "verdict": "approved",
+                    "acceptance_status": "approved",
+                },
+            )
+
+            status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+            review_payload = json.loads(review_path.read_text(encoding="utf-8"))
+            self.assertEqual(status_payload["stories"][0]["status"], "implemented_without_formal_flow")
+            self.assertEqual(review_payload["reviews"][0]["acceptance_status"], "needs_followup")
 
     def test_write_resume_state_can_clear_stale_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

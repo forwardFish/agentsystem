@@ -4,6 +4,8 @@ import re
 import uuid
 from pathlib import Path
 
+from agentsystem.agents.request_text_inference import infer_requested_text
+
 from agentsystem.core.state import (
     AgentRole,
     Deliverable,
@@ -528,6 +530,8 @@ def _evaluate_agenthire_s1_001_criterion(criterion: str, repo_b_path: Path) -> t
 
 
 def _infer_target_text(goal: str, *, subtitle: bool) -> str | None:
+    return infer_requested_text([goal], target_kind="subtitle" if subtitle else "title")
+
     quote_match = re.search(r"[\"'“”‘’「」『』](.*?)[\"'“”‘’「」『』]", goal)
     if quote_match:
         return quote_match.group(1).strip()

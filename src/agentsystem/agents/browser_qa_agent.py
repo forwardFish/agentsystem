@@ -17,6 +17,17 @@ from agentsystem.core.state import (
     add_handoff_packet,
     add_issue,
 )
+from agentsystem.agents.qa_contract import (
+    build_qa_input_sources,
+    build_qa_finding,
+    build_regression_recommendations,
+    build_verification_rerun_plan,
+    compute_health_score,
+    infer_ship_readiness,
+    load_qa_test_context,
+    sort_qa_findings,
+    write_shared_qa_artifacts,
+)
 from agentsystem.runtime.browser_session_manager import BrowserSessionManager
 from agentsystem.runtime.playwright_browser_runtime import BrowserTarget, run_browser_capture
 
@@ -44,6 +55,7 @@ def browser_qa_node(state: DevState) -> DevState:
     capture_result = run_browser_capture(manager, targets)
     snapshot = capture_result["snapshot"]
     observations = capture_result["results"]
+    test_context = load_qa_test_context(state, repo_b_path)
 
     current_observations = [item for item in observations if item.get("kind") == "current"]
     reference_observations = [item for item in observations if item.get("kind") == "reference"]
@@ -51,11 +63,24 @@ def browser_qa_node(state: DevState) -> DevState:
     blocking_findings = _collect_findings(current_observations, "blocking_findings")
     important_findings = _collect_findings(current_observations, "important_findings")
     reference_warnings = _collect_findings(reference_observations, "important_findings")
-
-    health_score = max(0, 100 - len(blocking_findings) * 25 - len(important_findings) * 6)
-    ship_readiness = "ready" if not blocking_findings else "needs_fix"
-    if report_only and blocking_findings:
-        ship_readiness = "report_only_attention"
+    structured_findings = _build_structured_browser_findings(current_observations, reference_observations)
+    health_score = compute_health_score(structured_findings)
+    ship_readiness = infer_ship_readiness(structured_findings, report_only=report_only)
+    input_sources = build_qa_input_sources(state, test_context, source_mode="browser_qa", report_only=report_only)
+    regression_recommendations = build_regression_recommendations(structured_findings, test_context)
+    verification_rerun_plan = build_verification_rerun_plan(structured_findings, test_context, report_only=report_only)
+    shared_artifacts = write_shared_qa_artifacts(
+        repo_b_path,
+        mode_id=str(state.get("effective_qa_mode") or task_payload.get("skill_mode") or "qa-only"),
+        report_only=report_only,
+        findings=structured_findings,
+        health_score=health_score,
+        ship_readiness=ship_readiness,
+        test_context=test_context,
+        regression_recommendations=regression_recommendations,
+        verification_rerun_plan=verification_rerun_plan,
+        input_sources=input_sources,
+    )
 
     current_summary = _page_summary_lines(current_observations)
     reference_summary = _page_summary_lines(reference_observations)
@@ -89,6 +114,11 @@ def browser_qa_node(state: DevState) -> DevState:
         f"- Session manifest: {manager.session_file}",
         f"- Step log: {manager.steps_file}",
         "",
+        "## QA Input",
+        f"- Test plan source: {test_context.get('plan_path') or 'none'}",
+        *[f"- Input source: {item}" for item in input_sources],
+        f"- Shared QA summary: {shared_artifacts['qa_summary_path']}",
+        "",
         "## Current Surface Summary",
     ]
     report_lines.extend([f"- {item}" for item in current_summary] or ["- No current-surface targets were configured."])
@@ -100,6 +130,18 @@ def browser_qa_node(state: DevState) -> DevState:
     report_lines.extend([f"- {item}" for item in important_findings] or ["- None."])
     report_lines.extend(["", "## Reference Notes"])
     report_lines.extend([f"- {item}" for item in reference_warnings] or ["- None."])
+    report_lines.extend(["", "## Structured Findings"])
+    report_lines.extend(
+        [
+            f"- [{item['severity']}] {item['summary']} | next={item['recommended_action']}"
+            for item in structured_findings
+        ]
+        or ["- None."]
+    )
+    report_lines.extend(["", "## Regression Recommendations"])
+    report_lines.extend([f"- {item}" for item in regression_recommendations] or ["- None."])
+    report_lines.extend(["", "## Verification Rerun Plan"])
+    report_lines.extend([f"- {item}" for item in verification_rerun_plan] or ["- None."])
     report_lines.extend(["", "## Evidence"])
     report_lines.extend([f"- Observation: {item}" for item in observation_refs] or ["- No observation artifacts recorded."])
     report_lines.extend([f"- Screenshot: {item}" for item in screenshot_refs] or ["- No screenshots captured."])
@@ -128,6 +170,17 @@ def browser_qa_node(state: DevState) -> DevState:
     state["browser_qa_ship_readiness"] = ship_readiness
     state["browser_qa_mode"] = qa_mode
     state["browser_qa_report_only"] = report_only
+    state["qa_findings"] = structured_findings
+    state["qa_regression_recommendations"] = regression_recommendations
+    state["qa_verification_rerun"] = verification_rerun_plan
+    state["qa_input_sources"] = input_sources
+    state["mode_artifact_paths"] = {
+        **dict(state.get("mode_artifact_paths") or {}),
+        "qa_summary": shared_artifacts["qa_summary_path"],
+        "qa_findings": shared_artifacts["qa_findings_path"],
+        "qa_context": shared_artifacts["qa_context_path"],
+        "qa_rerun_plan": shared_artifacts["qa_rerun_plan_path"],
+    }
     state["current_step"] = "browser_qa_done"
     state["error_message"] = None if not blocking_findings or report_only else "; ".join(blocking_findings)
 
@@ -181,6 +234,14 @@ def browser_qa_node(state: DevState) -> DevState:
                     type="report",
                     path=f".meta/{task_scope_name}/browser_runtime/session.json",
                     description="Persistent browser runtime session manifest and artifact index.",
+                    created_by=AgentRole.BROWSER_QA,
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="QA Summary",
+                    type="report",
+                    path=f".meta/{task_scope_name}/qa/qa_summary.json",
+                    description="Shared QA contract artifact with structured findings and rerun guidance.",
                     created_by=AgentRole.BROWSER_QA,
                 ),
             ],
@@ -310,6 +371,81 @@ def _collect_findings(observations: list[dict[str, Any]], key: str) -> list[str]
             if text:
                 findings.append(text)
     return findings
+
+
+def _build_structured_browser_findings(
+    current_observations: list[dict[str, Any]],
+    reference_observations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for observation in current_observations:
+        route = str(observation.get("final_url") or observation.get("url") or "").strip()
+        evidence_refs = [
+            str(observation.get("before_screenshot_path") or "").strip(),
+            str(observation.get("screenshot_path") or "").strip(),
+            str(observation.get("observation_path") or "").strip(),
+            str(observation.get("console_log_path") or "").strip(),
+        ]
+        for item in observation.get("blocking_findings") or []:
+            text = str(item).strip()
+            if not text:
+                continue
+            findings.append(
+                build_qa_finding(
+                    finding_id=f"BQA-{len(findings) + 1:03d}",
+                    severity="critical",
+                    category="browser_flow",
+                    summary=text,
+                    detail=f"Observed on {route or 'current surface'} during browser QA.",
+                    source_mode="browser_qa",
+                    route=route or None,
+                    evidence_refs=evidence_refs,
+                    recommended_action="Fix the broken browser-facing flow, then rerun browser QA.",
+                    regression_hint=(f"Capture a browser regression around {route}: {text}" if route else text),
+                )
+            )
+        for item in observation.get("important_findings") or []:
+            text = str(item).strip()
+            if not text:
+                continue
+            findings.append(
+                build_qa_finding(
+                    finding_id=f"BQA-{len(findings) + 1:03d}",
+                    severity="high",
+                    category="browser_quality",
+                    summary=text,
+                    detail=f"Observed on {route or 'current surface'} during browser QA.",
+                    source_mode="browser_qa",
+                    route=route or None,
+                    evidence_refs=evidence_refs,
+                    recommended_action="Tighten the browser-facing behavior before acceptance.",
+                )
+            )
+    for observation in reference_observations:
+        route = str(observation.get("final_url") or observation.get("url") or "").strip()
+        evidence_refs = [
+            str(observation.get("screenshot_path") or "").strip(),
+            str(observation.get("observation_path") or "").strip(),
+        ]
+        for item in observation.get("important_findings") or []:
+            text = str(item).strip()
+            if not text:
+                continue
+            findings.append(
+                build_qa_finding(
+                    finding_id=f"BQA-{len(findings) + 1:03d}",
+                    severity="low",
+                    category="reference_gap",
+                    summary=f"Reference note: {text}",
+                    detail=f"Observed on reference surface {route or '(unknown)'} for comparison only.",
+                    source_mode="browser_qa",
+                    route=route or None,
+                    evidence_refs=evidence_refs,
+                    recommended_action="Keep the note visible and decide whether parity with the reference is actually required.",
+                    disposition="report",
+                )
+            )
+    return sort_qa_findings(findings)
 
 
 def _route_token(url: str) -> str:

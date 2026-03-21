@@ -8,16 +8,24 @@ import yaml
 
 from agentsystem.agents.acceptance_gate_agent import route_after_acceptance
 from agentsystem.agents.architecture_review_agent import route_after_architecture_review
+from agentsystem.agents.browse_agent import route_after_browse
 from agentsystem.agents.browser_qa_agent import route_after_browser_qa
 from agentsystem.agents.code_acceptance_agent import route_after_code_acceptance
 from agentsystem.agents.code_style_reviewer_agent import route_after_code_style_review
 from agentsystem.agents.design_consultation_agent import route_after_design_consultation
+from agentsystem.agents.document_release_agent import route_after_document_release
 from agentsystem.agents.fix_agent import route_after_fix
+from agentsystem.agents.investigate_agent import route_after_investigate
+from agentsystem.agents.office_hours_agent import route_after_office_hours
+from agentsystem.agents.plan_ceo_review_agent import route_after_plan_ceo_review
 from agentsystem.agents.plan_design_review_agent import route_after_plan_design_review
 from agentsystem.agents.qa_design_review_agent import route_after_qa_design_review
+from agentsystem.agents.retro_agent import route_after_retro
 from agentsystem.agents.review_agent import route_after_review
 from agentsystem.agents.router_agent import route_after_test, task_router
 from agentsystem.agents.runtime_qa_agent import route_after_runtime_qa
+from agentsystem.agents.setup_browser_cookies_agent import route_after_setup_browser_cookies
+from agentsystem.agents.ship_agent import route_after_ship
 from agentsystem.orchestration.agent_manifest_registry import AgentManifest, get_agent_manifest
 
 
@@ -29,9 +37,14 @@ RouterHandler = Callable[..., str | list[str]]
 
 ROUTER_CATALOG: dict[str, RouterHandler] = {
     "task_router": task_router,
+    "route_after_office_hours": route_after_office_hours,
+    "route_after_plan_ceo_review": route_after_plan_ceo_review,
     "route_after_architecture_review": route_after_architecture_review,
+    "route_after_investigate": route_after_investigate,
+    "route_after_browse": route_after_browse,
     "route_after_plan_design_review": route_after_plan_design_review,
     "route_after_design_consultation": route_after_design_consultation,
+    "route_after_setup_browser_cookies": route_after_setup_browser_cookies,
     "route_after_code_style_review": route_after_code_style_review,
     "route_after_test": route_after_test,
     "route_after_browser_qa": route_after_browser_qa,
@@ -41,6 +54,9 @@ ROUTER_CATALOG: dict[str, RouterHandler] = {
     "route_after_review": route_after_review,
     "route_after_code_acceptance": route_after_code_acceptance,
     "route_after_acceptance": route_after_acceptance,
+    "route_after_ship": route_after_ship,
+    "route_after_document_release": route_after_document_release,
+    "route_after_retro": route_after_retro,
 }
 
 

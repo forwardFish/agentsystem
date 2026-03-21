@@ -9,6 +9,7 @@ from typing import Any
 from agentsystem.adapters.context_assembler import ContextAssembler
 from agentsystem.agents.design_contracts import design_contract_path, design_preview_path, relpath, read_if_exists
 from agentsystem.agents.llm_editing import llm_rewrite_file
+from agentsystem.agents.request_text_inference import infer_requested_text
 from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, add_handoff_packet
 
 FRONTEND_MARKER = "// Frontend Dev Agent was here (with Constitution loaded)"
@@ -142,8 +143,12 @@ def _apply_task_specific_change(
             return upgraded
 
     updated = content
-    requested_title = _infer_requested_text(task_payload, "title")
-    requested_subtitle = _infer_requested_text(task_payload, "subtitle")
+    request_candidates = [
+        str(task_payload.get("goal", "")).strip(),
+        *(str(item).strip() for item in task_payload.get("acceptance_criteria", []) or []),
+    ]
+    requested_title = infer_requested_text(request_candidates, target_kind="title")
+    requested_subtitle = infer_requested_text(request_candidates, target_kind="subtitle")
 
     if requested_title:
         updated = _ensure_heading(updated, requested_title)
@@ -204,30 +209,7 @@ def _infer_requested_text(task_payload: dict[str, Any], target_kind: str) -> str
         candidate = str(item).strip()
         if candidate:
             candidates.append(candidate)
-
-    for candidate in candidates:
-        quoted = _extract_quoted_text(candidate)
-        if quoted:
-            return quoted
-
-    patterns = [r"add\s+(?:a\s+)?subtitle[:：]?\s*(.+)$"] if target_kind == "subtitle" else [r"add\s+(?:a\s+)?title[:：]?\s*(.+)$"]
-    for candidate in candidates:
-        cleaned = candidate.strip(" ,.:\u3002\u3001'\"")
-        for pattern in patterns:
-            match = re.search(pattern, cleaned, re.IGNORECASE)
-            if not match:
-                continue
-            value = match.group(1).strip(" ,.:\u3002\u3001'\"")
-            if value:
-                return value
-    return None
-
-
-def _extract_quoted_text(text: str) -> str | None:
-    match = re.search(r"[\"'“”‘’「」『』](.*?)[\"'“”‘’「」『』]", text)
-    if match:
-        return match.group(1).strip()
-    return None
+    return infer_requested_text(candidates, target_kind=target_kind)
 
 
 def _prepare_frontend_task_payload(

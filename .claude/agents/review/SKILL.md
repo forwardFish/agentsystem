@@ -9,10 +9,10 @@ allowed-tools:
 - risk_classify
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
-runtime_ready: false
-execution_status: template_only
-entry_mode: not_wired
-stop_after: not_wired
+runtime_ready: true
+execution_status: executable
+entry_mode: reviewer
+stop_after: reviewer
 report_only: true
 fixer_allowed: false
 required-inputs:
@@ -42,11 +42,11 @@ You hunt for failures that can survive normal test coverage and still hurt real 
 - deployment_context
 
 ## Execution Contract
-- Runtime summary: This skill mode is preserved as a template package only and is not yet executable in runtime.
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
-- Current runtime entry: `not_wired`.
-- Current runtime stop point: `not_wired`.
-- Keep this mode report-only until explicit runtime wiring is added.
+- Current runtime entry: `reviewer`.
+- Current runtime stop point: `reviewer`.
+- This mode is wired as a report-only runtime review step.
 
 ## Working Steps
 1. Inspect the change scope, related files, and operational context.

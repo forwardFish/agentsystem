@@ -1,0 +1,43 @@
+{
+  "mode_id": "office-hours",
+  "name": "Office Hours",
+  "version": "v1",
+  "description": "Run six forcing questions to reframe demand, status quo, wedge, and proof before any implementation starts.",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
+  "entry_mode": "office_hours",
+  "stop_after": "office_hours",
+  "report_only": true,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "repo_context",
+    "workflow_manifest",
+    "product_scope_notes"
+  ],
+  "required_inputs": [
+    "goal"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/office_hours/office_hours_report.md",
+    ".meta/<repo>/office_hours/forcing_questions.json"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.office_hours"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\office_hours.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\office-hours\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\office-hours\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "planning",
+    "host_surface": "codex_adapted",
+    "upstream_skill": "vendors/gstack/office-hours/SKILL.md",
+    "status": "executable",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\office-hours\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\office-hours\\SKILL.md"
+  }
+}

@@ -1,0 +1,14 @@
+agent_id: software_engineering.document_release
+name: Document Release Agent
+description: Reconcile repository docs with shipped scope and runtime behavior.
+handler: document_release_node
+agent_role: release.document_release
+plane: release
+capabilities:
+  - documentation_sync
+  - release_docs
+verification_tags:
+  - document_release
+metadata:
+  manifest_version: v1
+  domain: software_engineering

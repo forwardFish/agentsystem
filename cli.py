@@ -20,8 +20,9 @@ from main_production import run_prod_task
 from agentsystem.adapters.config_reader import SystemConfigReader
 from agentsystem.adapters.git_adapter import GitAdapter
 from agentsystem.core.state import build_mode_coverage
-from agentsystem.core.task_card import TaskCard
+from agentsystem.core.task_card import TaskCard, normalize_runtime_task_payload
 from agentsystem.orchestration.agent_activation_resolver import apply_agent_activation_policy
+from agentsystem.orchestration.gstack_parity_audit import write_gstack_parity_audit
 from agentsystem.orchestration.sprint_hooks import run_sprint_post_hooks, run_sprint_pre_hooks
 from agentsystem.orchestration.runtime_memory import (
     collect_mode_artifact_paths,
@@ -33,8 +34,10 @@ from agentsystem.orchestration.runtime_memory import (
     update_story_status,
     write_current_handoff,
     write_resume_state,
+    write_story_failure,
     write_story_handoff,
 )
+from agentsystem.orchestration.workflow_admission import build_story_admission, write_story_admission
 from agentsystem.dashboard.main import app as dashboard_app
 from agentsystem.orchestration.workspace_manager import WorkspaceManager
 from agentsystem.agents.plan_ceo_review_agent import generate_plan_ceo_review_package
@@ -261,6 +264,15 @@ def _load_backlog_story_specs(backlog_root: Path) -> list[dict[str, object]]:
     return specs
 
 
+def _is_finahunt_sprint5_authoritative_rerun(project: str, sprint_dir: Path) -> bool:
+    return project == "finahunt" and "low_position_one_shot_workbench" in sprint_dir.name
+
+
+def _build_authoritative_attempt(sprint_dir: Path) -> str:
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    return f"{sprint_dir.name}-attempt-{timestamp}"
+
+
 def _read_registry_entries(path: Path, key: str) -> list[dict[str, object]]:
     if not path.exists():
         return []
@@ -282,13 +294,13 @@ def _runtime_task_from_story_spec(spec: dict[str, object], repo_b_path: Path, pr
     if isinstance(story_file, Path) and story_file.exists():
         parsed = yaml.safe_load(story_file.read_text(encoding="utf-8"))
         raw_payload = parsed if isinstance(parsed, dict) else {}
-        task = TaskCard.model_validate(raw_payload).to_runtime_dict()
+        task = normalize_runtime_task_payload(raw_payload)
         task.update(locate_story_context(story_file, repo_b_path))
         task["story_file"] = str(story_file)
     else:
         raw_payload = dict(audit_task_payload or {})
         try:
-            task = TaskCard.model_validate(raw_payload).to_runtime_dict()
+            task = normalize_runtime_task_payload(raw_payload)
         except Exception:
             task = dict(raw_payload)
         task.setdefault("tasks_root", str(repo_b_path / "tasks"))
@@ -298,7 +310,56 @@ def _runtime_task_from_story_spec(spec: dict[str, object], repo_b_path: Path, pr
     task["project"] = project
     task["project_repo_root"] = str(repo_b_path)
     task["backlog_root"] = str(repo_b_path / "tasks" / str(task.get("backlog_id") or spec.get("backlog_id") or ""))
+    if task.get("auto_run") is None:
+        task["auto_run"] = True
+    if not str(task.get("execution_policy") or "").strip():
+        task["execution_policy"] = "continuous_full_sprint"
+    if not str(task.get("interaction_policy") or "").strip():
+        task["interaction_policy"] = "non_interactive_auto_run"
+    if not str(task.get("pause_policy") or "").strip():
+        task["pause_policy"] = "story_boundary_or_shared_blocker_only"
+    if not str(task.get("run_policy") or "").strip():
+        task["run_policy"] = "single_pass_to_completion"
+    if not str(task.get("acceptance_policy") or "").strip():
+        task["acceptance_policy"] = "must_pass_all_required_runs"
+    if not str(task.get("retry_policy") or "").strip():
+        task["retry_policy"] = "auto_repair_until_green"
+    if task.get("acceptance_attempt") is None:
+        task["acceptance_attempt"] = 0
+    if task.get("repair_iteration") is None:
+        task["repair_iteration"] = 0
+    if task.get("final_green_required") is None:
+        task["final_green_required"] = True
     return apply_agent_activation_policy(task, repo_b_path)
+
+
+def _load_story_payload(story_file: Path, repo_b_path: Path, project: str) -> dict[str, object]:
+    payload = yaml.safe_load(story_file.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise click.ClickException(f"Story card must contain a mapping: {story_file}")
+    task = normalize_runtime_task_payload(payload)
+    task.update(locate_story_context(story_file, repo_b_path))
+    task["story_file"] = str(story_file)
+    task["project"] = project
+    task["project_repo_root"] = str(repo_b_path)
+    task["backlog_root"] = str(repo_b_path / "tasks" / str(task.get("backlog_id") or ""))
+    return task
+
+
+def _admit_story_file(
+    story_file: Path,
+    repo_b_path: Path,
+    project: str,
+    task_overrides: dict[str, object] | None = None,
+) -> dict[str, object]:
+    task = _load_story_payload(story_file, repo_b_path, project)
+    if task_overrides:
+        task.update({str(key): value for key, value in task_overrides.items() if value is not None})
+    admission = build_story_admission(task, repo_b_path, story_file=story_file)
+    story_id = str(task.get("story_id") or task.get("task_id") or story_file.stem)
+    admission_path = write_story_admission(repo_b_path, story_id, admission)
+    admission["admission_path"] = str(admission_path)
+    return admission
 
 
 def _build_reconciled_coverage(audit_snapshot: dict[str, object], runtime_task: dict[str, object]) -> dict[str, object]:
@@ -381,6 +442,17 @@ def _reconcile_success_story(
             "validation_summary": str(result_payload.get("test_results") or ""),
             "delivery_report": str(result_payload.get("delivery_dir") or ""),
             "evidence": [item for item in (audit_path, artifact_dir, str(story_handoff_path)) if item],
+            "formal_entry": True,
+            "formal_acceptance_reviewer": "acceptance_gate",
+            "attempt_status": "authoritative",
+            "required_modes": coverage_payload["required_modes"],
+            "executed_modes": coverage_payload["executed_modes"],
+            "advisory_modes": coverage_payload["advisory_modes"],
+            "agent_mode_coverage": coverage_payload["agent_mode_coverage"],
+            "implemented": True,
+            "verified": True,
+            "agentized": bool(coverage_payload["agent_mode_coverage"].get("all_required_executed")),
+            "accepted": bool(coverage_payload["agent_mode_coverage"].get("all_required_executed")),
             "repository": project,
         },
     )
@@ -391,7 +463,7 @@ def _reconcile_success_story(
             "backlog_id": backlog_id,
             "sprint_id": sprint_id,
             "story_id": story_id,
-            "reviewer": "agentsystem",
+            "reviewer": "acceptance_gate",
             "review_type": "machine",
             "verdict": "approved" if coverage_payload["agent_mode_coverage"].get("all_required_executed") else "needs_followup",
             "acceptance_status": "approved" if coverage_payload["agent_mode_coverage"].get("all_required_executed") else "needs_followup",
@@ -401,6 +473,12 @@ def _reconcile_success_story(
             "checked_at": created_at,
             "agent_mode_coverage": coverage_payload["agent_mode_coverage"],
             "evidence_paths": [item for item in (audit_path, artifact_dir, str(story_handoff_path)) if item],
+            "formal_entry": True,
+            "attempt_status": "authoritative",
+            "implemented": True,
+            "verified": True,
+            "agentized": bool(coverage_payload["agent_mode_coverage"].get("all_required_executed")),
+            "accepted": bool(coverage_payload["agent_mode_coverage"].get("all_required_executed")),
         },
     )
     update_agent_coverage_report(
@@ -418,6 +496,7 @@ def _reconcile_success_story(
             "agent_mode_coverage": coverage_payload["agent_mode_coverage"],
             "status": "done",
             "audit_path": audit_path,
+            "attempt_status": "authoritative",
         },
     )
     return {
@@ -525,6 +604,16 @@ def _persist_auto_delivery_runtime(
             "last_success_story": payload.get("last_success_story"),
             "resume_from_story": payload.get("resume_from_story"),
             "interruption_reason": payload.get("interruption_reason"),
+            "execution_policy": payload.get("execution_policy"),
+            "interaction_policy": payload.get("interaction_policy"),
+            "pause_policy": payload.get("pause_policy"),
+            "run_policy": payload.get("run_policy"),
+            "acceptance_policy": payload.get("acceptance_policy"),
+            "retry_policy": payload.get("retry_policy"),
+            "acceptance_attempt": payload.get("acceptance_attempt"),
+            "acceptance_failure_class": payload.get("acceptance_failure_class"),
+            "repair_iteration": payload.get("repair_iteration"),
+            "final_green_required": payload.get("final_green_required"),
         },
         clear_keys=clear_keys,
     )
@@ -547,6 +636,16 @@ def _persist_auto_delivery_runtime(
             "resume_command": f"python cli.py auto-deliver --project {payload.get('project')} --env {payload.get('env')} --prefix {Path(str(payload.get('backlog_root') or '')).name or 'backlog_v1'} --auto-run",
             "evidence_paths": [str(summary_path)],
             "cleanup_note": cleanup_note,
+            "execution_policy": payload.get("execution_policy"),
+            "interaction_policy": payload.get("interaction_policy"),
+            "pause_policy": payload.get("pause_policy"),
+            "run_policy": payload.get("run_policy"),
+            "acceptance_policy": payload.get("acceptance_policy"),
+            "retry_policy": payload.get("retry_policy"),
+            "acceptance_attempt": payload.get("acceptance_attempt"),
+            "acceptance_failure_class": payload.get("acceptance_failure_class"),
+            "repair_iteration": payload.get("repair_iteration"),
+            "final_green_required": payload.get("final_green_required"),
         },
     )
 
@@ -566,6 +665,12 @@ def _execute_auto_delivery(
     backlog_root_path = Path(str(backlog_result["backlog_root"])).resolve()
     backlog_root = str(backlog_root_path)
     successful_story_index = _reconcile_backlog_successes(project, repo_b_path, backlog_root_path)
+    if project == "finahunt":
+        for sprint_dir in sprint_dirs:
+            if not _is_finahunt_sprint5_authoritative_rerun(project, sprint_dir):
+                continue
+            for story_id in [line.strip() for line in (sprint_dir / "execution_order.txt").read_text(encoding="utf-8").splitlines() if line.strip()]:
+                successful_story_index.pop(story_id, None)
     resume_sprint_id, resume_story_id, last_success_story, interruption_reason = _resolve_resume_cursor(
         repo_b_path,
         backlog_root,
@@ -584,9 +689,19 @@ def _execute_auto_delivery(
         "backlog_root": backlog_root,
         "story_count": len(backlog_result["story_cards"]),
         "auto_run": True,
+        "execution_policy": "continuous_full_sprint",
+        "interaction_policy": "non_interactive_auto_run",
+        "pause_policy": "story_boundary_or_shared_blocker_only",
+        "run_policy": "single_pass_to_completion",
+        "acceptance_policy": "must_pass_all_required_runs",
+        "retry_policy": "auto_repair_until_green",
         "release": release,
         "status": "running",
         "started_at": datetime.now().isoformat(timespec="seconds"),
+        "acceptance_attempt": 0,
+        "acceptance_failure_class": None,
+        "repair_iteration": 0,
+        "final_green_required": True,
         "current_sprint": resume_sprint_id,
         "current_story": resume_story_id,
         "current_node": None,
@@ -673,7 +788,7 @@ def _execute_auto_delivery(
                 project=project,
                 release=release,
                 start_story_id=resume_story_id if sprint_dir.name == resume_sprint_id else None,
-                continue_on_failure=False,
+                continue_on_failure=True,
                 echo=printer,
                 successful_story_index=successful_story_index,
                 progress_callback=progress_callback,
@@ -748,8 +863,19 @@ def _run_sprint_directory(
     if start_from < 0 or start_from >= len(story_ids):
         raise click.ClickException(f"start-from is out of range: {start_from}")
 
+    baseline = _capture_sprint_registry_baseline(repo_b_path, target_dir)
+    authoritative_attempt = _build_authoritative_attempt(target_dir)
     pre_hook = run_sprint_pre_hooks(target_dir, project=project, release=release)
+    if _is_finahunt_sprint5_authoritative_rerun(project, target_dir):
+        _mark_existing_sprint_attempts_stale(
+            repo_b_path=repo_b_path,
+            target_dir=target_dir,
+            authoritative_attempt=authoritative_attempt,
+            baseline=baseline,
+        )
     printer(f"Sprint advisory saved: {pre_hook['advice_path']}")
+    if pre_hook.get("sprint_framing_path"):
+        printer(f"Sprint framing saved: {pre_hook['sprint_framing_path']}")
 
     completed: list[dict[str, object]] = []
     failed: list[dict[str, object]] = []
@@ -774,6 +900,7 @@ def _run_sprint_directory(
                 "failed_stories": list(failed),
                 "pre_hook": pre_hook,
                 "post_hook": None,
+                "authoritative_attempt": authoritative_attempt,
                 "status": status,
                 "current_story": current_story,
                 "current_node": current_node,
@@ -784,7 +911,14 @@ def _run_sprint_directory(
             }
         )
 
-    def persist_interruption(story_id: str, reason: str, message: str, evidence_paths: list[str], current_node: str | None = None) -> None:
+    def persist_interruption(
+        story_id: str,
+        reason: str,
+        message: str,
+        evidence_paths: list[str],
+        current_node: str | None = None,
+        blocker_class: str | None = None,
+    ) -> None:
         write_resume_state(
             repo_b_path,
             {
@@ -798,6 +932,19 @@ def _run_sprint_directory(
                 "resume_from_story": story_id,
                 "interruption_reason": reason,
                 "error_message": message,
+                "blocker_class": blocker_class,
+                "execution_policy": "continuous_full_sprint",
+                "interaction_policy": "non_interactive_auto_run",
+                "pause_policy": "story_boundary_or_shared_blocker_only",
+                "run_policy": "single_pass_to_completion",
+                "acceptance_policy": "must_pass_all_required_runs",
+                "retry_policy": "auto_repair_until_green",
+                "acceptance_attempt": 0,
+                "acceptance_failure_class": "shared_dependency_blocker" if blocker_class == "shared_dependency_blocker" else "story_local_blocker",
+                "repair_iteration": 0,
+                "final_green_required": True,
+                "authoritative_attempt": authoritative_attempt,
+                "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
             },
         )
         write_current_handoff(
@@ -816,6 +963,19 @@ def _run_sprint_directory(
                 "resume_command": f"python cli.py auto-deliver --project {project} --env {env} --prefix {target_dir.parent.name} --auto-run",
                 "evidence_paths": evidence_paths,
                 "cleanup_note": "Inspect the failed story and rerun from the latest checkpoint.",
+                "blocker_class": blocker_class,
+                "execution_policy": "continuous_full_sprint",
+                "interaction_policy": "non_interactive_auto_run",
+                "pause_policy": "story_boundary_or_shared_blocker_only",
+                "run_policy": "single_pass_to_completion",
+                "acceptance_policy": "must_pass_all_required_runs",
+                "retry_policy": "auto_repair_until_green",
+                "acceptance_attempt": 0,
+                "acceptance_failure_class": "shared_dependency_blocker" if blocker_class == "shared_dependency_blocker" else "story_local_blocker",
+                "repair_iteration": 0,
+                "final_green_required": True,
+                "authoritative_attempt": authoritative_attempt,
+                "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
             },
         )
 
@@ -846,12 +1006,64 @@ def _run_sprint_directory(
             message = f"Story card not found for {story_id}"
             failed.append({"story_id": story_id, "error": message})
             printer(f"[{index}/{len(story_ids)}] {story_id} failed: {message}")
-            persist_interruption(story_id, "story_card_missing", message, [])
+            persist_interruption(story_id, "story_card_missing", message, [], blocker_class="shared_dependency_blocker")
             publish_progress(
                 status="interrupted",
                 current_story=story_id,
                 resume_from_story=story_id,
                 interruption_reason="story_card_missing",
+                error_message=message,
+            )
+            if continue_on_failure:
+                continue
+            raise click.ClickException(message)
+
+        admission = _admit_story_file(
+            story_file,
+            repo_b_path,
+            project,
+            {
+                "office_hours_path": pre_hook.get("office_hours_path"),
+                "plan_ceo_review_path": pre_hook.get("plan_ceo_review_path"),
+                "sprint_framing_path": pre_hook.get("sprint_framing_path"),
+                "authoritative_attempt": authoritative_attempt,
+                "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
+                "formal_entry": True,
+            },
+        )
+        if not admission.get("admitted"):
+            message = "; ".join(str(item) for item in (admission.get("errors") or []) if str(item).strip()) or "workflow admission failed"
+            blocker_class = "shared_dependency_blocker"
+            failed.append({"story_id": story_id, "error": message, "blocker_class": blocker_class})
+            printer(f"[{index}/{len(story_ids)}] {story_id} rejected at admission: {message}")
+            write_story_failure(
+                repo_b_path,
+                story_id,
+                {
+                    "project": project,
+                    "backlog_id": target_dir.parent.name,
+                    "sprint_id": target_dir.name,
+                    "story_id": story_id,
+                    "task_name": story_id,
+                    "failure_type": "workflow_admission_failed",
+                    "blocker_class": blocker_class,
+                    "recommended_recovery_action": "Add the missing story metadata or required workflow scope, then rerun this story.",
+                    "error_message": message,
+                    "admission_path": admission.get("admission_path"),
+                },
+            )
+            persist_interruption(
+                story_id,
+                "workflow_admission_failed",
+                message,
+                [str(story_file), str(admission.get("admission_path") or "")],
+                blocker_class=blocker_class,
+            )
+            publish_progress(
+                status="interrupted",
+                current_story=story_id,
+                resume_from_story=story_id,
+                interruption_reason="workflow_admission_failed",
                 error_message=message,
             )
             if continue_on_failure:
@@ -869,6 +1081,8 @@ def _run_sprint_directory(
                 "status": "running",
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "source": "agentsystem_runtime",
+                "required_modes": list(admission.get("required_modes") or []),
+                "advisory_modes": list(admission.get("advisory_modes") or []),
                 "repository": project,
             },
         )
@@ -882,6 +1096,18 @@ def _run_sprint_directory(
                 "story_id": story_id,
                 "status": "running",
                 "resume_from_story": story_id,
+                "execution_policy": "continuous_full_sprint",
+                "interaction_policy": "non_interactive_auto_run",
+                "pause_policy": "story_boundary_or_shared_blocker_only",
+                "run_policy": "single_pass_to_completion",
+                "acceptance_policy": "must_pass_all_required_runs",
+                "retry_policy": "auto_repair_until_green",
+                "acceptance_attempt": 0,
+                "acceptance_failure_class": None,
+                "repair_iteration": 0,
+                "final_green_required": True,
+                "authoritative_attempt": authoritative_attempt,
+                "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
             },
         )
         write_current_handoff(
@@ -898,14 +1124,64 @@ def _run_sprint_directory(
                 "resume_command": f"python cli.py auto-deliver --project {project} --env {env} --prefix {target_dir.parent.name} --auto-run",
                 "evidence_paths": [str(story_file)],
                 "cleanup_note": "No cleanup required before continuing.",
+                "execution_policy": "continuous_full_sprint",
+                "interaction_policy": "non_interactive_auto_run",
+                "pause_policy": "story_boundary_or_shared_blocker_only",
+                "run_policy": "single_pass_to_completion",
+                "acceptance_policy": "must_pass_all_required_runs",
+                "retry_policy": "auto_repair_until_green",
+                "acceptance_attempt": 0,
+                "acceptance_failure_class": None,
+                "repair_iteration": 0,
+                "final_green_required": True,
+                "authoritative_attempt": authoritative_attempt,
+                "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
             },
         )
         try:
-            output = run_prod_task(story_file, env, project=project)
+            output = run_prod_task(
+                story_file,
+                env,
+                project=project,
+                task_overrides={
+                    "auto_run": True,
+                    "execution_policy": "continuous_full_sprint",
+                    "interaction_policy": "non_interactive_auto_run",
+                    "pause_policy": "story_boundary_or_shared_blocker_only",
+                    "run_policy": "single_pass_to_completion",
+                    "acceptance_policy": "must_pass_all_required_runs",
+                    "retry_policy": "auto_repair_until_green",
+                    "acceptance_attempt": 0,
+                    "repair_iteration": 0,
+                    "final_green_required": True,
+                    "formal_entry": True,
+                    "office_hours_path": pre_hook.get("office_hours_path"),
+                    "plan_ceo_review_path": pre_hook.get("plan_ceo_review_path"),
+                    "sprint_framing_path": pre_hook.get("sprint_framing_path"),
+                    "authoritative_attempt": authoritative_attempt,
+                    "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
+                },
+            )
         except Exception as exc:
-            failed.append({"story_id": story_id, "error": str(exc)})
+            blocker_class = "shared_dependency_blocker"
+            failed.append({"story_id": story_id, "error": str(exc), "blocker_class": blocker_class})
             printer(f"  Failed: {exc}")
-            persist_interruption(story_id, "run_prod_task_exception", str(exc), [str(story_file)])
+            write_story_failure(
+                repo_b_path,
+                story_id,
+                {
+                    "project": project,
+                    "backlog_id": target_dir.parent.name,
+                    "sprint_id": target_dir.name,
+                    "story_id": story_id,
+                    "task_name": story_id,
+                    "failure_type": "run_prod_task_exception",
+                    "blocker_class": blocker_class,
+                    "recommended_recovery_action": "Inspect the shared execution blocker, then resume from this story.",
+                    "error_message": str(exc),
+                },
+            )
+            persist_interruption(story_id, "run_prod_task_exception", str(exc), [str(story_file)], blocker_class=blocker_class)
             publish_progress(
                 status="interrupted",
                 current_story=story_id,
@@ -913,7 +1189,7 @@ def _run_sprint_directory(
                 interruption_reason="run_prod_task_exception",
                 error_message=str(exc),
             )
-            if not continue_on_failure:
+            if not continue_on_failure or blocker_class == "shared_dependency_blocker":
                 raise click.ClickException(f"Task execution failed for {story_id}: {exc}") from exc
             continue
 
@@ -935,6 +1211,15 @@ def _run_sprint_directory(
                     "current_node": "doc_writer",
                     "error_message": None,
                     "interruption_reason": None,
+                    "run_policy": "single_pass_to_completion",
+                    "acceptance_policy": "must_pass_all_required_runs",
+                    "retry_policy": "auto_repair_until_green",
+                    "acceptance_attempt": 0,
+                    "acceptance_failure_class": None,
+                    "repair_iteration": 0,
+                    "final_green_required": True,
+                    "authoritative_attempt": authoritative_attempt,
+                    "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
                 },
                 clear_keys=["interruption_reason", "error_message", "failure_type", "failure_snapshot_path"],
             )
@@ -943,14 +1228,34 @@ def _run_sprint_directory(
 
         failure_message = str(output.get("error") or "workflow_failed")
         failure_reason = str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("interruption_reason") or failure_message)
-        failed.append({"story_id": story_id, "error": failure_message, "task_id": output.get("task_id")})
+        blocker_class = _classify_story_blocker(output)
+        failed.append({"story_id": story_id, "error": failure_message, "task_id": output.get("task_id"), "blocker_class": blocker_class})
         printer(f"  Failed: {failure_message}")
+        write_story_failure(
+            repo_b_path,
+            story_id,
+            {
+                "project": project,
+                "backlog_id": target_dir.parent.name,
+                "sprint_id": target_dir.name,
+                "story_id": story_id,
+                "task_id": output.get("task_id"),
+                "task_name": story_id,
+                "failure_type": str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("failure_type") or failure_reason),
+                "blocker_class": blocker_class,
+                "last_node": str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("last_node") or "") or None,
+                "recommended_recovery_action": "Resume from the failed story after the recorded blocker is addressed.",
+                "error_message": failure_message,
+                "audit_path": str(output.get("audit_path") or "") or None,
+            },
+        )
         persist_interruption(
             story_id,
             failure_reason,
             failure_message,
             [item for item in (str(story_file), str(output.get("audit_path") or "")) if item],
             current_node=str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("last_node") or "") or None,
+            blocker_class=blocker_class,
         )
         publish_progress(
             status="interrupted",
@@ -960,15 +1265,47 @@ def _run_sprint_directory(
             interruption_reason=failure_reason,
             error_message=failure_message,
         )
-        if continue_on_failure:
+        can_continue, resolved_blocker_class = _should_continue_after_story_failure(
+            target_dir=target_dir,
+            story_ids=story_ids,
+            failed_story_id=story_id,
+            current_index=index - 1,
+            blocker_class=blocker_class,
+        )
+        if resolved_blocker_class != blocker_class:
+            blocker_class = resolved_blocker_class
+            failed[-1]["blocker_class"] = blocker_class
+            persist_interruption(
+                story_id,
+                failure_reason,
+                failure_message,
+                [item for item in (str(story_file), str(output.get("audit_path") or "")) if item],
+                current_node=str(((output.get("state") or {}) if isinstance(output.get("state"), dict) else {}).get("last_node") or "") or None,
+                blocker_class=blocker_class,
+            )
+        if continue_on_failure and can_continue:
             continue
         raise click.ClickException(f"Task execution failed for {story_id}: {failure_message}")
 
     post_hook = run_sprint_post_hooks(target_dir, project=project, release=release)
+    report_path = _write_sprint_special_acceptance_report(
+        target_dir=target_dir,
+        repo_b_path=repo_b_path,
+        project=project,
+        pre_hook=pre_hook,
+        post_hook=post_hook,
+        completed=completed,
+        failed=failed,
+        baseline=baseline,
+        authoritative_attempt=authoritative_attempt,
+    )
     printer(f"Sprint document-release report: {post_hook['document_release_path']}")
     printer(f"Sprint retro report: {post_hook['retro_path']}")
+    if post_hook.get("ship_report_path"):
+        printer(f"Sprint ship report: {post_hook['ship_report_path']}")
     if post_hook.get("ship_advice_path"):
         printer(f"Sprint ship advice: {post_hook['ship_advice_path']}")
+    printer(f"Sprint special acceptance report: {report_path}")
 
     return {
         "sprint_dir": str(target_dir),
@@ -977,6 +1314,8 @@ def _run_sprint_directory(
         "failed_stories": failed,
         "pre_hook": pre_hook,
         "post_hook": post_hook,
+        "authoritative_attempt": authoritative_attempt,
+        "special_acceptance_report_path": str(report_path),
         "status": "completed",
         "current_story": None,
         "current_node": "doc_writer" if not failed else None,
@@ -985,6 +1324,314 @@ def _run_sprint_directory(
         "interruption_reason": failed[-1].get("error") if failed else None,
         "error_message": failed[-1].get("error") if failed else None,
     }
+
+
+def _classify_story_blocker(output: dict[str, object]) -> str:
+    state = output.get("state") if isinstance(output.get("state"), dict) else {}
+    explicit = str((state or {}).get("blocker_class") or "").strip()
+    if explicit in {"story_local_blocker", "shared_dependency_blocker"}:
+        return explicit
+    failure_type = str((state or {}).get("failure_type") or "").strip()
+    if failure_type in {"workflow_bug", "run_prod_task_exception", "story_card_missing"}:
+        return "shared_dependency_blocker"
+    return "story_local_blocker"
+
+
+def _parse_story_dependencies(story_file: Path | None) -> set[str]:
+    if story_file is None or not story_file.exists():
+        return set()
+    try:
+        payload = yaml.safe_load(story_file.read_text(encoding="utf-8"))
+    except Exception:
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    raw_dependencies = payload.get("dependencies")
+    if isinstance(raw_dependencies, list):
+        items = raw_dependencies
+    elif raw_dependencies in (None, ""):
+        items = []
+    else:
+        items = [raw_dependencies]
+
+    resolved: set[str] = set()
+    for item in items:
+        if isinstance(item, dict):
+            candidate = item.get("story_id") or item.get("task_id") or item.get("id")
+        else:
+            candidate = item
+        normalized = str(candidate or "").strip()
+        if normalized:
+            resolved.add(normalized)
+    return resolved
+
+
+def _resolve_story_file(target_dir: Path, story_id: str) -> Path | None:
+    return next(target_dir.rglob(f"{story_id}_*.yaml"), None)
+
+
+def _should_continue_after_story_failure(
+    *,
+    target_dir: Path,
+    story_ids: list[str],
+    failed_story_id: str,
+    current_index: int,
+    blocker_class: str,
+) -> tuple[bool, str]:
+    if blocker_class == "shared_dependency_blocker":
+        return False, blocker_class
+    for downstream_story_id in story_ids[current_index + 1 :]:
+        dependencies = _parse_story_dependencies(_resolve_story_file(target_dir, downstream_story_id))
+        if failed_story_id in dependencies:
+            return False, "shared_dependency_blocker"
+    return True, blocker_class
+
+
+def _capture_sprint_registry_baseline(repo_b_path: Path, target_dir: Path) -> dict[str, dict[str, object]]:
+    status_entries = _read_registry_entries(repo_b_path / "tasks" / "story_status_registry.json", "stories")
+    review_entries = _read_registry_entries(repo_b_path / "tasks" / "story_acceptance_reviews.json", "reviews")
+    status_index = {
+        str(item.get("story_id") or ""): item
+        for item in status_entries
+        if isinstance(item, dict) and str(item.get("sprint_id") or "") == target_dir.name
+    }
+    review_index = {
+        str(item.get("story_id") or ""): item
+        for item in review_entries
+        if isinstance(item, dict) and str(item.get("sprint_id") or "") == target_dir.name
+    }
+    baseline: dict[str, dict[str, object]] = {}
+    for story_id in [line.strip() for line in (target_dir / "execution_order.txt").read_text(encoding="utf-8").splitlines() if line.strip()]:
+        status_entry = status_index.get(story_id) or {}
+        review_entry = review_index.get(story_id) or {}
+        baseline[story_id] = {
+            "status_exists": story_id in status_index,
+            "acceptance_exists": story_id in review_index,
+            "status_value": str(status_entry.get("status") or ""),
+            "acceptance_status": str(review_entry.get("acceptance_status") or review_entry.get("verdict") or ""),
+            "formal_flow_complete": bool(status_entry.get("formal_flow_complete")) and bool(review_entry.get("formal_flow_complete")),
+            "attempt_status": str(status_entry.get("attempt_status") or review_entry.get("attempt_status") or ""),
+            "authoritative_attempt": str(status_entry.get("authoritative_attempt") or review_entry.get("authoritative_attempt") or ""),
+            "handoff_exists": (repo_b_path / "tasks" / "runtime" / "story_handoffs" / f"{story_id}.md").exists(),
+            "failure_exists": (repo_b_path / "tasks" / "runtime" / "story_failures" / f"{story_id}.json").exists(),
+        }
+    return baseline
+
+
+def _mark_existing_sprint_attempts_stale(
+    *,
+    repo_b_path: Path,
+    target_dir: Path,
+    authoritative_attempt: str,
+    baseline: dict[str, dict[str, object]],
+) -> None:
+    story_ids = [line.strip() for line in (target_dir / "execution_order.txt").read_text(encoding="utf-8").splitlines() if line.strip()]
+    for story_id in story_ids:
+        story_baseline = baseline.get(story_id) or {}
+        if story_baseline.get("status_exists"):
+            update_story_status(
+                repo_b_path,
+                {
+                    "backlog_id": target_dir.parent.name,
+                    "sprint_id": target_dir.name,
+                    "story_id": story_id,
+                    "status": "stale_attempt",
+                    "attempt_status": "stale_attempt",
+                    "superseded_by_attempt": authoritative_attempt,
+                    "superseded_at": datetime.now().isoformat(timespec="seconds"),
+                    "superseded_reason": "authoritative_sprint_rerun",
+                    "formal_flow_complete": False,
+                    "formal_flow_gap_reasons": ["superseded_by_authoritative_rerun"],
+                    "accepted": False,
+                    "agentized": False,
+                    "formal_acceptance_reviewer": None,
+                },
+            )
+        if story_baseline.get("acceptance_exists"):
+            update_story_acceptance_review(
+                repo_b_path,
+                {
+                    "backlog_id": target_dir.parent.name,
+                    "sprint_id": target_dir.name,
+                    "story_id": story_id,
+                    "reviewer": "acceptance_gate",
+                    "verdict": "needs_followup",
+                    "acceptance_status": "needs_followup",
+                    "attempt_status": "stale_attempt",
+                    "superseded_by_attempt": authoritative_attempt,
+                    "superseded_at": datetime.now().isoformat(timespec="seconds"),
+                    "superseded_reason": "authoritative_sprint_rerun",
+                    "formal_flow_complete": False,
+                    "formal_flow_gap_reasons": ["superseded_by_authoritative_rerun"],
+                    "accepted": False,
+                    "agentized": False,
+                },
+            )
+
+
+def _load_agent_coverage_index(repo_b_path: Path) -> dict[tuple[str, str, str], dict[str, object]]:
+    report_path = repo_b_path / "tasks" / "runtime" / "agent_coverage_report.json"
+    if not report_path.exists():
+        return {}
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    stories = payload.get("stories") if isinstance(payload, dict) else []
+    if not isinstance(stories, list):
+        return {}
+    index: dict[tuple[str, str, str], dict[str, object]] = {}
+    for item in stories:
+        if not isinstance(item, dict):
+            continue
+        index[_story_registry_key(item)] = item
+    return index
+
+
+def _story_registry_key(entry: dict[str, object]) -> tuple[str, str, str]:
+    return (
+        str(entry.get("backlog_id") or ""),
+        str(entry.get("sprint_id") or ""),
+        str(entry.get("story_id") or ""),
+    )
+
+
+def _collect_finahunt_sprint5_runtime_evidence(post_hook: dict[str, object]) -> dict[str, object]:
+    runtime_validation_path = Path(str(post_hook.get("runtime_validation_path") or "")).resolve() if post_hook.get("runtime_validation_path") else None
+    if not runtime_validation_path or not runtime_validation_path.exists():
+        return {"validation_status": "missing"}
+    try:
+        payload = json.loads(runtime_validation_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"validation_status": "failed", "parse_error": "runtime validation payload is unreadable"}
+    return payload if isinstance(payload, dict) else {"validation_status": "failed"}
+
+
+def _write_sprint_special_acceptance_report(
+    *,
+    target_dir: Path,
+    repo_b_path: Path,
+    project: str,
+    pre_hook: dict[str, object],
+    post_hook: dict[str, object],
+    completed: list[dict[str, object]],
+    failed: list[dict[str, object]],
+    baseline: dict[str, dict[str, object]],
+    authoritative_attempt: str,
+) -> Path:
+    output_dir = ROOT_DIR / "runs" / "sprints" / project / target_dir.name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    status_entries = _read_registry_entries(repo_b_path / "tasks" / "story_status_registry.json", "stories")
+    review_entries = _read_registry_entries(repo_b_path / "tasks" / "story_acceptance_reviews.json", "reviews")
+    status_index = {
+        _story_registry_key(item): item
+        for item in status_entries
+        if isinstance(item, dict)
+    }
+    review_index = {
+        _story_registry_key(item): item
+        for item in review_entries
+        if isinstance(item, dict)
+    }
+    coverage_index = _load_agent_coverage_index(repo_b_path)
+    story_ids = [line.strip() for line in (target_dir / "execution_order.txt").read_text(encoding="utf-8").splitlines() if line.strip()]
+    story_reports: list[dict[str, object]] = []
+    overall_missing: list[str] = []
+
+    for story_id in story_ids:
+        story_file = _resolve_story_file(target_dir, story_id)
+        admission = _admit_story_file(
+            story_file,
+            repo_b_path,
+            project,
+            {
+                "office_hours_path": pre_hook.get("office_hours_path"),
+                "plan_ceo_review_path": pre_hook.get("plan_ceo_review_path"),
+                "sprint_framing_path": pre_hook.get("sprint_framing_path"),
+                "authoritative_attempt": authoritative_attempt,
+                "sprint_rerun_policy": "isolation_snapshot_full_rerun",
+                "formal_entry": True,
+            },
+        ) if story_file else None
+        key = (target_dir.parent.name, target_dir.name, story_id)
+        status_entry = status_index.get(key) or {}
+        review_entry = review_index.get(key) or {}
+        coverage_entry = coverage_index.get(key) or {}
+        mode_coverage = coverage_entry.get("agent_mode_coverage") if isinstance(coverage_entry.get("agent_mode_coverage"), dict) else {}
+        required_modes = list((coverage_entry.get("required_modes") or (admission or {}).get("required_modes") or []))
+        executed_modes = list((coverage_entry.get("executed_modes") or []))
+        missing_required = list((mode_coverage or {}).get("missing_required") or [])
+        handoff_path = repo_b_path / "tasks" / "runtime" / "story_handoffs" / f"{story_id}.md"
+        failure_path = repo_b_path / "tasks" / "runtime" / "story_failures" / f"{story_id}.json"
+        status_ok = str(status_entry.get("status") or "") == "done"
+        acceptance_ok = str(review_entry.get("acceptance_status") or review_entry.get("verdict") or "") == "approved"
+        evidence_ok = bool(status_entry.get("audit_path")) and (handoff_path.exists() or failure_path.exists())
+        report = {
+            "story_id": story_id,
+            "completed_before_rerun": bool((baseline.get(story_id) or {}).get("status_exists") and (baseline.get(story_id) or {}).get("acceptance_exists")),
+            "supplemented_in_rerun": not bool((baseline.get(story_id) or {}).get("status_exists") and (baseline.get(story_id) or {}).get("acceptance_exists")),
+            "superseded_old_attempt": bool((baseline.get(story_id) or {}).get("status_exists") or (baseline.get(story_id) or {}).get("acceptance_exists")),
+            "old_attempt_status": str((baseline.get(story_id) or {}).get("status_value") or ""),
+            "old_attempt_acceptance_status": str((baseline.get(story_id) or {}).get("acceptance_status") or ""),
+            "status_recorded": status_ok,
+            "acceptance_recorded": acceptance_ok,
+            "handoff_exists": handoff_path.exists(),
+            "failure_exists": failure_path.exists(),
+            "audit_path": str(status_entry.get("audit_path") or ""),
+            "authoritative_attempt": authoritative_attempt,
+            "attempt_status": str(status_entry.get("attempt_status") or review_entry.get("attempt_status") or ""),
+            "required_modes": required_modes,
+            "executed_modes": executed_modes,
+            "missing_required_modes": missing_required,
+            "mode_coverage_summary": {
+                "required_count": len(required_modes),
+                "executed_required_count": len(required_modes) - len(missing_required),
+                "missing_required_modes": missing_required,
+            },
+            "mode_coverage_complete": not missing_required,
+            "admission_path": str((admission or {}).get("admission_path") or ""),
+            "evidence_complete": evidence_ok,
+            "formal_flow_complete": status_ok and acceptance_ok and evidence_ok and not missing_required,
+        }
+        if not report["formal_flow_complete"]:
+            overall_missing.append(story_id)
+        story_reports.append(report)
+
+    sprint_level = {
+        "office_hours_path": str(pre_hook.get("office_hours_path") or ""),
+        "plan_ceo_review_path": str(pre_hook.get("plan_ceo_review_path") or ""),
+        "sprint_framing_path": str(pre_hook.get("sprint_framing_path") or ""),
+        "ship_report_path": str(post_hook.get("ship_report_path") or ""),
+        "document_release_path": str(post_hook.get("document_release_path") or ""),
+        "retro_path": str(post_hook.get("retro_path") or ""),
+        "sprint_close_bundle_path": str(post_hook.get("sprint_close_bundle_path") or ""),
+    }
+    sprint_level["complete"] = all(Path(path).exists() for path in sprint_level.values() if path)
+    runtime_evidence: dict[str, object] | None = None
+    if project == "finahunt" and "low_position_one_shot_workbench" in target_dir.name:
+        runtime_evidence = _collect_finahunt_sprint5_runtime_evidence(post_hook)
+        if runtime_evidence.get("validation_status") != "passed":
+            overall_missing.append("runtime_validation")
+
+    verdict = not failed and not overall_missing and sprint_level["complete"]
+    report_payload = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "project": project,
+        "sprint_id": target_dir.name,
+        "authoritative_attempt": authoritative_attempt,
+        "story_count": len(story_ids),
+        "completed_story_count": len(completed),
+        "failed_story_count": len(failed),
+        "formal_flow_complete": verdict,
+        "final_verdict": "完整按标准流程跑过" if verdict else "未完整跑过，缺失点如下",
+        "missing_items": overall_missing,
+        "story_reports": story_reports,
+        "sprint_level": sprint_level,
+        "runtime_evidence": runtime_evidence,
+    }
+    report_path = output_dir / "special_acceptance_report.json"
+    report_path.write_text(json.dumps(report_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return report_path
 
 
 def _write_auto_delivery_summary(payload: dict[str, object], summary_path: Path | None = None) -> Path:
@@ -1015,7 +1662,7 @@ def run_task(task_file: str, env: str, project: str | None, resume: bool) -> Non
 
     try:
         payload = yaml.safe_load(task_path.read_text(encoding="utf-8"))
-        TaskCard.model_validate(payload)
+        normalize_runtime_task_payload(payload)
     except Exception as exc:
         click.echo(f"Task card validation failed: {exc}", err=True)
         raise SystemExit(1) from exc
@@ -1026,7 +1673,16 @@ def run_task(task_file: str, env: str, project: str | None, resume: bool) -> Non
         click.echo("resume is reserved; the current local workflow always starts from the task card.")
 
     try:
-        output = run_prod_task(task_path, env, project=project)
+        output = run_prod_task(
+            task_path,
+            env,
+            project=project,
+            task_overrides={
+                "auto_run": False,
+                "formal_entry": False,
+                "interaction_policy": "direct_run_task",
+            },
+        )
     except Exception as exc:
         click.echo(f"Task execution failed: {exc}", err=True)
         raise SystemExit(1) from exc
@@ -1103,12 +1759,15 @@ def run_sprint(sprint_dir: str | None, sprint: str | None, start_from: int, env:
         click.echo("Either --sprint-dir or --sprint is required.", err=True)
         raise SystemExit(1)
 
+    repo_b_path = _resolve_project_repo_path(_load_env_config(env), project)
+
     if sprint_dir:
         target_dir = Path(sprint_dir).resolve()
     else:
         target_dir = ROOT_DIR / "tasks" / f"sprint_{sprint}"
     _run_sprint_directory(
         target_dir,
+        repo_b_path=repo_b_path,
         env=env,
         project=project,
         release=release,
@@ -1304,6 +1963,26 @@ def render_agent_skills(mode_id: str | None, validate: bool) -> None:
     for item in rendered:
         click.echo(f"  - {item['mode_id']}: {item['skill_path']}")
     click.echo("Agent skill packages rendered.")
+
+
+@cli.command("audit-gstack-parity")
+@click.option("--project", help="Optional project id for dogfood context, for example finahunt")
+@click.option("--sprint-dir", help="Optional sprint directory to evaluate as the formal dogfood target")
+@click.option("--output-dir", help="Optional output directory override")
+def audit_gstack_parity(project: str | None, sprint_dir: str | None, output_dir: str | None) -> None:
+    resolved_sprint_dir = sprint_dir
+    if not resolved_sprint_dir and str(project or "").strip().lower() == "finahunt":
+        default_sprint = ROOT_DIR.parent / "finahunt" / "tasks" / "backlog_v1" / "sprint_3_linkage_and_ranking"
+        if default_sprint.exists():
+            resolved_sprint_dir = str(default_sprint)
+
+    target_dir = Path(output_dir).resolve() if output_dir else ROOT_DIR / "runs" / "parity"
+    result = write_gstack_parity_audit(target_dir, sprint_dir=resolved_sprint_dir, project=project)
+    click.echo("gstack parity audit completed")
+    click.echo(f"  Manifest: {result['parity_manifest_path']}")
+    click.echo(f"  Checklist: {result['acceptance_checklist_path']}")
+    if resolved_sprint_dir:
+        click.echo(f"  Dogfood target: {resolved_sprint_dir}")
 
 
 @cli.command("fix-encoding")

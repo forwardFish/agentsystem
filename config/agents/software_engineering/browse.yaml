@@ -1,0 +1,14 @@
+agent_id: software_engineering.browse
+name: Browse Agent
+description: Run a report-only browser observation pass ahead of design planning or QA.
+handler: browse_node
+agent_role: verification.browse
+plane: verification
+capabilities:
+  - browser_observation
+  - screenshot_capture
+verification_tags:
+  - browse
+metadata:
+  manifest_version: v1
+  domain: software_engineering

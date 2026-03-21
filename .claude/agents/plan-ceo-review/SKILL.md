@@ -9,10 +9,10 @@ allowed-tools:
 - product_scope_notes
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
-runtime_ready: false
-execution_status: template_only
-entry_mode: not_wired
-stop_after: not_wired
+runtime_ready: true
+execution_status: executable
+entry_mode: plan_ceo_review
+stop_after: plan_ceo_review
 report_only: true
 fixer_allowed: false
 required-inputs:
@@ -23,6 +23,7 @@ required-inputs:
 expected-artifacts:
 - .meta/<repo>/plan_ceo_review/product_review_report.md
 - .meta/<repo>/plan_ceo_review/opportunity_map.json
+- docs/requirements/*.md
 ---
 
 # Plan CEO Review
@@ -42,11 +43,11 @@ You reinterpret a request in terms of user value, strategic upside, and the best
 - success_signal
 
 ## Execution Contract
-- Runtime summary: This skill mode is preserved as a template package only and is not yet executable in runtime.
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
-- Current runtime entry: `not_wired`.
-- Current runtime stop point: `not_wired`.
-- Treat this package as a product review template and report writer unless runtime wiring is added later.
+- Current runtime entry: `plan_ceo_review`.
+- Current runtime stop point: `plan_ceo_review`.
+- This mode is now wired as a report-writing planning step that hands a requirement package into downstream execution.
 
 ## Working Steps
 1. Restate the request in user-outcome terms.
@@ -58,20 +59,19 @@ You reinterpret a request in terms of user value, strategic upside, and the best
 - Produce these artifacts:
 - .meta/<repo>/plan_ceo_review/product_review_report.md
 - .meta/<repo>/plan_ceo_review/opportunity_map.json
+- docs/requirements/*.md
 - Include a concise opportunity statement, scope recommendation, and success signal.
 - Keep the advice grounded in the current repository and product surface.
 
 ## Bound Agents
-- software_engineering.requirement_analysis
-- software_engineering.architecture_review
+- software_engineering.plan_ceo_review
 
 ## Bound Agent Manifest Paths
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\requirement_analysis.yaml
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\architecture_review.yaml
+- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\plan_ceo_review.yaml
 
 ## Guardrails
 - Do not drift into code edits.
-- Do not claim a runtime path that does not exist yet.
+- Do not claim Claude-only host hooks run here without the Codex adapter path.
 - Do not invent external product research that has not been provided.
 
 ## Generated From

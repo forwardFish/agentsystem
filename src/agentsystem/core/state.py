@@ -30,10 +30,15 @@ class SubTask(BaseModel):
 
 
 class AgentRole(str, Enum):
+    OFFICE_HOURS = "OfficeHours"
     REQUIREMENT = "Requirement"
+    PLAN_CEO_REVIEW = "PlanCEOReview"
     ARCHITECTURE_REVIEW = "ArchitectureReview"
+    INVESTIGATE = "Investigate"
+    BROWSE = "Browse"
     PLAN_DESIGN_REVIEW = "PlanDesignReview"
     DESIGN_CONSULTATION = "DesignConsultation"
+    SESSION_MANAGER = "SessionManager"
     BUILDER = "Builder"
     SYNC = "Sync"
     TESTER = "Tester"
@@ -47,6 +52,9 @@ class AgentRole(str, Enum):
     CODE_ACCEPTANCE = "CodeAcceptance"
     ACCEPTANCE_GATE = "AcceptanceGate"
     DOC_WRITER = "DocWriter"
+    SHIP = "Ship"
+    DOCUMENT_RELEASE = "DocumentRelease"
+    RETRO = "Retro"
 
 
 class HandoffStatus(str, Enum):
@@ -184,11 +192,43 @@ class DevState(TypedDict, total=False):
     user_requirement: str
     repo_b_path: str
     task_payload: dict[str, Any] | None
+    auto_run: bool | None
+    run_policy: str | None
+    execution_policy: str | None
+    interaction_policy: str | None
+    pause_policy: str | None
+    acceptance_policy: str | None
+    retry_policy: str | None
+    acceptance_attempt: int | None
+    acceptance_failure_class: str | None
+    repair_iteration: int | None
+    final_green_required: bool | None
+    blocker_class: str | None
+    dogfood_eligible: bool | None
+    full_parity_upgrade_blockers: list[str] | None
     story_kind: str | None
     risk_level: str | None
     has_browser_surface: bool | None
     requires_auth: bool | None
     qa_strategy: str | None
+    session_policy: str | None
+    cookie_source: str | None
+    auth_expectations: list[str] | None
+    investigation_context: list[str] | None
+    bug_scope: str | None
+    release_scope: list[str] | None
+    doc_targets: list[str] | None
+    retro_window: str | None
+    workflow_enforcement_policy: str | None
+    upstream_agent_parity: dict[str, Any] | None
+    awaiting_user_input: bool | None
+    dialogue_state: dict[str, Any] | None
+    next_question: dict[str, Any] | None
+    approval_required: bool | None
+    handoff_target: str | None
+    resume_from_mode: str | None
+    decision_state: dict[str, Any] | None
+    interaction_round: int | None
     required_modes: list[str] | None
     advisory_modes: list[str] | None
     next_recommended_actions: list[str] | None
@@ -222,19 +262,49 @@ class DevState(TypedDict, total=False):
     pr_prep_dir: str | None
     pr_desc: str | None
     commit_msg: str | None
+    office_hours_success: bool | None
+    office_hours_dir: str | None
+    office_hours_report: str | None
+    office_hours_summary: str | None
+    office_hours_questions: list[dict[str, Any]] | None
+    office_hours_mode: str | None
+    office_hours_product_stage: str | None
+    office_hours_dialog_state: dict[str, Any] | None
+    office_hours_next_question: dict[str, Any] | None
+    office_hours_needs_context: bool | None
+    office_hours_design_doc: str | None
     requirement_spec: str | None
     parsed_goal: str | None
+    plan_ceo_review_success: bool | None
+    plan_ceo_review_dir: str | None
+    plan_ceo_review_report: str | None
+    plan_ceo_requirement_doc: str | None
+    plan_ceo_opportunity_map: dict[str, Any] | None
+    plan_ceo_selected_mode: str | None
+    plan_ceo_decision_ceremony: dict[str, Any] | None
+    plan_ceo_unresolved_decisions: list[dict[str, Any]] | None
     architecture_review_success: bool | None
     architecture_review_dir: str | None
     architecture_review_report: str | None
     architecture_review_summary: str | None
     architecture_test_plan: dict[str, Any] | None
+    qa_test_plan_path: str | None
+    investigate_success: bool | None
+    investigate_dir: str | None
+    investigation_report: str | None
+    investigation_summary: str | None
+    investigation_root_cause: str | None
+    investigation_recommendation: str | None
     plan_design_review_success: bool | None
     plan_design_review_dir: str | None
     plan_design_review_report: str | None
+    plan_design_route_contract: dict[str, Any] | None
+    plan_design_risks: list[dict[str, Any]] | None
     design_consultation_success: bool | None
     design_consultation_dir: str | None
     design_consultation_report: str | None
+    design_consultation_rounds: list[dict[str, Any]] | None
+    design_decisions: dict[str, Any] | None
     design_contract_path: str | None
     design_preview_path: str | None
     runtime_qa_success: bool | None
@@ -265,6 +335,13 @@ class DevState(TypedDict, total=False):
     test_failure_info: str | None
     browser_runtime_dir: str | None
     browser_session_id: str | None
+    browse_success: bool | None
+    browse_dir: str | None
+    browse_report: str | None
+    setup_browser_cookies_success: bool | None
+    setup_browser_cookies_dir: str | None
+    cookie_import_plan_path: str | None
+    browser_storage_state_path: str | None
     browse_observations: list[dict[str, Any]] | None
     reference_observations: list[dict[str, Any]] | None
     browser_qa_success: bool | None
@@ -277,6 +354,10 @@ class DevState(TypedDict, total=False):
     browser_qa_ship_readiness: str | None
     browser_qa_mode: str | None
     browser_qa_report_only: bool | None
+    qa_findings: list[dict[str, Any]] | None
+    qa_input_sources: list[str] | None
+    qa_regression_recommendations: list[str] | None
+    qa_verification_rerun: list[str] | None
     qa_design_review_success: bool | None
     qa_design_review_passed: bool | None
     qa_design_review_report: str | None
@@ -286,6 +367,8 @@ class DevState(TypedDict, total=False):
     design_review_scores: dict[str, Any] | None
     design_review_route_scores: list[dict[str, Any]] | None
     design_review_findings: list[dict[str, Any]] | None
+    design_review_visual_checklist: list[dict[str, Any]] | None
+    design_review_visual_verdict: dict[str, Any] | None
     design_review_passed: bool | None
     design_review_report: str | None
     before_screenshot_paths: list[str] | None
@@ -298,6 +381,8 @@ class DevState(TypedDict, total=False):
     important_issues: list[str] | None
     nice_to_haves: list[str] | None
     review_report: str | None
+    review_findings: list[dict[str, Any]] | None
+    review_checklist: list[dict[str, Any]] | None
     code_style_review_success: bool | None
     code_style_review_passed: bool | None
     code_style_review_report: str | None
@@ -314,6 +399,26 @@ class DevState(TypedDict, total=False):
     acceptance_dir: str | None
     doc_result: str | None
     delivery_dir: str | None
+    ship_success: bool | None
+    ship_dir: str | None
+    ship_report: str | None
+    ship_release_package: dict[str, Any] | None
+    ship_coverage_audit_path: str | None
+    ship_release_version_path: str | None
+    ship_changelog_draft_path: str | None
+    ship_pr_draft_path: str | None
+    document_release_success: bool | None
+    document_release_dir: str | None
+    document_release_report: str | None
+    document_release_targets: list[str] | None
+    document_release_applied_changes: list[dict[str, Any]] | None
+    document_release_skipped_targets: list[dict[str, Any]] | None
+    retro_success: bool | None
+    retro_dir: str | None
+    retro_report: str | None
+    retro_previous_snapshot_path: str | None
+    retro_trend_analysis_path: str | None
+    retro_git_activity_summary_path: str | None
     fix_result: str | None
     fixer_needed: bool | None
     fixer_success: bool | None

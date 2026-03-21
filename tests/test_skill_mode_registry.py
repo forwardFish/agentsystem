@@ -37,8 +37,10 @@ class SkillModeRegistryTestCase(unittest.TestCase):
         self.assertEqual(
             set(mode_index.keys()),
             {
+                "office-hours",
                 "plan-ceo-review",
                 "plan-eng-review",
+                "investigate",
                 "plan-design-review",
                 "design-consultation",
                 "review",
@@ -53,13 +55,17 @@ class SkillModeRegistryTestCase(unittest.TestCase):
                 "document-release",
             },
         )
-        self.assertFalse(mode_index["plan-ceo-review"].runtime_ready)
+        self.assertTrue(mode_index["office-hours"].runtime_ready)
+        self.assertTrue(mode_index["plan-ceo-review"].runtime_ready)
         self.assertTrue(mode_index["plan-design-review"].runtime_ready)
         self.assertFalse(mode_index["plan-eng-review"].fixer_allowed)
         self.assertTrue(mode_index["qa"].fixer_allowed)
         self.assertTrue(mode_index["qa-only"].report_only)
         self.assertTrue(mode_index["design-review"].fixer_allowed)
-        self.assertFalse(mode_index["ship"].runtime_ready)
+        self.assertTrue(mode_index["ship"].runtime_ready)
+        self.assertTrue(mode_index["document-release"].runtime_ready)
+        self.assertTrue(mode_index["retro"].runtime_ready)
+        self.assertTrue(mode_index["setup-browser-cookies"].runtime_ready)
 
     def test_plan_eng_review_stops_after_architecture_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -112,9 +118,10 @@ class SkillModeRegistryTestCase(unittest.TestCase):
                 server.server_close()
 
             self.assertTrue(result["success"])
-            self.assertEqual(result["state"]["current_step"], "browser_qa_done")
+            self.assertEqual(result["state"]["current_step"], "browse_done")
             self.assertEqual(result["state"]["fix_attempts"], 0)
             self.assertTrue(result["state"]["browser_qa_report_only"])
+            self.assertTrue(result["state"]["browse_success"])
 
     def test_qa_only_does_not_enter_fixer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,9 +187,11 @@ class SkillModeRegistryTestCase(unittest.TestCase):
             self.assertGreaterEqual(int(result["state"]["fix_attempts"] or 0), 1)
             self.assertFalse(result["state"]["browser_qa_report_only"])
 
-    def test_template_only_mode_is_rejected_for_runtime_execution(self) -> None:
-        with self.assertRaisesRegex(ValueError, "template-only"):
-            resolve_runtime_task({"skill_mode": "ship"})
+    def test_ship_mode_resolves_into_runtime_task(self) -> None:
+        runtime_task, spec = resolve_runtime_task({"skill_mode": "ship", "goal": "Prepare release package"})
+        self.assertEqual(runtime_task["skill_entry_mode"], "ship")
+        self.assertEqual(runtime_task["stop_after"], "ship")
+        self.assertIsNotNone(spec)
 
 
 class _DemoHandler(BaseHTTPRequestHandler):

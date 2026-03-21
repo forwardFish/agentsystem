@@ -1,0 +1,14 @@
+agent_id: software_engineering.investigate
+name: Investigation Agent
+description: Perform root-cause analysis before any bugfix or recovery path continues.
+handler: investigate_node
+agent_role: verification.investigate
+plane: verification
+capabilities:
+  - root_cause_analysis
+  - debugging
+verification_tags:
+  - investigate
+metadata:
+  manifest_version: v1
+  domain: software_engineering

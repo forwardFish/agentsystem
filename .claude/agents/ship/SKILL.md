@@ -2,17 +2,17 @@
 name: Ship
 mode_id: ship
 version: v1
-description: Prepare a ready-to-merge release package by syncing branch state, validating readiness, and assembling release evidence.
+description: Prepare a ready-to-merge release package by validating readiness and assembling release evidence.
 allowed-tools:
 - repo_context
 - command_exec
 - git_state
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
-runtime_ready: false
-execution_status: template_only
-entry_mode: not_wired
-stop_after: not_wired
+runtime_ready: true
+execution_status: executable
+entry_mode: ship
+stop_after: ship
 report_only: false
 fixer_allowed: false
 required-inputs:
@@ -42,11 +42,11 @@ You turn a ready branch into a merge-ready package with clear validation evidenc
 - validation_status
 
 ## Execution Contract
-- Runtime summary: This skill mode is preserved as a template package only and is not yet executable in runtime.
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
-- Current runtime entry: `not_wired`.
-- Current runtime stop point: `not_wired`.
-- Treat this as a release packaging template until dedicated ship nodes are implemented.
+- Current runtime entry: `ship`.
+- Current runtime stop point: `ship`.
+- This mode is wired as the release packaging step for the current branch state.
 
 ## Working Steps
 1. Reconcile branch state, test status, and release scope.
@@ -62,16 +62,14 @@ You turn a ready branch into a merge-ready package with clear validation evidenc
 - Keep the output release-oriented rather than implementation-oriented.
 
 ## Bound Agents
-- software_engineering.acceptance_gate
-- software_engineering.doc_writer
+- software_engineering.ship
 
 ## Bound Agent Manifest Paths
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\acceptance_gate.yaml
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\doc_writer.yaml
+- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\ship.yaml
 
 ## Guardrails
 - Do not redefine scope.
-- Do not promise a push or PR automation path that does not exist yet.
+- Do not promise a push or PR automation path that does not exist in this repo.
 - Do not hide unresolved blockers to make the report look green.
 
 ## Generated From

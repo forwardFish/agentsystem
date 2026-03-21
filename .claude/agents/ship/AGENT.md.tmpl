@@ -37,7 +37,7 @@ You turn a ready branch into a merge-ready package with clear validation evidenc
 - Resolve into `workflow_plugin_id: [[workflow_plugin_id]]`.
 - Current runtime entry: `[[entry_mode_label]]`.
 - Current runtime stop point: `[[stop_after_label]]`.
-- Treat this as a release packaging template until dedicated ship nodes are implemented.
+- This mode is wired as the release packaging step for the current branch state.
 
 ## Working Steps
 1. Reconcile branch state, test status, and release scope.
@@ -59,7 +59,7 @@ You turn a ready branch into a merge-ready package with clear validation evidenc
 
 ## Guardrails
 - Do not redefine scope.
-- Do not promise a push or PR automation path that does not exist yet.
+- Do not promise a push or PR automation path that does not exist in this repo.
 - Do not hide unresolved blockers to make the report look green.
 
 ## Generated From

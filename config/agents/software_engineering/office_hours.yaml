@@ -1,0 +1,14 @@
+agent_id: software_engineering.office_hours
+name: Office Hours Agent
+description: Force product framing through six high-leverage questions before scope is locked.
+handler: office_hours_node
+agent_role: planning.office_hours
+plane: planning
+capabilities:
+  - framing
+  - scope_challenge
+verification_tags:
+  - office_hours
+metadata:
+  manifest_version: v1
+  domain: software_engineering

@@ -1,0 +1,14 @@
+agent_id: software_engineering.plan_ceo_review
+name: Plan CEO Review Agent
+description: Reframe the request into a product-level requirement and opportunity map.
+handler: plan_ceo_review_node
+agent_role: planning.product_review
+plane: planning
+capabilities:
+  - product_review
+  - requirement_package
+verification_tags:
+  - plan_ceo_review
+metadata:
+  manifest_version: v1
+  domain: software_engineering

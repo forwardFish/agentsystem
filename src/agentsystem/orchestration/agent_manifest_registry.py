@@ -8,22 +8,30 @@ import yaml
 
 from agentsystem.agents.acceptance_gate_agent import acceptance_gate_node
 from agentsystem.agents.architecture_review_agent import architecture_review_node
+from agentsystem.agents.browse_agent import browse_node
 from agentsystem.agents.backend_dev_agent import backend_dev_node
 from agentsystem.agents.browser_qa_agent import browser_qa_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.code_style_reviewer_agent import code_style_review_node
 from agentsystem.agents.database_agent import database_dev_node
 from agentsystem.agents.design_consultation_agent import design_consultation_node
+from agentsystem.agents.document_release_agent import document_release_node
 from agentsystem.agents.devops_agent import devops_dev_node
 from agentsystem.agents.doc_agent import doc_node
 from agentsystem.agents.fix_agent import fix_node
 from agentsystem.agents.frontend_dev_agent import frontend_dev_node
+from agentsystem.agents.investigate_agent import investigate_node
+from agentsystem.agents.office_hours_agent import office_hours_node
+from agentsystem.agents.plan_ceo_review_agent import plan_ceo_review_node
 from agentsystem.agents.plan_design_review_agent import plan_design_review_node
 from agentsystem.agents.qa_design_review_agent import qa_design_review_node
 from agentsystem.agents.requirement_agent import requirement_analysis_node
+from agentsystem.agents.retro_agent import retro_node
 from agentsystem.agents.review_agent import review_node
 from agentsystem.agents.runtime_qa_agent import runtime_qa_node
 from agentsystem.agents.security_agent import security_node
+from agentsystem.agents.setup_browser_cookies_agent import setup_browser_cookies_node
+from agentsystem.agents.ship_agent import ship_node
 from agentsystem.agents.sync_agent import sync_merge_node
 from agentsystem.agents.test_agent import test_node
 from agentsystem.agents.workspace_prep_agent import workspace_prep_node
@@ -36,10 +44,15 @@ NodeHandler = Callable[..., dict]
 
 
 HANDLER_CATALOG: dict[str, NodeHandler] = {
+    "office_hours_node": office_hours_node,
     "requirement_analysis_node": requirement_analysis_node,
+    "plan_ceo_review_node": plan_ceo_review_node,
     "architecture_review_node": architecture_review_node,
+    "investigate_node": investigate_node,
+    "browse_node": browse_node,
     "plan_design_review_node": plan_design_review_node,
     "design_consultation_node": design_consultation_node,
+    "setup_browser_cookies_node": setup_browser_cookies_node,
     "workspace_prep_node": workspace_prep_node,
     "backend_dev_node": backend_dev_node,
     "frontend_dev_node": frontend_dev_node,
@@ -57,6 +70,9 @@ HANDLER_CATALOG: dict[str, NodeHandler] = {
     "code_acceptance_node": code_acceptance_node,
     "acceptance_gate_node": acceptance_gate_node,
     "doc_node": doc_node,
+    "ship_node": ship_node,
+    "document_release_node": document_release_node,
+    "retro_node": retro_node,
 }
 
 

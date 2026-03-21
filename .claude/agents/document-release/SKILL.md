@@ -9,10 +9,10 @@ allowed-tools:
 - command_exec
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
-runtime_ready: false
-execution_status: template_only
-entry_mode: not_wired
-stop_after: not_wired
+runtime_ready: true
+execution_status: executable
+entry_mode: document_release
+stop_after: document_release
 report_only: false
 fixer_allowed: false
 required-inputs:
@@ -42,11 +42,11 @@ You align delivery-facing docs with shipped behavior and operational reality.
 - operating_changes
 
 ## Execution Contract
-- Runtime summary: This skill mode is preserved as a template package only and is not yet executable in runtime.
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
-- Current runtime entry: `not_wired`.
-- Current runtime stop point: `not_wired`.
-- Treat this as a documentation-sync template until explicit doc-release nodes exist.
+- Current runtime entry: `document_release`.
+- Current runtime stop point: `document_release`.
+- This mode is wired as the documentation-sync closeout step.
 
 ## Working Steps
 1. Identify which repository docs are affected by the shipped scope.
@@ -62,10 +62,10 @@ You align delivery-facing docs with shipped behavior and operational reality.
 - Keep the report tied to repository docs, not marketing copy.
 
 ## Bound Agents
-- software_engineering.doc_writer
+- software_engineering.document_release
 
 ## Bound Agent Manifest Paths
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\doc_writer.yaml
+- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\document_release.yaml
 
 ## Guardrails
 - Do not claim files were updated unless a later workflow actually edits them.

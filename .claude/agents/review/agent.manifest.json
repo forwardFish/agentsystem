@@ -5,9 +5,9 @@
   "description": "Run a production-risk review focused on issues that pass CI but can still fail in real usage.",
   "workflow_plugin_id": "software_engineering",
   "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
-  "runtime_ready": false,
-  "entry_mode": null,
-  "stop_after": null,
+  "runtime_ready": true,
+  "entry_mode": "reviewer",
+  "stop_after": "reviewer",
   "report_only": true,
   "fixer_allowed": false,
   "default_browser_qa_mode": null,
@@ -37,8 +37,9 @@
   "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
   "metadata": {
     "kind": "verification",
-    "host_surface": "claude_skill",
-    "status": "template_only",
+    "host_surface": "codex_adapted",
+    "upstream_skill": "vendors/gstack/review/SKILL.md",
+    "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\review\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\review\\SKILL.md"
   }

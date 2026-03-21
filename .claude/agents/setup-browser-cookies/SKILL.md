@@ -2,26 +2,27 @@
 name: Setup Browser Cookies
 mode_id: setup-browser-cookies
 version: v1
-description: Prepare authenticated browser session import instructions for later browser QA without requiring manual login every run.
+description: Normalize authenticated browser session import artifacts for later browse or QA runs.
 allowed-tools:
 - browser_runtime
 - session_files
 - repo_context
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
-runtime_ready: false
-execution_status: template_only
-entry_mode: not_wired
-stop_after: not_wired
+runtime_ready: true
+execution_status: executable
+entry_mode: setup_browser_cookies
+stop_after: setup_browser_cookies
 report_only: true
 fixer_allowed: false
 required-inputs:
-- browser_profile_source
+- cookie_source
 - target_surface
 - auth_expectations
 expected-artifacts:
-- .meta/<repo>/browser_runtime/cookie_import_plan.md
-- .meta/<repo>/browser_runtime/session_seed.json
+- .meta/<repo>/setup_browser_cookies/cookie_import_plan.md
+- .meta/<repo>/setup_browser_cookies/session_seed.json
+- .meta/<repo>/browser_runtime/storage_state.json
 ---
 
 # Setup Browser Cookies
@@ -35,16 +36,16 @@ You define how browser session state should be imported and validated for later 
 - When the team wants a repeatable cookie/session import approach instead of manual login.
 
 ## Required Inputs
-- browser_profile_source
+- cookie_source
 - target_surface
 - auth_expectations
 
 ## Execution Contract
-- Runtime summary: This skill mode is preserved as a template package only and is not yet executable in runtime.
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
-- Current runtime entry: `not_wired`.
-- Current runtime stop point: `not_wired`.
-- Treat this as a browser-session template until import tooling exists.
+- Current runtime entry: `setup_browser_cookies`.
+- Current runtime stop point: `setup_browser_cookies`.
+- This mode is wired to normalize browser storage state and session-seed artifacts.
 
 ## Working Steps
 1. Define the target authenticated surface and the session assumptions.
@@ -54,16 +55,19 @@ You define how browser session state should be imported and validated for later 
 
 ## Output Contract
 - Produce these artifacts:
-- .meta/<repo>/browser_runtime/cookie_import_plan.md
-- .meta/<repo>/browser_runtime/session_seed.json
+- .meta/<repo>/setup_browser_cookies/cookie_import_plan.md
+- .meta/<repo>/setup_browser_cookies/session_seed.json
+- .meta/<repo>/browser_runtime/storage_state.json
 - Include risk notes for cookie handling and session expiry.
 - Keep the plan tied to local runtime artifacts, not external browser automation stacks.
 
 ## Bound Agents
-- software_engineering.browser_qa
+- software_engineering.setup_browser_cookies
+- software_engineering.browse
 
 ## Bound Agent Manifest Paths
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\browser_qa.yaml
+- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\setup_browser_cookies.yaml
+- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\browse.yaml
 
 ## Guardrails
 - Do not extract or print real secrets.

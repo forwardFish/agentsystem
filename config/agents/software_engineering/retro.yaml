@@ -1,0 +1,14 @@
+agent_id: software_engineering.retro
+name: Retro Agent
+description: Write a sprint or delivery retrospective with next actions.
+handler: retro_node
+agent_role: governance.retro
+plane: governance
+capabilities:
+  - retrospective
+  - improvement_actions
+verification_tags:
+  - retro
+metadata:
+  manifest_version: v1
+  domain: software_engineering

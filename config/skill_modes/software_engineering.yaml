@@ -1,12 +1,41 @@
 workflow_plugin_id: software_engineering
-manifest_version: v1
+manifest_version: v2
 modes:
+  - mode_id: office-hours
+    name: Office Hours
+    version: v1
+    description: Run six forcing questions to reframe demand, status quo, wedge, and proof before any implementation starts.
+    template_dir: .claude/agents/office-hours
+    runtime_ready: true
+    entry_mode: office_hours
+    stop_after: office_hours
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - workflow_manifest
+      - product_scope_notes
+    required_inputs:
+      - goal
+    expected_artifacts:
+      - .meta/<repo>/office_hours/office_hours_report.md
+      - .meta/<repo>/office_hours/forcing_questions.json
+    agent_manifest_ids:
+      - software_engineering.office_hours
+    metadata:
+      kind: planning
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/office-hours/SKILL.md
+      status: executable
+
   - mode_id: plan-ceo-review
     name: Plan CEO Review
     version: v1
     description: Reframe the request at product level and surface the highest-value user outcome before implementation starts.
     template_dir: .claude/agents/plan-ceo-review
-    runtime_ready: false
+    runtime_ready: true
+    entry_mode: plan_ceo_review
+    stop_after: plan_ceo_review
     report_only: true
     fixer_allowed: false
     allowed_tools:
@@ -21,13 +50,14 @@ modes:
     expected_artifacts:
       - .meta/<repo>/plan_ceo_review/product_review_report.md
       - .meta/<repo>/plan_ceo_review/opportunity_map.json
+      - docs/requirements/*.md
     agent_manifest_ids:
-      - software_engineering.requirement_analysis
-      - software_engineering.architecture_review
+      - software_engineering.plan_ceo_review
     metadata:
       kind: planning
-      host_surface: claude_skill
-      status: template_only
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/plan-ceo-review/SKILL.md
+      status: executable
 
   - mode_id: plan-eng-review
     name: Plan Engineering Review
@@ -56,7 +86,70 @@ modes:
       - software_engineering.architecture_review
     metadata:
       kind: planning
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/plan-eng-review/SKILL.md
+      status: executable
+
+  - mode_id: investigate
+    name: Investigate
+    version: v1
+    description: Perform root-cause investigation first, then hand a bounded fix recommendation forward.
+    template_dir: .claude/agents/investigate
+    runtime_ready: true
+    entry_mode: investigate
+    stop_after: investigate
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - diff_summary
+      - runtime_logs
+      - workflow_manifest
+    required_inputs:
+      - goal
+      - investigation_context
+      - bug_scope
+    expected_artifacts:
+      - .meta/<repo>/investigate/investigation_report.md
+      - .meta/<repo>/investigate/investigation_report.json
+    agent_manifest_ids:
+      - software_engineering.investigate
+    metadata:
+      kind: verification
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/investigate/SKILL.md
+      status: executable
+
+  - mode_id: browse
+    name: Browse
+    version: v1
+    description: Give agents eyes on real pages with persistent browser evidence and report-only output.
+    template_dir: .claude/agents/browse
+    runtime_ready: true
+    entry_mode: browse
+    stop_after: browse
+    report_only: true
+    fixer_allowed: false
+    default_browser_qa_mode: report_only
+    allowed_tools:
+      - browser_runtime
+      - http_probe
+      - repo_context
+    required_inputs:
+      - browser_urls
+      - preview_base_url
+      - preview_route
+    expected_artifacts:
+      - .meta/<repo>/browser_qa/browser_qa_report.md
+      - .meta/<repo>/browser_runtime/session.json
+      - .meta/<repo>/browser_runtime/observations/*.json
+    agent_manifest_ids:
+      - software_engineering.browse
+      - software_engineering.browser_qa
+    metadata:
+      kind: qa
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/browse/SKILL.md
       status: executable
 
   - mode_id: plan-design-review
@@ -90,7 +183,8 @@ modes:
       - software_engineering.frontend_dev
     metadata:
       kind: design
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/plan-design-review/SKILL.md
       status: executable
 
   - mode_id: design-consultation
@@ -123,7 +217,8 @@ modes:
       - software_engineering.doc_writer
     metadata:
       kind: design
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/design-consultation/SKILL.md
       status: executable
 
   - mode_id: review
@@ -131,7 +226,9 @@ modes:
     version: v1
     description: Run a production-risk review focused on issues that pass CI but can still fail in real usage.
     template_dir: .claude/agents/review
-    runtime_ready: false
+    runtime_ready: true
+    entry_mode: reviewer
+    stop_after: reviewer
     report_only: true
     fixer_allowed: false
     allowed_tools:
@@ -150,65 +247,8 @@ modes:
       - software_engineering.reviewer
     metadata:
       kind: verification
-      host_surface: claude_skill
-      status: template_only
-
-  - mode_id: ship
-    name: Ship
-    version: v1
-    description: Prepare a ready-to-merge release package by syncing branch state, validating readiness, and assembling release evidence.
-    template_dir: .claude/agents/ship
-    runtime_ready: false
-    report_only: false
-    fixer_allowed: false
-    allowed_tools:
-      - repo_context
-      - command_exec
-      - git_state
-    required_inputs:
-      - goal
-      - branch_name
-      - release_scope
-      - validation_status
-    expected_artifacts:
-      - .meta/<repo>/ship/ship_readiness_report.md
-      - .meta/<repo>/ship/release_package.json
-    agent_manifest_ids:
-      - software_engineering.acceptance_gate
-      - software_engineering.doc_writer
-    metadata:
-      kind: release
-      host_surface: claude_skill
-      status: template_only
-
-  - mode_id: browse
-    name: Browse
-    version: v1
-    description: Give agents a lightweight eyes-on-surface mode that probes and reports without modifying code.
-    template_dir: .claude/agents/browse
-    runtime_ready: true
-    entry_mode: browser_qa
-    stop_after: browser_qa
-    report_only: true
-    fixer_allowed: false
-    default_browser_qa_mode: report_only
-    allowed_tools:
-      - browser_runtime
-      - http_probe
-      - repo_context
-    required_inputs:
-      - browser_urls
-      - preview_base_url
-      - preview_route
-    expected_artifacts:
-      - .meta/<repo>/browser_qa/browser_qa_report.md
-      - .meta/<repo>/browser_runtime/session.json
-      - .meta/<repo>/browser_runtime/probes/*.json
-    agent_manifest_ids:
-      - software_engineering.browser_qa
-    metadata:
-      kind: qa
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/review/SKILL.md
       status: executable
 
   - mode_id: qa
@@ -244,7 +284,8 @@ modes:
       - software_engineering.fixer
     metadata:
       kind: qa
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/qa/SKILL.md
       status: executable
 
   - mode_id: qa-only
@@ -278,7 +319,8 @@ modes:
       - software_engineering.browser_qa
     metadata:
       kind: qa
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/qa-only/SKILL.md
       status: executable
 
   - mode_id: qa-design-review
@@ -311,7 +353,8 @@ modes:
       - software_engineering.qa_design_review
     metadata:
       kind: design
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/design-review/SKILL.md
       status: executable
 
   - mode_id: design-review
@@ -345,15 +388,18 @@ modes:
       - software_engineering.fixer
     metadata:
       kind: design
-      host_surface: claude_skill
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/design-review/SKILL.md
       status: executable
 
   - mode_id: setup-browser-cookies
     name: Setup Browser Cookies
     version: v1
-    description: Prepare authenticated browser session import instructions for later browser QA without requiring manual login every run.
+    description: Normalize authenticated browser session import artifacts for later browse or QA runs.
     template_dir: .claude/agents/setup-browser-cookies
-    runtime_ready: false
+    runtime_ready: true
+    entry_mode: setup_browser_cookies
+    stop_after: setup_browser_cookies
     report_only: true
     fixer_allowed: false
     allowed_tools:
@@ -361,53 +407,60 @@ modes:
       - session_files
       - repo_context
     required_inputs:
-      - browser_profile_source
+      - cookie_source
       - target_surface
       - auth_expectations
     expected_artifacts:
-      - .meta/<repo>/browser_runtime/cookie_import_plan.md
-      - .meta/<repo>/browser_runtime/session_seed.json
+      - .meta/<repo>/setup_browser_cookies/cookie_import_plan.md
+      - .meta/<repo>/setup_browser_cookies/session_seed.json
+      - .meta/<repo>/browser_runtime/storage_state.json
     agent_manifest_ids:
-      - software_engineering.browser_qa
+      - software_engineering.setup_browser_cookies
+      - software_engineering.browse
     metadata:
       kind: qa
-      host_surface: claude_skill
-      status: template_only
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/setup-browser-cookies/SKILL.md
+      status: executable
 
-  - mode_id: retro
-    name: Retro
+  - mode_id: ship
+    name: Ship
     version: v1
-    description: Summarize what happened in a delivery cycle, identify what went well, and surface growth opportunities per contributor.
-    template_dir: .claude/agents/retro
-    runtime_ready: false
-    report_only: true
+    description: Prepare a ready-to-merge release package by validating readiness and assembling release evidence.
+    template_dir: .claude/agents/ship
+    runtime_ready: true
+    entry_mode: ship
+    stop_after: ship
+    report_only: false
     fixer_allowed: false
     allowed_tools:
       - repo_context
-      - diff_summary
-      - audit_log
+      - command_exec
+      - git_state
     required_inputs:
-      - time_window
-      - contributors
-      - shipped_scope
-      - incident_notes
+      - goal
+      - branch_name
+      - release_scope
+      - validation_status
     expected_artifacts:
-      - .meta/<repo>/retro/retro_report.md
-      - .meta/<repo>/retro/contributor_notes.json
+      - .meta/<repo>/ship/ship_readiness_report.md
+      - .meta/<repo>/ship/release_package.json
     agent_manifest_ids:
-      - software_engineering.reviewer
-      - software_engineering.doc_writer
+      - software_engineering.ship
     metadata:
-      kind: governance
-      host_surface: claude_skill
-      status: template_only
+      kind: release
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/ship/SKILL.md
+      status: executable
 
   - mode_id: document-release
     name: Document Release
     version: v1
     description: Update repository-facing delivery documentation so shipped behavior and operating notes stay aligned.
     template_dir: .claude/agents/document-release
-    runtime_ready: false
+    runtime_ready: true
+    entry_mode: document_release
+    stop_after: document_release
     report_only: false
     fixer_allowed: false
     allowed_tools:
@@ -423,8 +476,39 @@ modes:
       - .meta/<repo>/document_release/document_release_report.md
       - .meta/<repo>/document_release/doc_sync_plan.json
     agent_manifest_ids:
-      - software_engineering.doc_writer
+      - software_engineering.document_release
     metadata:
       kind: documentation
-      host_surface: claude_skill
-      status: template_only
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/document-release/SKILL.md
+      status: executable
+
+  - mode_id: retro
+    name: Retro
+    version: v1
+    description: Summarize what happened in a delivery cycle, identify what went well, and surface growth opportunities per contributor.
+    template_dir: .claude/agents/retro
+    runtime_ready: true
+    entry_mode: retro
+    stop_after: retro
+    report_only: true
+    fixer_allowed: false
+    allowed_tools:
+      - repo_context
+      - diff_summary
+      - audit_log
+    required_inputs:
+      - time_window
+      - contributors
+      - shipped_scope
+      - incident_notes
+    expected_artifacts:
+      - .meta/<repo>/retro/retro_report.md
+      - .meta/<repo>/retro/contributor_notes.json
+    agent_manifest_ids:
+      - software_engineering.retro
+    metadata:
+      kind: governance
+      host_surface: codex_adapted
+      upstream_skill: vendors/gstack/retro/SKILL.md
+      status: executable

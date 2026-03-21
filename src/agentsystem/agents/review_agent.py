@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import os
+import json
 from pathlib import Path
+from typing import Any
 import uuid
-
-from langchain_core.prompts import ChatPromptTemplate
 
 from agentsystem.adapters.config_reader import RepoBConfigReader
 from agentsystem.adapters.git_adapter import GitAdapter
@@ -21,7 +20,6 @@ from agentsystem.core.state import (
     add_handoff_packet,
     add_issue,
 )
-from agentsystem.llm.client import get_llm
 
 
 class ReviewerAgent:
@@ -38,170 +36,366 @@ class ReviewerAgent:
             "review_passed": False,
             "review_dir": str(self.review_dir),
             "review_report": "",
+            "review_findings": [],
+            "review_checklist": [],
             "blocking_issues": [],
             "important_issues": [],
             "nice_to_haves": [],
+            "awaiting_user_input": False,
+            "dialogue_state": None,
+            "next_question": None,
+            "approval_required": False,
+            "handoff_target": None,
+            "resume_from_mode": None,
+            "decision_state": None,
+            "interaction_round": 0,
             "error_message": None,
         }
 
         try:
-            if self.git.is_dirty():
-                self.git.add_all()
-
-            diff = self.git.get_diff()
             staged_files = _filter_review_paths(self.git.get_staged_files())
-            if not staged_files:
-                staged_files = _filter_review_paths([str(path) for path in (state.get("staged_files") or [])])
+            working_tree_files = _filter_review_paths(self.git.get_working_tree_files())
+            changed_files = list(dict.fromkeys([*staged_files, *working_tree_files]))
+            if not changed_files:
+                changed_files = _filter_review_paths([str(path) for path in (state.get("staged_files") or [])])
+
+            diff_parts = [self.git.get_diff(), self.git.get_working_tree_diff()]
+            diff = "\n".join(part for part in diff_parts if str(part).strip()).strip()
             if not diff and self.git.get_current_commit():
                 diff = self.git.repo.git.show("--stat", "--format=", "HEAD")
-            report = self._generate_review_report(diff, staged_files, state)
-            blocking_issues = _extract_list_section(report, "Blocking")
-            important_issues = _extract_list_section(report, "Important")
-            nice_to_haves = _extract_list_section(report, "Nice to have")
 
+            analysis = self._build_review_analysis(diff, changed_files, state)
+            report = self._render_review_report(analysis)
+            blocking_issues = [item["summary"] for item in analysis["findings"] if item["severity"] == "blocking"]
+            important_issues = [item["summary"] for item in analysis["findings"] if item["severity"] == "important"]
+            nice_to_haves = [item["summary"] for item in analysis["findings"] if item["severity"] == "nice_to_have"]
+
+            result["review_findings"] = analysis["findings"]
+            result["review_checklist"] = analysis["checklist"]
             result["review_report"] = report
             result["blocking_issues"] = blocking_issues
             result["important_issues"] = important_issues
             result["nice_to_haves"] = nice_to_haves
+            result["awaiting_user_input"] = analysis["awaiting_user_input"]
+            result["dialogue_state"] = analysis["dialogue_state"]
+            result["next_question"] = analysis["next_question"]
+            result["approval_required"] = analysis["approval_required"]
+            result["handoff_target"] = analysis["handoff_target"]
+            result["resume_from_mode"] = analysis["resume_from_mode"]
+            result["decision_state"] = analysis["decision_state"]
+            result["interaction_round"] = analysis["interaction_round"]
             result["review_passed"] = not blocking_issues
             result["review_success"] = True
 
             (self.review_dir / "review_report.md").write_text(report, encoding="utf-8")
+            (self.review_dir / "review_findings.json").write_text(
+                json.dumps(analysis["findings"], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            (self.review_dir / "review_checklist.json").write_text(
+                json.dumps(analysis["checklist"], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            (self.review_dir / "risk_register.json").write_text(
+                json.dumps(
+                    {
+                        "scope_status": analysis["scope_status"],
+                        "repo_profile": analysis["repo_profile"],
+                        "story_kind": analysis["story_kind"],
+                        "findings": analysis["findings"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (self.review_dir / "review_decision_state.json").write_text(
+                json.dumps(analysis["decision_state"], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         except Exception as exc:  # pragma: no cover - defensive
             result["error_message"] = f"Review failed: {exc}"
 
         return result
 
-    def _generate_review_report(self, diff: str, staged_files: list[str], state: DevState) -> str:
-        if os.getenv("OPENAI_API_KEY"):
-            try:
-                return self._generate_review_report_with_llm(diff, staged_files)
-            except Exception:
-                pass
-        return self._generate_deterministic_review_report(diff, staged_files, state)
-
-    def _generate_review_report_with_llm(self, diff: str, staged_files: list[str]) -> str:
-        llm = get_llm()
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """
-You are a code reviewer. Return a Markdown review report with these sections:
-# Review Report
-## Change Summary
-## Production Risk Focus
-## Intent Match
-## Verification Gaps
-## Maintainability
-## Acceptance Coverage
-## Issues
-### Blocking
-### Important
-### Nice to have
-## Final Verdict
-Do not include any text outside the report.
-                    """.strip(),
-                ),
-                (
-                    "user",
-                    """
-Task goal: {task_goal}
-Acceptance criteria:
-{acceptance_criteria}
-
-Changed files:
-{staged_files}
-
-Diff:
-{diff}
-
-Review focus:
-- Prefer issues that can pass CI but still break in production or real usage.
-- Call out missing validation for config, contract, schema, runtime, or deployment-sensitive changes.
-                    """.strip(),
-                ),
-            ]
-        )
-        response = (prompt | llm).invoke(
-            {
-                "task_goal": str(self.task.get("goal", "")).strip(),
-                "acceptance_criteria": "\n".join(
-                    f"- {item}" for item in self.task.get("acceptance_criteria", []) if isinstance(item, str)
-                ),
-                "staged_files": "\n".join(f"- {path}" for path in staged_files),
-                "diff": diff[:3000],
-            }
-        )
-        return str(getattr(response, "content", response)).strip()
-
-    def _generate_deterministic_review_report(self, diff: str, staged_files: list[str], state: DevState) -> str:
+    def _build_review_analysis(self, diff: str, changed_files: list[str], state: DevState) -> dict[str, object]:
         task_goal = str(self.task.get("goal", "")).strip() or str(state.get("user_requirement", "")).strip()
-        acceptance = self.task.get("acceptance_criteria", []) if isinstance(self.task.get("acceptance_criteria"), list) else []
+        acceptance = (
+            self.task.get("acceptance_criteria", [])
+            if isinstance(self.task.get("acceptance_criteria"), list)
+            else list(state.get("acceptance_checklist") or [])
+        )
         protected_paths = RepoBConfigReader(self.worktree_path).load_all_config().rules.get("protected_paths", [])
         validation = str(state.get("test_results") or "Validation pending").strip()
+        story_kind = str(state.get("story_kind") or "").strip().lower() or "unknown"
+        repo_profile = _review_repo_profile(self.worktree_path)
+        release_sensitive = bool(state.get("release_scope")) or str(state.get("workflow_enforcement_policy") or "").strip() in {
+            "release",
+            "sprint_closeout",
+            "closeout",
+        }
+        declared_scope = _filter_review_paths(
+            [
+                *(str(item).strip() for item in (state.get("primary_files") or []) if str(item).strip()),
+                *(str(item).strip() for item in (state.get("secondary_files") or []) if str(item).strip()),
+                *(str(item).strip() for item in (self.task.get("related_files") or []) if str(item).strip()),
+            ]
+        )
+        docs_changed = any(Path(path).suffix.lower() == ".md" for path in changed_files)
+        changed_outside_scope = [
+            path
+            for path in changed_files
+            if declared_scope and path not in declared_scope and not path.startswith(("docs/handoff/", "tasks/runtime/"))
+        ]
+        sensitive_surface_changed = any(
+            token in " ".join(changed_files).lower()
+            for token in ("config/", "schema", "contract", "workflow", "graph", ".sql", "migration", "infra/", "prompt")
+        )
+        scope_status = _derive_scope_status(changed_files, changed_outside_scope, acceptance, validation)
+        resolved_items = [
+            str(item.get("description") or "").strip()
+            for item in (state.get("resolved_issues") or [])
+            if isinstance(item, dict) and str(item.get("description") or "").strip()
+        ]
 
-        blocking_issues: list[str] = []
-        important_issues: list[str] = []
-        nice_to_haves: list[str] = []
+        findings: list[dict[str, str]] = []
+        checklist: list[dict[str, str]] = [
+            {
+                "band": "critical",
+                "name": "Protected path discipline",
+                "status": "failed" if protected_paths and any(_matches_protected_path(path, protected_paths) for path in changed_files) else "passed",
+                "detail": "No protected path appears in the review scope." if not protected_paths else "Protected paths were checked against the change set.",
+            },
+            {
+                "band": "critical",
+                "name": "Validation baseline",
+                "status": "failed" if "FAIL" in validation.upper() else "passed",
+                "detail": validation or "Validation output was not provided.",
+            },
+            {
+                "band": "informational",
+                "name": "Declared file scope",
+                "status": "warn" if changed_outside_scope else "passed",
+                "detail": "Changed files stayed inside the declared story scope." if not changed_outside_scope else f"Out-of-scope files: {', '.join(changed_outside_scope)}",
+            },
+            {
+                "band": "informational",
+                "name": "Documentation freshness",
+                "status": "warn" if changed_files and not docs_changed and any(Path(path).suffix.lower() != ".md" for path in changed_files) else "passed",
+                "detail": "Root or handoff docs were updated alongside code changes." if docs_changed else "No doc update detected for this diff.",
+            },
+        ]
+        checklist.extend(
+            _repo_specific_checklist(
+                repo_profile=repo_profile,
+                story_kind=story_kind,
+                changed_files=changed_files,
+                sensitive_surface_changed=sensitive_surface_changed,
+                release_sensitive=release_sensitive,
+                docs_changed=docs_changed,
+            )
+        )
 
-        if not staged_files and "StoryValidation: PASS" not in validation:
-            blocking_issues.append("No staged files were available for review.")
-        elif not staged_files:
-            nice_to_haves.append("No staged files were recorded because the existing scaffold already satisfied the story validation.")
-        if protected_paths and any(_matches_protected_path(path, protected_paths) for path in staged_files):
-            blocking_issues.append("A protected path appears in the staged change set.")
+        if not changed_files and "StoryValidation: PASS" not in validation:
+            findings.append(
+                _finding(
+                    "blocking",
+                    "ASK",
+                    "No code changes were available for review.",
+                    "The review step could not locate staged or unstaged repository changes while validation still indicates unresolved work.",
+                    "Capture the intended diff before re-running review.",
+                    evidence_refs=changed_files,
+                )
+            )
+        if protected_paths and any(_matches_protected_path(path, protected_paths) for path in changed_files):
+            findings.append(
+                _finding(
+                    "blocking",
+                    "ASK",
+                    "A protected path appears in the review scope.",
+                    "This diff touches files that the repo rules mark as protected, so the blast radius is higher than the task card allows.",
+                    "Move the change out of the protected area or secure explicit approval before landing it.",
+                    evidence_refs=changed_files,
+                )
+            )
         if "FAIL" in validation.upper():
-            blocking_issues.append("Validation report still contains failing checks.")
-        if "Typecheck: SKIP" in validation or "Test: SKIP" in validation:
-            important_issues.append("Typecheck or automated tests are still running in demo mode.")
-        lowered_scope = " ".join(staged_files).lower()
-        if any(token in lowered_scope for token in ("config/", "schema", "contract", "workflow", "graph", ".sql", "migration", "infra/")):
-            important_issues.append("Changed files touch production-sensitive config/contract/runtime surfaces; verify behavior beyond CI-only checks.")
+            findings.append(
+                _finding(
+                    "blocking",
+                    "AUTO-FIX",
+                    "Validation still reports failing checks.",
+                    "The current branch has not cleared the configured validation baseline, so landing it would bypass the workflow gate.",
+                    "Fix the failing validation step, then rerun test and review.",
+                    evidence_refs=changed_files,
+                )
+            )
+        if changed_outside_scope:
+            findings.append(
+                _finding(
+                    "important",
+                    "ASK",
+                    "The diff expands beyond the declared story scope.",
+                    f"Files outside the declared scope were changed: {', '.join(changed_outside_scope)}.",
+                    "Either narrow the diff or explain why the extra files are required for acceptance.",
+                    evidence_refs=changed_outside_scope,
+                )
+            )
+        if sensitive_surface_changed:
+            findings.append(
+                _finding(
+                    "important",
+                    "ASK",
+                    "The change touches production-sensitive runtime or contract surfaces.",
+                    "Config, schema, contract, workflow, SQL, or infrastructure-adjacent files changed in this diff, which increases rollout risk.",
+                    "Add explicit verification evidence for the affected runtime surfaces before acceptance.",
+                    evidence_refs=changed_files,
+                )
+            )
         if acceptance and "StoryValidation: PASS" not in validation:
-            important_issues.append("Acceptance criteria exist but the validation report does not show a strong story-specific verification pass.")
+            findings.append(
+                _finding(
+                    "important",
+                    "ASK",
+                    "Acceptance criteria were not matched by story-specific validation evidence.",
+                    "The task card defines acceptance criteria, but the validation log does not show a strong story-level pass.",
+                    "Tie at least one validation or QA artifact directly to the requested acceptance criteria.",
+                    evidence_refs=changed_files,
+                )
+            )
+        if not docs_changed and any(Path(path).suffix.lower() != ".md" for path in changed_files):
+            findings.append(
+                _finding(
+                    "nice_to_have",
+                    "AUTO-FIX",
+                    "Documentation may be stale after the current code changes.",
+                    "Code changed in this branch without any corresponding root or handoff documentation update.",
+                    "Run document-release or update the relevant docs before shipping.",
+                    evidence_refs=changed_files,
+                )
+            )
         if not acceptance:
-            nice_to_haves.append("Task card does not define acceptance criteria explicitly.")
+            findings.append(
+                _finding(
+                    "nice_to_have",
+                    "AUTO-FIX",
+                    "The task card does not declare acceptance criteria explicitly.",
+                    "Without explicit acceptance criteria, downstream QA and acceptance have to infer what done means.",
+                    "Add explicit acceptance criteria to the story card or preserve that contract in the architecture review.",
+                    evidence_refs=[],
+                )
+            )
+        for description in resolved_items[:5]:
+            findings.append(
+                _finding(
+                    "nice_to_have",
+                    "already-fixed",
+                    "A previously reported issue has already been resolved in this workflow.",
+                    description,
+                    "Keep the fix evidence attached to the current review artifact.",
+                    evidence_refs=changed_files,
+                )
+            )
 
-        verdict = "- [x] Review passed for local iteration" if not blocking_issues else "- [ ] Blocking issues must be fixed"
+        ask_findings = [
+            item
+            for item in findings
+            if str(item.get("disposition") or "") == "ASK" and str(item.get("severity") or "") in {"blocking", "important"}
+        ]
+        next_question = (
+            {
+                "kind": "review_decision",
+                "question": str(ask_findings[0].get("recommendation") or "").strip(),
+                "finding_summary": str(ask_findings[0].get("summary") or "").strip(),
+            }
+            if ask_findings
+            else None
+        )
+        decision_state = {
+            "mode": "review",
+            "repo_profile": repo_profile,
+            "story_kind": story_kind,
+            "scope_status": scope_status,
+            "ask_findings": ask_findings,
+            "protected_paths": list(protected_paths or []),
+            "changed_files": changed_files,
+        }
+        analysis = {
+            "task_goal": task_goal or "Local agent-generated change.",
+            "repo_profile": repo_profile,
+            "story_kind": story_kind,
+            "scope_status": scope_status,
+            "intent_summary": task_goal or "Review the current task diff against its stated goal.",
+            "delivered_summary": _delivered_summary(changed_files),
+            "acceptance": acceptance,
+            "validation": validation,
+            "changed_files": changed_files,
+            "diff_excerpt": diff[:2000],
+            "checklist": checklist,
+            "findings": findings,
+            "awaiting_user_input": bool(ask_findings),
+            "dialogue_state": decision_state,
+            "next_question": next_question,
+            "approval_required": bool(ask_findings),
+            "handoff_target": "review_decision" if ask_findings else ("fixer" if findings else "code_acceptance"),
+            "resume_from_mode": "review" if ask_findings else None,
+            "decision_state": decision_state,
+            "interaction_round": len(ask_findings),
+        }
+        if _is_non_interactive_auto_run(state):
+            _auto_resolve_review_interaction(analysis)
+        return analysis
 
+    def _render_review_report(self, analysis: dict[str, object]) -> str:
+        findings = analysis["findings"] if isinstance(analysis.get("findings"), list) else []
+        checklist = analysis["checklist"] if isinstance(analysis.get("checklist"), list) else []
+        verdict = (
+            "- [x] Review passed for local iteration"
+            if not any(item.get("severity") == "blocking" for item in findings)
+            else "- [ ] Blocking issues must be fixed"
+        )
         return "\n".join(
             [
                 "# Review Report",
                 "",
-                "## Change Summary",
-                task_goal or "Local agent-generated change.",
+                "## Scope Check",
+                f"- Status: {analysis.get('scope_status')}",
+                f"- Intent: {analysis.get('intent_summary')}",
+                f"- Delivered: {analysis.get('delivered_summary')}",
                 "",
                 "## Production Risk Focus",
-                "Prefer issues that can pass CI yet still fail in production, runtime, or live user flows.",
-                "",
-                "## Intent Match",
-                "Change scope matches the requested files and does not expand beyond the task card.",
-                "",
-                "## Verification Gaps",
-                "Highlight any missing config, contract, schema, or runtime validation that could hide a production regression.",
-                "",
-                "## Maintainability",
-                "Change follows the existing page/service scaffolding and keeps edits localized.",
+                "Prefer issues that can pass CI yet still fail in production, runtime, or real user flows.",
                 "",
                 "## Acceptance Coverage",
-                _format_bullets(acceptance, fallback="No acceptance criteria recorded."),
+                _format_bullets(analysis.get("acceptance") if isinstance(analysis.get("acceptance"), list) else [], fallback="No acceptance criteria recorded."),
                 "",
                 "## Validation",
-                validation,
+                str(analysis.get("validation") or "Validation pending").strip(),
                 "",
                 "## Changed Files",
-                _format_bullets(staged_files, fallback="No staged files recorded."),
+                _format_bullets(analysis.get("changed_files") if isinstance(analysis.get("changed_files"), list) else [], fallback="No changed files recorded."),
                 "",
-                "## Issues",
+                "## Checklist Findings",
+                "### Critical",
+                _format_checklist(checklist, "critical"),
+                "",
+                "### Informational",
+                _format_checklist(checklist, "informational"),
+                "",
+                "## Findings",
                 "### Blocking",
-                _format_bullets(blocking_issues, fallback="None."),
+                _format_finding_lines(findings, "blocking"),
                 "",
                 "### Important",
-                _format_bullets(important_issues, fallback="None."),
+                _format_finding_lines(findings, "important"),
                 "",
                 "### Nice to have",
-                _format_bullets(nice_to_haves, fallback="None."),
+                _format_finding_lines(findings, "nice_to_have"),
+                "",
+                "### Already Fixed",
+                _format_finding_lines(findings, "already-fixed", use_disposition=True),
+                "",
+                "## Decision Ceremony",
+                _format_review_decision_block(analysis),
                 "",
                 "## Final Verdict",
                 verdict,
@@ -278,16 +472,36 @@ def review_node(state: DevState) -> DevState:
                         deliverable_id=str(uuid.uuid4()),
                         name="Review Report",
                         type="report",
-                        path=str(state.get("review_dir") or ""),
+                        path=f".meta/{Path(str(state['repo_b_path'])).name}/review/review_report.md",
                         description="Structured review output for the current story iteration.",
                         created_by=AgentRole.REVIEWER,
-                    )
+                    ),
+                    Deliverable(
+                        deliverable_id=str(uuid.uuid4()),
+                        name="Review Findings",
+                        type="report",
+                        path=f".meta/{Path(str(state['repo_b_path'])).name}/review/review_findings.json",
+                        description="Structured review findings with severity, disposition, and recommended actions.",
+                        created_by=AgentRole.REVIEWER,
+                    ),
+                    Deliverable(
+                        deliverable_id=str(uuid.uuid4()),
+                        name="Risk Register",
+                        type="report",
+                        path=f".meta/{Path(str(state['repo_b_path'])).name}/review/risk_register.json",
+                        description="Structured risk register for repo-specific review depth and finding evidence.",
+                        created_by=AgentRole.REVIEWER,
+                    ),
                 ],
                 what_risks_i_found=[str(item) for item in (state.get("blocking_issues") or [])],
                 what_i_require_next=(
-                    "Run code style acceptance on the current files."
-                    if state.get("review_passed")
-                    else "Resolve every blocking review issue, then re-run validation and review."
+                    "Capture the required review decision, then resume the review or fix loop."
+                    if state.get("awaiting_user_input")
+                    else (
+                        "Run code style acceptance on the current files."
+                        if state.get("review_passed")
+                        else "Resolve every blocking review issue, then re-run validation and review."
+                    )
                 ),
                 issues=issues if not state.get("review_passed") else [],
                 trace_id=str(state.get("collaboration_trace_id") or ""),
@@ -306,7 +520,54 @@ def review_node(state: DevState) -> DevState:
 def route_after_review(state: DevState) -> str:
     if state.get("failure_type") == "workflow_bug":
         return "__end__"
+    if (
+        state.get("awaiting_user_input")
+        and str(state.get("resume_from_mode") or "").strip() == "review"
+        and (
+            str(state.get("skill_mode") or "").strip() == "review"
+            or str(state.get("stop_after") or "").strip() == "reviewer"
+        )
+    ):
+        return "__end__"
     return "code_acceptance" if state.get("review_passed") else "fixer"
+
+
+def _is_non_interactive_auto_run(state: DevState) -> bool:
+    task_payload = state.get("task_payload") or {}
+    interaction_policy = str(state.get("interaction_policy") or task_payload.get("interaction_policy") or "").strip().lower()
+    return bool(state.get("auto_run") or task_payload.get("auto_run")) or interaction_policy == "non_interactive_auto_run"
+
+
+def _auto_resolve_review_interaction(analysis: dict[str, object]) -> None:
+    findings = analysis.get("findings")
+    if not isinstance(findings, list):
+        return
+    auto_blockers: list[dict[str, Any]] = []
+    for item in findings:
+        if not isinstance(item, dict) or str(item.get("disposition") or "") != "ASK":
+            continue
+        summary = str(item.get("summary") or "").lower()
+        detail = str(item.get("detail") or "").lower()
+        if any(marker in f"{summary} {detail}" for marker in ("protected path", "runtime or contract surfaces", "expands beyond the declared story scope")):
+            item["disposition"] = "AUTO-FIX"
+            item["auto_blocker"] = True
+            auto_blockers.append(item)
+            continue
+        item["disposition"] = "AUTO-FIX"
+        item["detail"] = f"{item.get('detail')} Auto-resolved conservatively during non-interactive auto-run.".strip()
+    blocking_findings = [item for item in findings if str(item.get("severity") or "") == "blocking"]
+    analysis["awaiting_user_input"] = False
+    analysis["dialogue_state"] = {
+        **(analysis.get("dialogue_state") or {}),
+        "auto_resolved": True,
+        "auto_blockers": auto_blockers,
+    }
+    analysis["next_question"] = None
+    analysis["approval_required"] = False
+    analysis["handoff_target"] = "fixer" if blocking_findings else "code_acceptance"
+    analysis["resume_from_mode"] = None
+    analysis["decision_state"] = analysis["dialogue_state"]
+    analysis["interaction_round"] = 0
 
 
 def _format_bullets(items: list[str], fallback: str) -> str:
@@ -331,6 +592,171 @@ def _extract_list_section(report: str, heading: str) -> list[str]:
             item = line.strip()[2:].strip()
             if item and item.lower() != "none.":
                 items.append(item)
+    return items
+
+
+def _finding(
+    severity: str,
+    disposition: str,
+    summary: str,
+    detail: str,
+    recommendation: str,
+    *,
+    evidence_refs: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "severity": severity,
+        "disposition": disposition,
+        "summary": summary,
+        "detail": detail,
+        "recommendation": recommendation,
+        "evidence_refs": [item for item in (evidence_refs or []) if str(item).strip()],
+    }
+
+
+def _derive_scope_status(
+    changed_files: list[str],
+    changed_outside_scope: list[str],
+    acceptance: list[str],
+    validation: str,
+) -> str:
+    if changed_outside_scope:
+        return "DRIFT DETECTED"
+    if acceptance and "StoryValidation: PASS" not in validation:
+        return "REQUIREMENTS MISSING"
+    if changed_files:
+        return "CLEAN"
+    return "UNKNOWN"
+
+
+def _delivered_summary(changed_files: list[str]) -> str:
+    if not changed_files:
+        return "No changed files were available in the current review scope."
+    return f"The diff currently touches {len(changed_files)} file(s): {', '.join(changed_files[:4])}."
+
+
+def _format_checklist(items: list[dict[str, str]], band: str) -> str:
+    lines = []
+    for item in items:
+        if str(item.get("band") or "") != band:
+            continue
+        status = str(item.get("status") or "pending")
+        lines.append(f"- [{status}] {item.get('name')}: {item.get('detail')}")
+    return "\n".join(lines) if lines else "- None."
+
+
+def _format_finding_lines(
+    findings: list[dict[str, Any]],
+    target: str,
+    *,
+    use_disposition: bool = False,
+) -> str:
+    lines: list[str] = []
+    for item in findings:
+        comparator = str(item.get("disposition") if use_disposition else item.get("severity") or "")
+        if comparator != target:
+            continue
+        evidence_refs = [str(ref).strip() for ref in (item.get("evidence_refs") or []) if str(ref).strip()]
+        evidence_suffix = f" | Evidence: {', '.join(evidence_refs[:3])}" if evidence_refs else ""
+        lines.append(
+            f"- [{item.get('disposition')}] {item.get('summary')}: {item.get('detail')} | Next: {item.get('recommendation')}{evidence_suffix}"
+        )
+    return "\n".join(lines) if lines else "- None."
+
+
+def _format_review_decision_block(analysis: dict[str, object]) -> str:
+    state = analysis.get("decision_state")
+    if not isinstance(state, dict):
+        return "- No staged review decision is required."
+    ask_findings = state.get("ask_findings")
+    if not isinstance(ask_findings, list) or not ask_findings:
+        return "- No staged review decision is required."
+    lines = [
+        f"- Repo profile: {state.get('repo_profile')}",
+        f"- Story kind: {state.get('story_kind')}",
+        f"- Scope status: {state.get('scope_status')}",
+    ]
+    for item in ask_findings:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"- ASK: {item.get('summary')} | decision={item.get('recommendation')}"
+        )
+    return "\n".join(lines)
+
+
+def _review_repo_profile(worktree_path: Path) -> str:
+    name = worktree_path.name.lower()
+    if name in {"agentsystem", "finahunt", "versefina"}:
+        return name
+    return "generic"
+
+
+def _repo_specific_checklist(
+    *,
+    repo_profile: str,
+    story_kind: str,
+    changed_files: list[str],
+    sensitive_surface_changed: bool,
+    release_sensitive: bool,
+    docs_changed: bool,
+) -> list[dict[str, str]]:
+    changed_text = " ".join(path.replace("\\", "/").lower() for path in changed_files)
+    items: list[dict[str, str]] = []
+    if repo_profile == "agentsystem":
+        items.append(
+            {
+                "band": "critical",
+                "name": "Workflow and agent parity surfaces",
+                "status": "warn" if any(token in changed_text for token in ("config/workflows/", "config/skill_modes/", "parity", "workflow_registry", "agent_activation")) else "passed",
+                "detail": "Workflow-manifest and parity-touching changes need matching runtime and doc evidence.",
+            }
+        )
+    if repo_profile == "finahunt":
+        items.append(
+            {
+                "band": "critical",
+                "name": "Runtime artifact contract",
+                "status": "warn" if any(token in changed_text for token in ("graphs/", "workflows/", "packages/", "workspace/artifacts/runtime")) else "passed",
+                "detail": "Ranking, linkage, and runtime artifacts should stay explainable and schema-stable.",
+            }
+        )
+    if repo_profile == "versefina":
+        items.append(
+            {
+                "band": "critical",
+                "name": "API and storage contract discipline",
+                "status": "warn" if any(token in changed_text for token in ("apps/api/", "swagger", "storage", "metadata")) else "passed",
+                "detail": "API-facing changes should preserve request/response and storage semantics.",
+            }
+        )
+    if story_kind in {"runtime_data", "api", "mixed"}:
+        items.append(
+            {
+                "band": "informational",
+                "name": "Runtime failure-mode evidence",
+                "status": "warn" if sensitive_surface_changed else "passed",
+                "detail": "Runtime/data stories should carry explicit failure-mode and verification evidence into QA.",
+            }
+        )
+    if story_kind in {"ui", "mixed"}:
+        items.append(
+            {
+                "band": "informational",
+                "name": "UI evidence chain",
+                "status": "warn" if not docs_changed and any(path.endswith((".tsx", ".jsx", ".css", ".scss", ".html")) for path in changed_files) else "passed",
+                "detail": "UI stories should keep browse/design-review evidence and visible notes aligned.",
+            }
+        )
+    if release_sensitive:
+        items.append(
+            {
+                "band": "critical",
+                "name": "Release-sensitive review depth",
+                "status": "warn",
+                "detail": "Release-closeout changes need stronger review rationale and document sync evidence.",
+            }
+        )
     return items
 
 

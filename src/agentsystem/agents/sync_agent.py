@@ -26,17 +26,18 @@ def sync_merge_node(state: DevState) -> DevState:
     try:
         if git.is_dirty():
             git.add_all()
-        staged_files = git.get_staged_files()
+        staged_files = _filter_sync_paths(git.get_staged_files())
+        story_changed_files = _filter_sync_paths(state["staged_files"])
+        effective_staged_files = story_changed_files or staged_files
         task_payload = state.get("task_payload") or {}
         pr_prep_dir = _build_pr_prep_dir(repo_b_path)
         pr_prep_dir.mkdir(parents=True, exist_ok=True)
-        pr_desc = _build_pr_description(state, staged_files)
+        pr_desc = _build_pr_description(state, effective_staged_files)
         commit_msg = _build_commit_message(task_payload, state)
 
         (pr_prep_dir / "pr_description.md").write_text(pr_desc, encoding="utf-8")
         (pr_prep_dir / "commit_message.txt").write_text(commit_msg, encoding="utf-8")
 
-        effective_staged_files = staged_files or state["staged_files"]
         state["staged_files"] = effective_staged_files
         state["generated_code_diff"] = "\n".join(dict.fromkeys(effective_staged_files))
         state["pr_desc"] = pr_desc
@@ -69,13 +70,13 @@ def sync_merge_node(state: DevState) -> DevState:
                         created_by=AgentRole.SYNC,
                     ),
                 ],
-                what_risks_i_found=[] if staged_files else ["No staged files were detected after sync preparation."],
+                what_risks_i_found=[] if effective_staged_files else ["No staged files were detected after sync preparation."],
                 what_i_require_next="Validate the staged change set, run story-specific checks, and return structured issues if anything blocks delivery.",
                 trace_id=str(state.get("collaboration_trace_id") or ""),
             ),
         )
 
-        if state.get("auto_commit", True) and staged_files:
+        if state.get("auto_commit", True) and effective_staged_files:
             git.commit(commit_msg)
             print("[Sync Agent] Local commit created")
         state["sync_merge_success"] = True
@@ -146,3 +147,15 @@ def _build_pr_description(state: DevState, staged_files: list[str]) -> str:
             review_status,
         ]
     ).strip() + "\n"
+
+
+def _filter_sync_paths(paths: list[str]) -> list[str]:
+    filtered: list[str] = []
+    for raw_path in paths:
+        normalized = str(raw_path).replace("\\", "/")
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+        if normalized.startswith(".git/"):
+            continue
+        filtered.append(normalized)
+    return list(dict.fromkeys(filtered))

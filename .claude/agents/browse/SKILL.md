@@ -2,7 +2,7 @@
 name: Browse
 mode_id: browse
 version: v1
-description: Give agents a lightweight eyes-on-surface mode that probes and reports without modifying code.
+description: Give agents eyes on real pages with persistent browser evidence and report-only output.
 allowed-tools:
 - browser_runtime
 - http_probe
@@ -11,8 +11,8 @@ workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
 runtime_ready: true
 execution_status: executable
-entry_mode: browser_qa
-stop_after: browser_qa
+entry_mode: browse
+stop_after: browse
 report_only: true
 fixer_allowed: false
 default_browser_qa_mode: report_only
@@ -23,7 +23,7 @@ required-inputs:
 expected-artifacts:
 - .meta/<repo>/browser_qa/browser_qa_report.md
 - .meta/<repo>/browser_runtime/session.json
-- .meta/<repo>/browser_runtime/probes/*.json
+- .meta/<repo>/browser_runtime/observations/*.json
 ---
 
 # Browse
@@ -45,8 +45,8 @@ You give the system real browser eyes with Chromium, screenshots, click/type ste
 ## Execution Contract
 - Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
-- Enter at `entry_mode: browser_qa`.
-- Stop at `stop_after: browser_qa`.
+- Enter at `entry_mode: browse`.
+- Stop at `stop_after: browse`.
 - This mode is `report_only: true`.
 - `default_browser_qa_mode: report_only`.
 - Never enter fixer.
@@ -62,14 +62,16 @@ You give the system real browser eyes with Chromium, screenshots, click/type ste
 - Produce these artifacts:
 - .meta/<repo>/browser_qa/browser_qa_report.md
 - .meta/<repo>/browser_runtime/session.json
-- .meta/<repo>/browser_runtime/probes/*.json
+- .meta/<repo>/browser_runtime/observations/*.json
 - Report health score, blocking findings, important findings, ship-readiness, and route-level observations.
 - Keep findings tied to actual screenshot, DOM, and console evidence.
 
 ## Bound Agents
+- software_engineering.browse
 - software_engineering.browser_qa
 
 ## Bound Agent Manifest Paths
+- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\browse.yaml
 - D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\browser_qa.yaml
 
 ## Guardrails

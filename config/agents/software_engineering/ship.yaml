@@ -1,0 +1,14 @@
+agent_id: software_engineering.ship
+name: Ship Agent
+description: Assemble branch readiness, validation state, and release packaging evidence.
+handler: ship_node
+agent_role: release.ship
+plane: release
+capabilities:
+  - release_readiness
+  - release_packaging
+verification_tags:
+  - ship
+metadata:
+  manifest_version: v1
+  domain: software_engineering

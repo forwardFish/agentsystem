@@ -2,12 +2,12 @@
   "mode_id": "ship",
   "name": "Ship",
   "version": "v1",
-  "description": "Prepare a ready-to-merge release package by syncing branch state, validating readiness, and assembling release evidence.",
+  "description": "Prepare a ready-to-merge release package by validating readiness and assembling release evidence.",
   "workflow_plugin_id": "software_engineering",
   "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
-  "runtime_ready": false,
-  "entry_mode": null,
-  "stop_after": null,
+  "runtime_ready": true,
+  "entry_mode": "ship",
+  "stop_after": "ship",
   "report_only": false,
   "fixer_allowed": false,
   "default_browser_qa_mode": null,
@@ -27,20 +27,19 @@
     ".meta/<repo>/ship/release_package.json"
   ],
   "agent_manifest_ids": [
-    "software_engineering.acceptance_gate",
-    "software_engineering.doc_writer"
+    "software_engineering.ship"
   ],
   "agent_manifest_paths": [
-    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\acceptance_gate.yaml",
-    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\doc_writer.yaml"
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\ship.yaml"
   ],
   "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\ship\\AGENT.md.tmpl",
   "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\ship\\SKILL.md",
   "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
   "metadata": {
     "kind": "release",
-    "host_surface": "claude_skill",
-    "status": "template_only",
+    "host_surface": "codex_adapted",
+    "upstream_skill": "vendors/gstack/ship/SKILL.md",
+    "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\ship\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\ship\\SKILL.md"
   }

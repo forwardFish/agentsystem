@@ -37,19 +37,76 @@ def architecture_review_node(state: DevState) -> DevState:
 
     architecture_summary = _build_architecture_summary(subtasks, primary_files, secondary_files)
     data_flow = _build_data_flow(story_inputs, subtasks, story_outputs, primary_files)
+    architecture_diagram = _build_architecture_diagram(story_inputs, subtasks, story_outputs, primary_files)
+    boundaries = _build_boundaries(primary_files, secondary_files, constraints, not_do)
     edge_cases = _build_edge_cases(acceptance, constraints, not_do, primary_files)
     test_plan = _build_test_plan(verification_basis, acceptance, primary_files, subtasks, edge_cases)
+    failure_modes = _build_failure_modes(data_flow, edge_cases, test_plan)
+    qa_handoff_lines = _build_qa_handoff(acceptance, verification_basis, edge_cases, failure_modes)
+    open_questions = _build_open_planning_questions(
+        goal=goal,
+        acceptance=acceptance,
+        verification_basis=verification_basis,
+        primary_files=primary_files,
+        story_inputs=story_inputs,
+        story_outputs=story_outputs,
+    )
+    non_interactive_auto_run = _is_non_interactive_auto_run(state)
+    auto_resolved_questions = _auto_resolve_open_planning_questions(
+        open_questions,
+        goal=goal,
+        acceptance=acceptance,
+        verification_basis=verification_basis,
+        primary_files=primary_files,
+        story_inputs=story_inputs,
+        story_outputs=story_outputs,
+    ) if non_interactive_auto_run else []
+    if auto_resolved_questions:
+        open_questions = []
+    next_question = dict(open_questions[0]) if open_questions else None
+    planning_decision_state = {
+        "mode": "plan-eng-review",
+        "goal": goal or None,
+        "required_inputs": {
+            "acceptance_checklist": bool(acceptance),
+            "verification_basis": bool(verification_basis),
+            "primary_files": bool(primary_files),
+            "story_outputs": bool(story_outputs),
+        },
+        "open_questions": open_questions,
+        "qa_handoff": qa_handoff_lines,
+        "builder_handoff": {
+            "file_scope": {
+                "primary_files": primary_files,
+                "secondary_files": secondary_files,
+            },
+            "risk_focus": [item["failure"] for item in failure_modes],
+            "test_strategy": test_plan,
+        },
+        "auto_resolved_questions": auto_resolved_questions,
+    }
 
     report_lines = [
         "# Architecture Review",
         "",
         f"- Goal: {goal or 'n/a'}",
         "",
+        "## Scope Challenge",
+        *[f"- {item}" for item in _build_scope_challenge(primary_files, secondary_files, subtasks)],
+        "",
         "## Proposed Execution Shape",
         *[f"- {item}" for item in architecture_summary],
         "",
+        "## Architecture Diagram",
+        "```text",
+        *architecture_diagram,
+        "```",
+        "",
         "## Data Flow",
         *[f"- {item}" for item in data_flow],
+        "",
+        "## Boundaries",
+        *[f"- {item}" for item in boundaries],
         "",
         "## File Scope",
     ]
@@ -67,6 +124,19 @@ def architecture_review_node(state: DevState) -> DevState:
             "## Edge Cases",
             *[f"- {item}" for item in edge_cases],
             "",
+            "## Failure Modes",
+        ]
+    )
+    report_lines.extend(
+        [
+            f"- {item['path']}: {item['failure']} | handling={item['handling']} | verify={item['verification']}"
+            for item in failure_modes
+        ]
+        or ["- No explicit failure modes were inferred."]
+    )
+    report_lines.extend(
+        [
+            "",
             "## Verification Plan",
         ]
     )
@@ -80,6 +150,30 @@ def architecture_review_node(state: DevState) -> DevState:
             "## Suggested Test Layers",
             *[f"- {item}" for item in _flatten_test_layers(test_plan)],
             "",
+            "## QA Handoff",
+            *[f"- {item}" for item in qa_handoff_lines],
+            "",
+            "## Open Planning Questions",
+            *(
+                [f"- {item['question']} | why={item['why_it_matters']}" for item in open_questions]
+                or ["- None."]
+            ),
+            "",
+            "## Auto-Resolved Assumptions",
+            *(
+                [f"- {item['id']}: {item['assumption']}" for item in auto_resolved_questions]
+                or ["- None."]
+            ),
+            "",
+            "## Approval / Resume",
+            (
+                f"- Next question: {next_question['question']}"
+                if next_question
+                else "- Planning package is ready to hand to builder and QA."
+            ),
+            "- Resume mode: plan-eng-review",
+            "- Handoff target: builder",
+            "",
             "## Builder Guidance",
             "- Keep edits inside the declared primary files unless a missing dependency blocks acceptance.",
             "- Preserve current repository patterns before introducing new abstractions.",
@@ -92,21 +186,59 @@ def architecture_review_node(state: DevState) -> DevState:
     report_path.write_text(report, encoding="utf-8")
     test_plan_path = review_dir / "test_plan.json"
     test_plan_path.write_text(json.dumps(test_plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    failure_modes_path = review_dir / "failure_modes.json"
+    failure_modes_path.write_text(json.dumps(failure_modes, ensure_ascii=False, indent=2), encoding="utf-8")
+    qa_test_plan_path = review_dir / "qa_test_plan.md"
+    qa_test_plan_path.write_text(
+        _render_qa_test_plan(
+            goal=goal,
+            primary_files=primary_files,
+            story_outputs=story_outputs,
+            verification_basis=verification_basis,
+            edge_cases=edge_cases,
+            failure_modes=failure_modes,
+        ),
+        encoding="utf-8",
+    )
+    planning_decision_state_path = review_dir / "planning_decision_state.json"
+    planning_decision_state_path.write_text(
+        json.dumps(planning_decision_state, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     shared_blackboard = dict(state.get("shared_blackboard") or {})
     shared_blackboard["architecture_review"] = {
         "summary": architecture_summary,
         "data_flow": data_flow,
+        "boundaries": boundaries,
         "edge_cases": edge_cases,
+        "failure_modes_ref": str(failure_modes_path),
         "test_plan_ref": str(test_plan_path),
+        "qa_test_plan_ref": str(qa_test_plan_path),
+        "planning_decision_state_ref": str(planning_decision_state_path),
+        "open_questions": open_questions,
     }
 
     state["architecture_review_success"] = True
     state["architecture_review_dir"] = str(review_dir)
     state["architecture_review_report"] = report
     state["architecture_review_summary"] = architecture_summary[0] if architecture_summary else ""
-    state["architecture_test_plan"] = test_plan
+    state["architecture_test_plan"] = {
+        **test_plan,
+        "boundaries": boundaries,
+        "failure_modes": failure_modes,
+        "qa_handoff": qa_handoff_lines,
+    }
+    state["qa_test_plan_path"] = str(qa_test_plan_path)
     state["shared_blackboard"] = shared_blackboard
+    state["awaiting_user_input"] = bool(open_questions)
+    state["dialogue_state"] = planning_decision_state
+    state["next_question"] = next_question
+    state["approval_required"] = bool(open_questions)
+    state["handoff_target"] = "builder"
+    state["resume_from_mode"] = "plan-eng-review" if open_questions else None
+    state["decision_state"] = planning_decision_state
+    state["interaction_round"] = len(open_questions)
     state["current_step"] = "architecture_review_done"
     state["error_message"] = None
     add_executed_mode(state, "plan-eng-review")
@@ -137,9 +269,29 @@ def architecture_review_node(state: DevState) -> DevState:
                     description="Structured test layers and risk checks for downstream validation.",
                     created_by=AgentRole.ARCHITECTURE_REVIEW,
                 ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="QA Test Plan",
+                    type="report",
+                    path=f".meta/{task_scope_name}/architecture_review/qa_test_plan.md",
+                    description="Route and interaction-focused QA handoff derived from the engineering review.",
+                    created_by=AgentRole.ARCHITECTURE_REVIEW,
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Planning Decision State",
+                    type="report",
+                    path=f".meta/{task_scope_name}/architecture_review/planning_decision_state.json",
+                    description="Pause/resume state for unresolved plan-eng-review questions and builder/QA handoff context.",
+                    created_by=AgentRole.ARCHITECTURE_REVIEW,
+                ),
             ],
-            what_risks_i_found=edge_cases,
-            what_i_require_next="Implement against the approved file scope, cover the identified edge cases, and keep the suggested test layers in mind for validation.",
+            what_risks_i_found=[item["failure"] for item in failure_modes] or edge_cases,
+            what_i_require_next=(
+                "Answer the unresolved plan-eng-review question(s), then resume engineering planning before build starts."
+                if open_questions
+                else "Implement against the approved file scope, preserve the stated boundaries, and treat the QA test plan as mandatory input for test and QA verification."
+            ),
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),
     )
@@ -151,9 +303,61 @@ def architecture_review_node(state: DevState) -> DevState:
 def route_after_architecture_review(state: DevState) -> str:
     if str(state.get("stop_after") or "").strip() == "architecture_review":
         return "__end__"
+    if state.get("awaiting_user_input") and str(state.get("resume_from_mode") or "").strip() == "plan-eng-review":
+        return "__end__"
+    if str(state.get("bug_scope") or "").strip() and not state.get("investigate_success"):
+        return "investigate"
+    if _should_setup_browser_session(state):
+        return "setup_browser_cookies"
+    if state.get("has_browser_surface") and str(state.get("story_kind") or "") in {"ui", "mixed"}:
+        return "browse"
     if state.get("needs_design_review"):
         return "plan_design_review"
     return "workspace_prep"
+
+
+def _is_non_interactive_auto_run(state: DevState) -> bool:
+    task_payload = state.get("task_payload") or {}
+    interaction_policy = str(state.get("interaction_policy") or task_payload.get("interaction_policy") or "").strip().lower()
+    return bool(state.get("auto_run") or task_payload.get("auto_run")) or interaction_policy == "non_interactive_auto_run"
+
+
+def _auto_resolve_open_planning_questions(
+    open_questions: list[dict[str, str]],
+    *,
+    goal: str,
+    acceptance: list[str],
+    verification_basis: list[str],
+    primary_files: list[str],
+    story_inputs: list[str],
+    story_outputs: list[str],
+) -> list[dict[str, str]]:
+    if not open_questions:
+        return []
+    defaults = {
+        "goal": goal or "Deliver the smallest implementation that satisfies the declared story goal without widening scope.",
+        "acceptance": "; ".join(acceptance) if acceptance else "Use the current acceptance checklist and do not expand it automatically.",
+        "verification_basis": "; ".join(verification_basis) if verification_basis else "Capture deterministic test evidence and QA artifacts for the declared primary files.",
+        "file_scope": ", ".join(primary_files) if primary_files else "Stay inside the files already listed in the story card or generated plan artifacts.",
+        "flow_contract": "; ".join([*(story_inputs or []), *(story_outputs or [])]) if story_inputs or story_outputs else "Preserve existing inputs and only add the smallest output surface needed for acceptance.",
+    }
+    return [
+        {
+            "id": str(item.get("id") or "").strip(),
+            "question": str(item.get("question") or "").strip(),
+            "why_it_matters": str(item.get("why_it_matters") or "").strip(),
+            "assumption": defaults.get(str(item.get("id") or "").strip(), "Apply the most conservative assumption and keep scope narrow."),
+        }
+        for item in open_questions
+    ]
+
+
+def _should_setup_browser_session(state: DevState) -> bool:
+    return bool(
+        state.get("requires_auth")
+        and state.get("has_browser_surface")
+        and not state.get("setup_browser_cookies_success")
+    )
 
 
 def _clean_lines(values: Any) -> list[str]:
@@ -192,6 +396,23 @@ def _build_architecture_summary(
     return summary
 
 
+def _build_scope_challenge(
+    primary_files: list[str],
+    secondary_files: list[str],
+    subtasks: list[dict[str, Any]],
+) -> list[str]:
+    scope_lines: list[str] = []
+    if primary_files:
+        scope_lines.append(f"Keep the implementation inside these primary files first: {', '.join(primary_files[:4])}.")
+    if secondary_files:
+        scope_lines.append("Treat secondary files as read-only context until a hard blocker proves otherwise.")
+    if subtasks:
+        scope_lines.append(f"Existing execution already decomposes into {len(subtasks)} task tracks; reuse those tracks instead of inventing new ones.")
+    if not scope_lines:
+        scope_lines.append("No file scope was declared, so the plan must stay minimal and evidence-driven.")
+    return scope_lines
+
+
 def _build_data_flow(
     story_inputs: list[str],
     subtasks: list[dict[str, Any]],
@@ -216,6 +437,50 @@ def _build_data_flow(
     return flow
 
 
+def _build_architecture_diagram(
+    story_inputs: list[str],
+    subtasks: list[dict[str, Any]],
+    story_outputs: list[str],
+    primary_files: list[str],
+) -> list[str]:
+    input_label = ", ".join(story_inputs[:2]) or "story input"
+    track_label = ", ".join(str(item.get("type") or "track") for item in subtasks[:3]) or "implementation track"
+    file_label = ", ".join(primary_files[:2]) or "primary files"
+    output_label = ", ".join(story_outputs[:2]) or "accepted output"
+    return [
+        f"[ {input_label} ]",
+        "        |",
+        "        v",
+        f"[ {track_label} ]",
+        "        |",
+        "        v",
+        f"[ {file_label} ]",
+        "        |",
+        "        v",
+        f"[ {output_label} ]",
+    ]
+
+
+def _build_boundaries(
+    primary_files: list[str],
+    secondary_files: list[str],
+    constraints: list[str],
+    not_do: list[str],
+) -> list[str]:
+    boundaries: list[str] = []
+    if primary_files:
+        boundaries.append("Only the declared primary files should be modified during the first implementation pass.")
+    if secondary_files:
+        boundaries.append("Secondary files may be read for context but should not be edited unless acceptance is blocked.")
+    for item in constraints[:3]:
+        boundaries.append(f"Constraint boundary: {item}")
+    for item in not_do[:2]:
+        boundaries.append(f"Do-not-cross boundary: {item}")
+    if not boundaries:
+        boundaries.append("Do not expand scope without new evidence that the requested outcome is blocked.")
+    return boundaries
+
+
 def _build_edge_cases(
     acceptance: list[str],
     constraints: list[str],
@@ -238,6 +503,40 @@ def _build_edge_cases(
     return edge_cases
 
 
+def _build_failure_modes(
+    data_flow: list[str],
+    edge_cases: list[str],
+    test_plan: dict[str, Any],
+) -> list[dict[str, str]]:
+    failure_modes: list[dict[str, str]] = []
+    for index, item in enumerate(edge_cases[:4], start=1):
+        verification_candidates = test_plan.get("integration_checks") if isinstance(test_plan, dict) else []
+        verification = (
+            verification_candidates[index - 1]
+            if isinstance(verification_candidates, list) and len(verification_candidates) >= index
+            else "Re-run the acceptance path and inspect the resulting artifact."
+        )
+        failure_modes.append(
+            {
+                "path": f"path-{index}",
+                "failure": item,
+                "handling": "Catch in build review, then verify with QA before acceptance.",
+                "verification": str(verification),
+            }
+        )
+    if not failure_modes:
+        for index, item in enumerate(data_flow[:2], start=1):
+            failure_modes.append(
+                {
+                    "path": f"flow-{index}",
+                    "failure": f"Data flow could break at: {item}",
+                    "handling": "Check the transition manually and keep the blast radius narrow.",
+                    "verification": "Confirm the expected output still matches the acceptance checklist.",
+                }
+            )
+    return failure_modes
+
+
 def _build_test_plan(
     verification_basis: list[str],
     acceptance: list[str],
@@ -256,6 +555,131 @@ def _build_test_plan(
         "manual_checks": manual_checks or ["Review downstream artifacts and workflow reports for requirement fit."],
         "risk_checks": risk_checks or ["No additional risk checks were inferred."],
     }
+
+
+def _build_qa_handoff(
+    acceptance: list[str],
+    verification_basis: list[str],
+    edge_cases: list[str],
+    failure_modes: list[dict[str, str]],
+) -> list[str]:
+    handoff: list[str] = []
+    for item in acceptance[:3]:
+        handoff.append(f"Acceptance path to verify: {item}")
+    for item in verification_basis[:3]:
+        handoff.append(f"QA evidence to capture: {item}")
+    for item in edge_cases[:2]:
+        handoff.append(f"Edge case to force during QA: {item}")
+    for item in failure_modes[:2]:
+        handoff.append(f"Failure mode to guard: {item['failure']}")
+    if not handoff:
+        handoff.append("QA should validate the primary story outcome and the highest-risk boundary.")
+    return handoff
+
+
+def _build_open_planning_questions(
+    *,
+    goal: str,
+    acceptance: list[str],
+    verification_basis: list[str],
+    primary_files: list[str],
+    story_inputs: list[str],
+    story_outputs: list[str],
+) -> list[dict[str, str]]:
+    questions: list[dict[str, str]] = []
+    if not goal:
+        questions.append(
+            {
+                "id": "goal",
+                "question": "What is the single engineering outcome this story must guarantee before build starts?",
+                "why_it_matters": "Without a stable engineering target, file scope and QA handoff will drift.",
+            }
+        )
+    if not acceptance:
+        questions.append(
+            {
+                "id": "acceptance",
+                "question": "Which acceptance criteria are mandatory for this story to count as done?",
+                "why_it_matters": "Plan-eng-review should lock done conditions before the builder starts changing code.",
+            }
+        )
+    if not verification_basis:
+        questions.append(
+            {
+                "id": "verification_basis",
+                "question": "What concrete verification evidence should QA and acceptance capture for this story?",
+                "why_it_matters": "A missing verification basis weakens QA handoff and later acceptance gates.",
+            }
+        )
+    if not primary_files:
+        questions.append(
+            {
+                "id": "file_scope",
+                "question": "Which primary files are approved for the first implementation pass?",
+                "why_it_matters": "The builder needs an approved change boundary before touching the repo.",
+            }
+        )
+    if not story_outputs and not story_inputs:
+        questions.append(
+            {
+                "id": "flow_contract",
+                "question": "What are the key inputs and outputs this story must preserve or produce?",
+                "why_it_matters": "Data flow and failure-mode analysis are weaker until the story contract is explicit.",
+            }
+        )
+    return questions
+
+
+def _render_qa_test_plan(
+    *,
+    goal: str,
+    primary_files: list[str],
+    story_outputs: list[str],
+    verification_basis: list[str],
+    edge_cases: list[str],
+    failure_modes: list[dict[str, str]],
+) -> str:
+    affected_routes = _infer_routes_from_files(primary_files)
+    lines = [
+        "# QA Test Plan",
+        "",
+        "Generated by /plan-eng-review",
+        f"Goal: {goal or 'n/a'}",
+        "",
+        "## Affected Pages/Routes",
+        *([f"- {item}" for item in affected_routes] or ["- No route could be inferred from the current file scope."]),
+        "",
+        "## Key Interactions to Verify",
+        *([f"- {item}" for item in verification_basis] or ["- Re-run the main user-facing flow and capture evidence."]),
+        "",
+        "## Edge Cases",
+        *([f"- {item}" for item in edge_cases] or ["- No explicit edge cases were inferred."]),
+        "",
+        "## Critical Paths",
+        *([f"- {item}" for item in story_outputs] or ["- Validate that the final story output matches the acceptance checklist."]),
+        "",
+        "## Failure Modes",
+        *([f"- {item['failure']}" for item in failure_modes] or ["- No explicit failure modes were inferred."]),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _infer_routes_from_files(primary_files: list[str]) -> list[str]:
+    routes: list[str] = []
+    for path in primary_files:
+        normalized = str(path).replace("\\", "/")
+        if "page.tsx" in normalized:
+            fragment = normalized.split("/src/", 1)[-1]
+            route = fragment.replace("/page.tsx", "").replace("/app", "").replace("(dashboard)", "").strip("/")
+            route = "/" + route if route else "/"
+            if route not in routes:
+                routes.append(route)
+        elif normalized.endswith(".html"):
+            route = "/" + Path(normalized).stem
+            if route not in routes:
+                routes.append(route)
+    return routes
 
 
 def _flatten_test_layers(test_plan: dict[str, Any]) -> list[str]:

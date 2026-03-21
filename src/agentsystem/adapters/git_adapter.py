@@ -32,6 +32,18 @@ class GitAdapter:
         self.snapshot_state_path = self.snapshot_meta_dir / "snapshot_state.json"
         self.snapshot_base_dir = self.snapshot_meta_dir / "snapshot_base"
         self.snapshot_mode = False
+        has_local_git_dir = (self.repo_path / ".git").exists()
+
+        # Snapshot workspaces can live underneath another git repository (for example
+        # under agentsystem/repo-worktree). In that layout GitPython would otherwise
+        # climb upward and bind to the parent repo, which turns a successful snapshot
+        # run into a false post-finalization failure. Prefer the explicit snapshot
+        # contract whenever its metadata exists and the workspace does not have its
+        # own .git directory.
+        if self.snapshot_state_path.exists() and self.snapshot_base_dir.exists() and not has_local_git_dir:
+            self.snapshot_mode = True
+            self.repo = _SnapshotRepoFacade(self)
+            return
 
         try:
             self.repo = Repo(self.repo_path)
@@ -48,14 +60,10 @@ class GitAdapter:
             return
 
         current_branch = self._get_current_branch_name()
-        if current_branch != branch_name:
-            self.repo.git.checkout(branch_name)
-
-        # Story execution often starts from a locally dirty repository because runtime
-        # evidence is persisted in-place. In that case, avoid unnecessary index writes
-        # against the base repo and build the worktree from the current branch tip.
         if self.repo.is_dirty(untracked_files=True):
             return
+        if current_branch != branch_name:
+            self.repo.git.checkout(branch_name)
 
         if "origin" not in {remote.name for remote in self.repo.remotes}:
             return
@@ -125,10 +133,21 @@ class GitAdapter:
         output = self.repo.git.diff("--cached", "--name-only")
         return [line.strip() for line in output.splitlines() if line.strip()]
 
+    def get_working_tree_files(self) -> list[str]:
+        if getattr(self, "snapshot_mode", False):
+            return self._snapshot_changed_files()
+        output = self.repo.git.diff("--name-only")
+        return [line.strip() for line in output.splitlines() if line.strip()]
+
     def get_diff(self) -> str:
         if getattr(self, "snapshot_mode", False):
             return self._snapshot_diff()
         return self.repo.git.diff("--cached")
+
+    def get_working_tree_diff(self) -> str:
+        if getattr(self, "snapshot_mode", False):
+            return self._snapshot_diff()
+        return self.repo.git.diff()
 
     def is_dirty(self) -> bool:
         if getattr(self, "snapshot_mode", False):

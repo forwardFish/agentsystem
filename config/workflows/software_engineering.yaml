@@ -9,9 +9,14 @@ policy_refs:
 trigger_events:
   - task.created
 verification_pipeline:
+  - office_hours
+  - plan_ceo_review
   - architecture_review
+  - investigate
+  - browse
   - plan_design_review
   - design_consultation
+  - setup_browser_cookies
   - code_style_review
   - test
   - browser_qa
@@ -21,6 +26,9 @@ verification_pipeline:
   - review
   - code_acceptance
   - acceptance_gate
+  - ship
+  - document_release
+  - retro
 human_approval_points:
   - acceptance_gate
 metadata:
@@ -28,18 +36,33 @@ metadata:
   plugin_kind: build_engineering
   manifest_version: v1
 nodes:
+  - node_id: office_hours
+    display_name: Office Hours
+    agent_manifest: software_engineering.office_hours
   - node_id: requirement_analysis
     display_name: Requirement
     agent_manifest: software_engineering.requirement_analysis
+  - node_id: plan_ceo_review
+    display_name: Plan CEO Review
+    agent_manifest: software_engineering.plan_ceo_review
   - node_id: architecture_review
     display_name: Architecture Review
     agent_manifest: software_engineering.architecture_review
+  - node_id: investigate
+    display_name: Investigate
+    agent_manifest: software_engineering.investigate
+  - node_id: browse
+    display_name: Browse
+    agent_manifest: software_engineering.browse
   - node_id: plan_design_review
     display_name: Plan Design Review
     agent_manifest: software_engineering.plan_design_review
   - node_id: design_consultation
     display_name: Design Consultation
     agent_manifest: software_engineering.design_consultation
+  - node_id: setup_browser_cookies
+    display_name: Setup Browser Cookies
+    agent_manifest: software_engineering.setup_browser_cookies
   - node_id: workspace_prep
     display_name: Workspace Prep
     agent_manifest: software_engineering.workspace_prep
@@ -91,6 +114,15 @@ nodes:
   - node_id: doc_writer
     display_name: Doc Writer
     agent_manifest: software_engineering.doc_writer
+  - node_id: ship
+    display_name: Ship
+    agent_manifest: software_engineering.ship
+  - node_id: document_release
+    display_name: Document Release
+    agent_manifest: software_engineering.document_release
+  - node_id: retro
+    display_name: Retro
+    agent_manifest: software_engineering.retro
 edges:
   - source: requirement_analysis
     target: architecture_review
@@ -111,8 +143,33 @@ edges:
   - source: doc_writer
     target: __end__
 conditional_edges:
+  - source: office_hours
+    router: route_after_office_hours
+    routes:
+      plan_ceo_review: plan_ceo_review
+      __end__: __end__
+  - source: plan_ceo_review
+    router: route_after_plan_ceo_review
+    routes:
+      architecture_review: architecture_review
+      __end__: __end__
   - source: architecture_review
     router: route_after_architecture_review
+    routes:
+      investigate: investigate
+      browse: browse
+      plan_design_review: plan_design_review
+      workspace_prep: workspace_prep
+      __end__: __end__
+  - source: investigate
+    router: route_after_investigate
+    routes:
+      browse: browse
+      plan_design_review: plan_design_review
+      workspace_prep: workspace_prep
+      __end__: __end__
+  - source: browse
+    router: route_after_browse
     routes:
       plan_design_review: plan_design_review
       workspace_prep: workspace_prep
@@ -127,6 +184,11 @@ conditional_edges:
     router: route_after_design_consultation
     routes:
       workspace_prep: workspace_prep
+      __end__: __end__
+  - source: setup_browser_cookies
+    router: route_after_setup_browser_cookies
+    routes:
+      browse: browse
       __end__: __end__
   - source: workspace_prep
     router: task_router
@@ -188,3 +250,17 @@ conditional_edges:
     routes:
       doc_writer: doc_writer
       fixer: fixer
+  - source: ship
+    router: route_after_ship
+    routes:
+      document_release: document_release
+      __end__: __end__
+  - source: document_release
+    router: route_after_document_release
+    routes:
+      retro: retro
+      __end__: __end__
+  - source: retro
+    router: route_after_retro
+    routes:
+      __end__: __end__

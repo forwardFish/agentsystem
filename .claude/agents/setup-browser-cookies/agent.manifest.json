@@ -2,12 +2,12 @@
   "mode_id": "setup-browser-cookies",
   "name": "Setup Browser Cookies",
   "version": "v1",
-  "description": "Prepare authenticated browser session import instructions for later browser QA without requiring manual login every run.",
+  "description": "Normalize authenticated browser session import artifacts for later browse or QA runs.",
   "workflow_plugin_id": "software_engineering",
   "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
-  "runtime_ready": false,
-  "entry_mode": null,
-  "stop_after": null,
+  "runtime_ready": true,
+  "entry_mode": "setup_browser_cookies",
+  "stop_after": "setup_browser_cookies",
   "report_only": true,
   "fixer_allowed": false,
   "default_browser_qa_mode": null,
@@ -17,27 +17,31 @@
     "repo_context"
   ],
   "required_inputs": [
-    "browser_profile_source",
+    "cookie_source",
     "target_surface",
     "auth_expectations"
   ],
   "expected_artifacts": [
-    ".meta/<repo>/browser_runtime/cookie_import_plan.md",
-    ".meta/<repo>/browser_runtime/session_seed.json"
+    ".meta/<repo>/setup_browser_cookies/cookie_import_plan.md",
+    ".meta/<repo>/setup_browser_cookies/session_seed.json",
+    ".meta/<repo>/browser_runtime/storage_state.json"
   ],
   "agent_manifest_ids": [
-    "software_engineering.browser_qa"
+    "software_engineering.setup_browser_cookies",
+    "software_engineering.browse"
   ],
   "agent_manifest_paths": [
-    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\browser_qa.yaml"
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\setup_browser_cookies.yaml",
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\browse.yaml"
   ],
   "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\setup-browser-cookies\\AGENT.md.tmpl",
   "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\setup-browser-cookies\\SKILL.md",
   "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
   "metadata": {
     "kind": "qa",
-    "host_surface": "claude_skill",
-    "status": "template_only",
+    "host_surface": "codex_adapted",
+    "upstream_skill": "vendors/gstack/setup-browser-cookies/SKILL.md",
+    "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\setup-browser-cookies\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\setup-browser-cookies\\SKILL.md"
   }

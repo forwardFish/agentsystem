@@ -5,6 +5,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from agentsystem.core.state import build_mode_coverage
+
+
+_FORMAL_FLOW_SUCCESS_STATUSES = {"done", "accepted"}
+_FORMAL_FLOW_APPROVED_STATUSES = {"approved"}
+_FORMAL_ACCEPTANCE_REVIEWER = "acceptance_gate"
+
 
 def locate_story_context(task_path: Path, repo_b_path: Path) -> dict[str, str]:
     tasks_root = repo_b_path / "tasks"
@@ -119,6 +126,7 @@ def update_story_status(repo_b_path: Path, entry: dict[str, Any]) -> Path:
     stories = payload.get("stories") if isinstance(payload, dict) else []
     if not isinstance(stories, list):
         stories = []
+    entry = _normalize_story_status_entry(entry)
 
     updated: list[dict[str, Any]] = []
     replaced = False
@@ -145,6 +153,7 @@ def update_story_acceptance_review(repo_b_path: Path, review: dict[str, Any]) ->
     reviews = payload.get("reviews") if isinstance(payload, dict) else []
     if not isinstance(reviews, list):
         reviews = []
+    review = _normalize_story_acceptance_review(review)
 
     updated: list[dict[str, Any]] = []
     replaced = False
@@ -278,14 +287,21 @@ def write_current_handoff(repo_b_path: Path, payload: dict[str, Any]) -> dict[st
 
 def collect_mode_artifact_paths(state: dict[str, Any]) -> dict[str, str]:
     mapping = {
+        "office-hours": state.get("office_hours_dir"),
+        "plan-ceo-review": state.get("plan_ceo_review_dir"),
         "plan-eng-review": state.get("architecture_review_dir"),
+        "investigate": state.get("investigate_dir"),
+        "browse": state.get("browse_dir") or state.get("browser_qa_dir"),
         "plan-design-review": state.get("plan_design_review_dir"),
         "design-consultation": state.get("design_consultation_dir"),
         "qa": state.get("runtime_qa_dir") or state.get("browser_qa_dir"),
         "qa-only": state.get("runtime_qa_dir") or state.get("browser_qa_dir"),
-        "browse": state.get("browser_qa_dir"),
-        "setup-browser-cookies": state.get("browser_runtime_dir"),
+        "design-review": state.get("qa_design_review_dir"),
+        "setup-browser-cookies": state.get("setup_browser_cookies_dir") or state.get("browser_runtime_dir"),
         "review": state.get("review_dir"),
+        "ship": state.get("ship_dir"),
+        "document-release": state.get("document_release_dir"),
+        "retro": state.get("retro_dir"),
     }
     return {key: str(value) for key, value in mapping.items() if value}
 
@@ -322,6 +338,135 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _normalize_story_status_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(entry)
+    evidence_paths = _coerce_paths(normalized.get("evidence"))
+    if not evidence_paths:
+        evidence_paths = _coerce_paths(normalized.get("evidence_paths"))
+    if evidence_paths:
+        normalized["evidence"] = evidence_paths
+
+    coverage = normalized.get("agent_mode_coverage") if isinstance(normalized.get("agent_mode_coverage"), dict) else {}
+    required_modes = [str(item).strip() for item in (normalized.get("required_modes") or coverage.get("required") or []) if str(item).strip()]
+    executed_modes = [str(item).strip() for item in (normalized.get("executed_modes") or coverage.get("executed") or []) if str(item).strip()]
+    advisory_modes = [str(item).strip() for item in (normalized.get("advisory_modes") or coverage.get("advisory") or []) if str(item).strip()]
+    if required_modes and not coverage:
+        coverage = build_mode_coverage(required_modes, advisory_modes, executed_modes)
+    if coverage:
+        normalized["agent_mode_coverage"] = coverage
+    if required_modes:
+        normalized["required_modes"] = required_modes
+    if executed_modes:
+        normalized["executed_modes"] = executed_modes
+    if advisory_modes:
+        normalized["advisory_modes"] = advisory_modes
+
+    if normalized.get("formal_entry") is True and not str(normalized.get("attempt_status") or "").strip():
+        normalized["attempt_status"] = "authoritative"
+
+    status = str(normalized.get("status") or "").strip().lower()
+    attempt_status = str(normalized.get("attempt_status") or "").strip().lower()
+    if attempt_status == "stale_attempt":
+        reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
+        if "superseded_by_authoritative_rerun" not in reasons:
+            reasons.append("superseded_by_authoritative_rerun")
+        normalized["formal_flow_gap_reasons"] = reasons
+        normalized["formal_flow_complete"] = False
+        normalized["status"] = "stale_attempt"
+        return normalized
+    if status in _FORMAL_FLOW_SUCCESS_STATUSES:
+        reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
+        normalized["formal_flow_gap_reasons"] = reasons
+        normalized["formal_flow_complete"] = not reasons
+        if reasons:
+            normalized["status"] = "evidence_incomplete" if evidence_paths else "implemented_without_formal_flow"
+    return normalized
+
+
+def _normalize_story_acceptance_review(review: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(review)
+    evidence_paths = _coerce_paths(normalized.get("evidence_paths"))
+    if evidence_paths:
+        normalized["evidence_paths"] = evidence_paths
+
+    coverage = normalized.get("agent_mode_coverage") if isinstance(normalized.get("agent_mode_coverage"), dict) else {}
+    verdict = str(normalized.get("verdict") or "").strip().lower()
+    acceptance_status = str(normalized.get("acceptance_status") or "").strip().lower()
+    if normalized.get("formal_entry") is True and not str(normalized.get("attempt_status") or "").strip():
+        normalized["attempt_status"] = "authoritative"
+    if str(normalized.get("attempt_status") or "").strip().lower() == "stale_attempt":
+        reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
+        if "superseded_by_authoritative_rerun" not in reasons:
+            reasons.append("superseded_by_authoritative_rerun")
+        normalized["formal_flow_gap_reasons"] = reasons
+        normalized["formal_flow_complete"] = False
+        normalized["verdict"] = "needs_followup"
+        normalized["acceptance_status"] = "needs_followup"
+        note = str(normalized.get("notes") or "").strip()
+        gap_line = "Formal flow gaps: " + "; ".join(reasons)
+        normalized["notes"] = f"{note}\n{gap_line}".strip()
+        return normalized
+    if verdict in _FORMAL_FLOW_APPROVED_STATUSES or acceptance_status in _FORMAL_FLOW_APPROVED_STATUSES:
+        reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
+        normalized["formal_flow_gap_reasons"] = reasons
+        normalized["formal_flow_complete"] = not reasons
+        if reasons:
+            normalized["verdict"] = "needs_followup"
+            normalized["acceptance_status"] = "needs_followup"
+            note = str(normalized.get("notes") or "").strip()
+            gap_line = "Formal flow gaps: " + "; ".join(reasons)
+            normalized["notes"] = f"{note}\n{gap_line}".strip()
+    return normalized
+
+
+def _formal_flow_gap_reasons(
+    payload: dict[str, Any],
+    coverage: dict[str, Any] | None,
+    evidence_paths: list[str],
+) -> list[str]:
+    reasons: list[str] = []
+    if str(payload.get("attempt_status") or "").strip().lower() == "stale_attempt":
+        reasons.append("superseded_by_authoritative_rerun")
+    if not bool(payload.get("formal_entry")):
+        reasons.append("formal_entry_missing")
+    if not evidence_paths:
+        reasons.append("evidence_missing")
+    if coverage:
+        if not bool(coverage.get("all_required_executed")):
+            reasons.append("required_modes_missing")
+    elif payload.get("required_modes"):
+        reasons.append("coverage_missing")
+
+    reviewer = str(payload.get("formal_acceptance_reviewer") or payload.get("reviewer") or "").strip().lower()
+    if (
+        str(payload.get("status") or "").strip().lower() in _FORMAL_FLOW_SUCCESS_STATUSES
+        or str(payload.get("verdict") or "").strip().lower() in _FORMAL_FLOW_APPROVED_STATUSES
+        or str(payload.get("acceptance_status") or "").strip().lower() in _FORMAL_FLOW_APPROVED_STATUSES
+        or payload.get("accepted") is True
+    ) and reviewer != _FORMAL_ACCEPTANCE_REVIEWER:
+        reasons.append("acceptance_gate_missing")
+
+    flags = {
+        "implemented": payload.get("implemented"),
+        "verified": payload.get("verified"),
+        "agentized": payload.get("agentized"),
+        "accepted": payload.get("accepted"),
+    }
+    for key, value in flags.items():
+        if value is not True:
+            reasons.append(f"{key}_missing")
+    return reasons
+
+
+def _coerce_paths(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, tuple):
+        return [str(item).strip() for item in value if str(item).strip()]
+    marker = str(value or "").strip()
+    return [marker] if marker else []
+
+
 def _build_handoff_markdown(payload: dict[str, Any]) -> str:
     evidence = [str(item) for item in (payload.get("evidence_paths") or []) if str(item).strip()]
     lines = [
@@ -337,6 +482,10 @@ def _build_handoff_markdown(payload: dict[str, Any]) -> str:
         f"- Last success story: {payload.get('last_success_story') or 'none'}",
         f"- Resume from story: {payload.get('resume_from_story') or payload.get('story_id') or 'unknown'}",
         f"- Interruption reason: {payload.get('interruption_reason') or 'none'}",
+        f"- Execution policy: {payload.get('execution_policy') or 'unspecified'}",
+        f"- Interaction policy: {payload.get('interaction_policy') or 'unspecified'}",
+        f"- Pause policy: {payload.get('pause_policy') or 'unspecified'}",
+        f"- Blocker class: {payload.get('blocker_class') or 'none'}",
         "",
         "## Root Cause",
         str(payload.get("root_cause") or payload.get("error_message") or "No confirmed root cause recorded."),
@@ -375,6 +524,10 @@ def _build_task_markdown(payload: dict[str, Any]) -> str:
         f"- Story: {payload.get('story_id') or 'unknown'}",
         f"- Node: {payload.get('current_node') or 'unknown'}",
         f"- Status: {payload.get('status') or 'unknown'}",
+        f"- Execution policy: {payload.get('execution_policy') or 'unspecified'}",
+        f"- Interaction policy: {payload.get('interaction_policy') or 'unspecified'}",
+        f"- Pause policy: {payload.get('pause_policy') or 'unspecified'}",
+        f"- Blocker class: {payload.get('blocker_class') or 'none'}",
         "",
         "## Immediate Next Step",
         str(payload.get("next_action") or "Continue the next story from the current resume checkpoint."),

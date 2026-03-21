@@ -1,0 +1,46 @@
+{
+  "mode_id": "investigate",
+  "name": "Investigate",
+  "version": "v1",
+  "description": "Perform root-cause investigation first, then hand a bounded fix recommendation forward.",
+  "workflow_plugin_id": "software_engineering",
+  "workflow_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\workflows\\software_engineering.yaml",
+  "runtime_ready": true,
+  "entry_mode": "investigate",
+  "stop_after": "investigate",
+  "report_only": true,
+  "fixer_allowed": false,
+  "default_browser_qa_mode": null,
+  "allowed_tools": [
+    "repo_context",
+    "diff_summary",
+    "runtime_logs",
+    "workflow_manifest"
+  ],
+  "required_inputs": [
+    "goal",
+    "investigation_context",
+    "bug_scope"
+  ],
+  "expected_artifacts": [
+    ".meta/<repo>/investigate/investigation_report.md",
+    ".meta/<repo>/investigate/investigation_report.json"
+  ],
+  "agent_manifest_ids": [
+    "software_engineering.investigate"
+  ],
+  "agent_manifest_paths": [
+    "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\agents\\software_engineering\\investigate.yaml"
+  ],
+  "template_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\investigate\\AGENT.md.tmpl",
+  "skill_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\investigate\\SKILL.md",
+  "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
+  "metadata": {
+    "kind": "verification",
+    "host_surface": "codex_adapted",
+    "upstream_skill": "vendors/gstack/investigate/SKILL.md",
+    "status": "executable",
+    "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\investigate\\AGENT.md.tmpl",
+    "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\investigate\\SKILL.md"
+  }
+}

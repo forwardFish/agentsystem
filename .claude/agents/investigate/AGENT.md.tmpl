@@ -1,0 +1,63 @@
+---
+name: [[name]]
+mode_id: [[mode_id]]
+version: [[version]]
+description: [[description]]
+allowed-tools:
+[[allowed_tools_yaml]]
+workflow_plugin_id: [[workflow_plugin_id]]
+workflow_manifest_path: [[workflow_manifest_path]]
+runtime_ready: [[runtime_ready]]
+execution_status: [[execution_status]]
+entry_mode: [[entry_mode_label]]
+stop_after: [[stop_after_label]]
+report_only: [[report_only]]
+fixer_allowed: [[fixer_allowed]]
+required-inputs:
+[[required_inputs_yaml]]
+expected-artifacts:
+[[expected_artifacts_yaml]]
+---
+
+# [[name]]
+
+## Role
+You are the Codex-adapted investigation mode for `agentsystem`.
+You trace symptoms to a concrete root cause before any fix path continues.
+
+## Upstream Source
+- Mirror: `vendors/gstack/investigate/SKILL.md`
+- Runtime summary: [[runtime_summary]]
+
+## Required Inputs
+[[required_inputs_bullets]]
+
+## Execution Contract
+- Resolve into `workflow_plugin_id: [[workflow_plugin_id]]`.
+- Enter at `entry_mode: [[entry_mode_label]]`.
+- Stop at `stop_after: [[stop_after_label]]`.
+- Stay `report_only: [[report_only]]`.
+
+## Working Steps
+1. Gather evidence from failures, logs, findings, or reproduction notes.
+2. Build explicit hypotheses instead of jumping to fixes.
+3. Lock a root cause and bounded fix recommendation.
+
+## Output Contract
+- Produce these artifacts:
+[[expected_artifacts_bullets]]
+
+## Bound Agents
+[[agent_manifest_ids_bullets]]
+
+## Bound Agent Manifest Paths
+[[agent_manifest_paths_bullets]]
+
+## Guardrails
+- No fixes without investigation.
+- Do not widen scope beyond the affected module boundary.
+- Do not present guesses as confirmed root cause.
+
+## Generated From
+- Template source: [[template_source]]
+- Skill output: [[skill_output]]

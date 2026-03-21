@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from scripts.render_agent_skills import ROOT_DIR, render_all_agent_skills, validate_rendered_agent_package
+from scripts.render_codex_skill_adapters import render_codex_skill_adapters
 
 
 class AgentSkillRenderTestCase(unittest.TestCase):
@@ -14,8 +15,10 @@ class AgentSkillRenderTestCase(unittest.TestCase):
         self.assertEqual(
             {item["mode_id"] for item in rendered},
             {
+                "office-hours",
                 "plan-ceo-review",
                 "plan-eng-review",
+                "investigate",
                 "plan-design-review",
                 "design-consultation",
                 "review",
@@ -49,15 +52,22 @@ class AgentSkillRenderTestCase(unittest.TestCase):
         self.assertTrue(payload["fixer_allowed"])
         self.assertIn("software_engineering.browser_qa", payload["agent_manifest_ids"])
 
-    def test_template_only_skill_manifest_is_rendered_but_not_runtime_ready(self) -> None:
+    def test_ship_skill_manifest_is_runtime_ready(self) -> None:
         render_all_agent_skills(ROOT_DIR)
         manifest_path = ROOT_DIR / ".claude" / "agents" / "ship" / "agent.manifest.json"
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertEqual(payload["mode_id"], "ship")
-        self.assertFalse(payload["runtime_ready"])
-        self.assertIsNone(payload["entry_mode"])
-        self.assertIsNone(payload["stop_after"])
+        self.assertTrue(payload["runtime_ready"])
+        self.assertEqual(payload["entry_mode"], "ship")
+        self.assertEqual(payload["stop_after"], "ship")
+
+    def test_codex_skill_adapters_include_upstream_mirror(self) -> None:
+        rendered = render_codex_skill_adapters(ROOT_DIR)
+        self.assertIn("browse", {item["mode_id"] for item in rendered})
+        browse_dir = ROOT_DIR / "codex_skills" / "browse"
+        self.assertTrue((browse_dir / "SKILL.md").exists())
+        self.assertTrue((browse_dir / "UPSTREAM_SKILL.md").exists())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+agent_id: software_engineering.setup_browser_cookies
+name: Setup Browser Cookies Agent
+description: Normalize browser storage state and import plans for authenticated browse or QA flows.
+handler: setup_browser_cookies_node
+agent_role: verification.session_manager
+plane: verification
+capabilities:
+  - auth_session_seed
+  - cookie_import
+verification_tags:
+  - setup_browser_cookies
+metadata:
+  manifest_version: v1
+  domain: software_engineering

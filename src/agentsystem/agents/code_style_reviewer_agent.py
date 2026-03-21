@@ -143,6 +143,8 @@ def _collect_changed_files(state: DevState) -> list[str]:
 
 def _normalize_changed_path(path: str) -> str:
     text = str(path).replace("\\", "/")
+    if text.startswith("./"):
+        text = text[2:]
     if "/apps/" in text:
         return "apps/" + text.split("/apps/", 1)[1]
     if "/docs/" in text:
@@ -157,7 +159,8 @@ def _normalize_changed_path(path: str) -> str:
 def _is_ignored_changed_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
     return (
-        normalized.startswith("tasks/runtime/")
+        normalized.startswith(".git/")
+        or normalized.startswith("tasks/runtime/")
         or normalized.startswith("docs/handoff/")
         or "__pycache__/" in normalized
         or normalized.endswith(".pyc")

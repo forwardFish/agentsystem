@@ -1,0 +1,231 @@
+upstream:
+  repo: https://github.com/garrytan/gstack
+  branch: main
+  commit: 8ddfab233d3999edb172bed54aaf06fc5ff92646
+  license: MIT
+  vendored_root: vendors/gstack
+  synced_at: "2026-03-20"
+agents:
+  - mode_id: office-hours
+    upstream_skill: vendors/gstack/office-hours/SKILL.md
+    local_template_dir: .claude/agents/office-hours
+    local_codex_adapter_dir: codex_skills/office-hours
+    entry_mode: office_hours
+    stop_after: office_hours
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Six forcing questions artifact exists
+      - Dialogue state and design doc artifacts exist
+      - Handoff summary points to plan-ceo-review and plan-eng-review
+    intentional_deviations:
+      - Runs as a workflow artifact producer instead of an interactive chat-only skill
+      - Telemetry and inline upgrade prompts remain disabled by default in local runs
+
+  - mode_id: plan-ceo-review
+    upstream_skill: vendors/gstack/plan-ceo-review/SKILL.md
+    local_template_dir: .claude/agents/plan-ceo-review
+    local_codex_adapter_dir: codex_skills/plan-ceo-review
+    entry_mode: plan_ceo_review
+    stop_after: plan_ceo_review
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Requirement document exists
+      - Opportunity map exists
+      - Decision ceremony exists with selected mode and scope proposals
+    intentional_deviations:
+      - Product review is packaged into workflow artifacts instead of remaining purely conversational
+
+  - mode_id: plan-eng-review
+    upstream_skill: vendors/gstack/plan-eng-review/SKILL.md
+    local_template_dir: .claude/agents/plan-eng-review
+    local_codex_adapter_dir: codex_skills/plan-eng-review
+    entry_mode: requirement_analysis
+    stop_after: architecture_review
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Architecture review report exists
+      - Test plan exists
+    intentional_deviations:
+      - Engineering review is rendered from workflow state instead of live chat back-and-forth
+
+  - mode_id: investigate
+    upstream_skill: vendors/gstack/investigate/SKILL.md
+    local_template_dir: .claude/agents/investigate
+    local_codex_adapter_dir: codex_skills/investigate
+    entry_mode: investigate
+    stop_after: investigate
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Investigation report includes evidence, data flow, hypotheses, failed attempts, root cause, and verification plan
+      - Bugfix build path is blocked if investigation report is missing
+    intentional_deviations:
+      - Investigation is driven from workflow evidence instead of a manual shell-first debugging conversation
+
+  - mode_id: browse
+    upstream_skill: vendors/gstack/browse/SKILL.md
+    local_template_dir: .claude/agents/browse
+    local_codex_adapter_dir: codex_skills/browse
+    entry_mode: browse
+    stop_after: browse
+    parity_status: partial_runtime
+    missing_capabilities: []
+    acceptance_gates:
+      - .gstack browse state file exposes pid, port, token, binaryVersion, and workspaceRoot
+      - Shared browser host reuses session across independent invocations and downstream QA/design-review/setup-browser-cookies
+      - Shared browser command runtime supports goto, click, type, wait, screenshot, snapshot refs, chain, tabs, storage_state, import_cookies, and cookie-import-browser
+    intentional_deviations:
+      - Uses local Python Playwright execution instead of gstack's Bun-based browse server
+
+  - mode_id: plan-design-review
+    upstream_skill: vendors/gstack/plan-design-review/SKILL.md
+    local_template_dir: .claude/agents/plan-design-review
+    local_codex_adapter_dir: codex_skills/plan-design-review
+    entry_mode: plan_design_review
+    stop_after: plan_design_review
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Design review report exists
+      - DESIGN.md handoff exists
+    intentional_deviations:
+      - Review output is produced from workflow state and browser evidence
+
+  - mode_id: design-consultation
+    upstream_skill: vendors/gstack/design-consultation/SKILL.md
+    local_template_dir: .claude/agents/design-consultation
+    local_codex_adapter_dir: codex_skills/design-consultation
+    entry_mode: design_consultation
+    stop_after: design_consultation
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Design consultation report exists
+      - DESIGN.md or preview artifact exists
+    intentional_deviations:
+      - Packs the consultation into deterministic workflow artifacts
+
+  - mode_id: review
+    upstream_skill: vendors/gstack/review/SKILL.md
+    local_template_dir: .claude/agents/review
+    local_codex_adapter_dir: codex_skills/review
+    entry_mode: reviewer
+    stop_after: reviewer
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Review report exists
+      - Structured blocking, important, and nice-to-have findings exist with dispositions when review fails
+    intentional_deviations:
+      - Review is diff-aware but currently lighter than upstream checklist coverage
+
+  - mode_id: design-review
+    upstream_skill: vendors/gstack/design-review/SKILL.md
+    local_template_dir: .claude/agents/design-review
+    local_codex_adapter_dir: codex_skills/design-review
+    entry_mode: browser_qa
+    stop_after: qa_design_review
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Browser evidence includes before and after captures
+      - Design review route is mandatory for UI stories that request it
+    intentional_deviations:
+      - Uses the shared browser QA runtime instead of a standalone visual audit host
+
+  - mode_id: qa
+    upstream_skill: vendors/gstack/qa/SKILL.md
+    local_template_dir: .claude/agents/qa
+    local_codex_adapter_dir: codex_skills/qa
+    entry_mode: tester
+    stop_after: browser_qa
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Can run in fixer-enabled mode
+      - Shares browser runtime evidence with browse and design-review
+      - QA summary includes severity counts, regression recommendations, and verification rerun plan
+    intentional_deviations:
+      - Uses local workflow fixer loop instead of upstream chat skill loop
+
+  - mode_id: qa-only
+    upstream_skill: vendors/gstack/qa-only/SKILL.md
+    local_template_dir: .claude/agents/qa-only
+    local_codex_adapter_dir: codex_skills/qa-only
+    entry_mode: tester
+    stop_after: browser_qa
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Runs in report-only mode without fixer
+      - Shares browser runtime evidence with browse and design-review
+      - QA summary includes severity counts, regression recommendations, and verification rerun plan
+    intentional_deviations:
+      - Uses local workflow reporting rather than a standalone QA skill transcript
+
+  - mode_id: ship
+    upstream_skill: vendors/gstack/ship/SKILL.md
+    local_template_dir: .claude/agents/ship
+    local_codex_adapter_dir: codex_skills/ship
+    entry_mode: ship
+    stop_after: ship
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Ship report includes release scope, validation, diff discipline, and blockers
+      - Sprint closeout routes into document-release
+    intentional_deviations:
+      - Release automation stays local-only and does not push or open PRs automatically
+
+  - mode_id: document-release
+    upstream_skill: vendors/gstack/document-release/SKILL.md
+    local_template_dir: .claude/agents/document-release
+    local_codex_adapter_dir: codex_skills/document-release
+    entry_mode: document_release
+    stop_after: document_release
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Document release report includes checklist and stale sections
+      - Doc targets are carried into retro
+    intentional_deviations:
+      - Produces a sync plan instead of auto-writing every targeted document
+
+  - mode_id: retro
+    upstream_skill: vendors/gstack/retro/SKILL.md
+    local_template_dir: .claude/agents/retro
+    local_codex_adapter_dir: codex_skills/retro
+    entry_mode: retro
+    stop_after: retro
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Retro report includes metrics, wins, pain points, and next actions
+      - Retro snapshot artifact exists
+    intentional_deviations:
+      - Retro is workflow-state based instead of commit-history-first
+
+  - mode_id: setup-browser-cookies
+    upstream_skill: vendors/gstack/setup-browser-cookies/SKILL.md
+    local_template_dir: .claude/agents/setup-browser-cookies
+    local_codex_adapter_dir: codex_skills/setup-browser-cookies
+    entry_mode: setup_browser_cookies
+    stop_after: setup_browser_cookies
+    parity_status: workflow_wired
+    missing_capabilities: []
+    acceptance_gates:
+      - Cookie source is normalized into storage state
+      - Shared browser runtime reuses imported cookies in downstream browse and QA passes
+    intentional_deviations:
+      - Imports from provided JSON/storage-state files instead of opening an external browser picker
+platform_hooks:
+  - vendors/gstack/bin
+  - vendors/gstack/freeze
+  - vendors/gstack/guard
+  - vendors/gstack/gstack-upgrade
+intentional_deviations:
+  - Telemetry and upgrade endpoints remain disabled by default in local agentsystem runs.
+  - Claude-host-specific preambles are mirrored into local standards and adapters rather than executed verbatim.

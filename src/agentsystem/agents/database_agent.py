@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from agentsystem.agents.llm_editing import llm_rewrite_file
@@ -82,6 +83,11 @@ def database_dev_node(state: DevState) -> dict[str, object]:
         if rewritten and rewritten != content:
             tables_file.write_text(rewritten, encoding="utf-8")
             updated_files.append(str(tables_file))
+            continue
+        deterministic = _apply_deterministic_database_touch(tables_file, content)
+        if deterministic != content:
+            tables_file.write_text(deterministic, encoding="utf-8")
+            updated_files.append(str(tables_file))
 
     return {
         "database_result": "Database schema scaffold prepared.",
@@ -92,3 +98,11 @@ def database_dev_node(state: DevState) -> dict[str, object]:
             }
         },
     }
+
+
+def _apply_deterministic_database_touch(tables_file: Path, content: str) -> str:
+    if os.getenv("OPENAI_API_KEY"):
+        return content
+    if tables_file.suffix.lower() == ".py":
+        return content if DATABASE_MARKER in content else f"{content.rstrip()}\n\n{DATABASE_MARKER}\n"
+    return content

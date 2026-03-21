@@ -62,6 +62,9 @@ def qa_design_review_node(state: DevState) -> DevState:
     ]
     overall_scores = aggregate_dimension_scores(route_scores)
     findings = build_findings_from_route_scores(route_scores, primary_files)
+    route_findings = _build_route_findings(route_scores, findings)
+    visual_checklist = _build_visual_checklist(route_scores, findings)
+    visual_verdict = _build_visual_verdict(overall_scores, findings, before_paths=[], after_paths=[])
 
     before_paths = [str(item).strip() for item in (state.get("before_screenshot_paths") or []) if str(item).strip()]
     after_paths = [str(item).strip() for item in (state.get("after_screenshot_paths") or []) if str(item).strip()]
@@ -71,6 +74,7 @@ def qa_design_review_node(state: DevState) -> DevState:
             for item in browse_observations
             if str(item.get("screenshot_path") or "").strip()
         ]
+    visual_verdict = _build_visual_verdict(overall_scores, findings, before_paths=before_paths, after_paths=after_paths)
 
     report_path = review_dir / "qa_design_review_report.md"
     report_path.write_text(
@@ -84,6 +88,7 @@ def qa_design_review_node(state: DevState) -> DevState:
             before_paths=before_paths,
             after_paths=after_paths,
             design_contract_present=bool(design_contract),
+            route_findings=route_findings,
         ),
         encoding="utf-8",
     )
@@ -110,9 +115,44 @@ def qa_design_review_node(state: DevState) -> DevState:
         "route_scope": route_scope,
         "overall_scores": overall_scores,
         "route_scores": route_scores,
+        "route_findings": route_findings,
     }
     score_path = review_dir / "design_scorecard.json"
     score_path.write_text(json.dumps(score_bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+    route_findings_path = review_dir / "route_findings.json"
+    route_findings_path.write_text(json.dumps(route_findings, ensure_ascii=False, indent=2), encoding="utf-8")
+    visual_checklist_path = review_dir / "visual_checklist.json"
+    visual_checklist_path.write_text(json.dumps(visual_checklist, ensure_ascii=False, indent=2), encoding="utf-8")
+    visual_verdict_path = review_dir / "visual_verdict.json"
+    visual_verdict_path.write_text(json.dumps(visual_verdict, ensure_ascii=False, indent=2), encoding="utf-8")
+    route_before_after_path = review_dir / "route_before_after.json"
+    route_before_after_path.write_text(
+        json.dumps(
+            {
+                "route_scope": route_scope,
+                "before_paths": before_paths,
+                "after_paths": after_paths,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    evidence_bundle_path = review_dir / "design_evidence_bundle.json"
+    evidence_bundle_path.write_text(
+        json.dumps(
+            {
+                "route_scope": route_scope,
+                "before_paths": before_paths,
+                "after_paths": after_paths,
+                "browser_health_score": state.get("browser_qa_health_score"),
+                "browser_warnings": _normalize_strings(state.get("browser_qa_warnings")),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     passed = all(int(item["score"]) >= 8 for item in overall_scores.values())
     state["qa_design_review_success"] = True
@@ -122,14 +162,16 @@ def qa_design_review_node(state: DevState) -> DevState:
     state["design_review_scores"] = overall_scores
     state["design_review_route_scores"] = route_scores
     state["design_review_findings"] = findings
+    state["design_review_route_findings"] = route_findings
+    state["design_review_visual_checklist"] = visual_checklist
+    state["design_review_visual_verdict"] = visual_verdict
     state["design_review_passed"] = passed
     state["design_review_report"] = state["qa_design_review_report"]
     state["after_screenshot_paths"] = after_paths
     state["current_step"] = "qa_design_review_done"
     state["error_message"] = None if passed else "; ".join(item["description"] for item in findings if item["severity"] == "blocking")
     add_executed_mode(state, "qa-design-review")
-    if str(task_payload.get("skill_mode") or "").strip() == "design-review":
-        add_executed_mode(state, "design-review")
+    add_executed_mode(state, "design-review")
 
     issues: list[Issue] = []
     if not passed:
@@ -175,6 +217,22 @@ def qa_design_review_node(state: DevState) -> DevState:
                     type="report",
                     path=f".meta/{repo_b_path.name}/qa_design_review/before_after_report.md",
                     description="Before/after screenshot evidence used during the design review stage.",
+                    created_by=AgentRole.QA_DESIGN_REVIEW,
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Design Route Findings",
+                    type="report",
+                    path=f".meta/{repo_b_path.name}/qa_design_review/route_findings.json",
+                    description="Route-level visual findings, grouped fixes, and score deltas from design review.",
+                    created_by=AgentRole.QA_DESIGN_REVIEW,
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Visual Checklist",
+                    type="report",
+                    path=f".meta/{repo_b_path.name}/qa_design_review/visual_checklist.json",
+                    description="Dimension-by-dimension visual checklist and verdict for design review.",
                     created_by=AgentRole.QA_DESIGN_REVIEW,
                 ),
             ],
@@ -231,6 +289,7 @@ def _build_report(
     before_paths: list[str],
     after_paths: list[str],
     design_contract_present: bool,
+    route_findings: list[dict[str, Any]],
 ) -> str:
     lines = [
         "# Design Review",
@@ -281,6 +340,14 @@ def _build_report(
 
     lines.extend(["", "## Before Screenshots", *([f"- {item}" for item in before_paths] or ["- None."])])
     lines.extend(["", "## After Screenshots", *([f"- {item}" for item in after_paths] or ["- None."])])
+    lines.extend(["", "## Route-Level Findings"])
+    if route_findings:
+        for item in route_findings:
+            lines.append(f"- {item['route']}: {item['summary']}")
+            for fix in item["recommended_fixes"]:
+                lines.append(f"  fix: {fix}")
+    else:
+        lines.append("- None.")
     lines.extend(
         [
             "",
@@ -297,3 +364,117 @@ def _normalize_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _build_route_findings(
+    route_scores: list[dict[str, Any]],
+    findings: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    findings_by_route: dict[str, list[dict[str, str]]] = {}
+    for finding in findings:
+        route = str(finding.get("route") or "unknown").strip() or "unknown"
+        findings_by_route.setdefault(route, []).append(finding)
+
+    route_findings: list[dict[str, Any]] = []
+    for route_score in route_scores:
+        route = route_score["route"]
+        route_specific = findings_by_route.get(route, [])
+        low_dimensions = [
+            dimension
+            for dimension, detail in route_score["dimensions"].items()
+            if int(detail["score"]) < 8
+        ]
+        if not route_specific and not low_dimensions:
+            continue
+        recommended_fixes = [
+            str(item.get("spec_fix") or "").strip()
+            for item in route_specific
+            if str(item.get("spec_fix") or "").strip()
+        ]
+        if not recommended_fixes:
+            recommended_fixes = [
+                str(route_score["dimensions"][dimension]["spec_fix"]).strip()
+                for dimension in low_dimensions
+                if str(route_score["dimensions"][dimension]["spec_fix"]).strip()
+            ]
+        route_findings.append(
+            {
+                "route": route,
+                "summary": f"Route has {len(route_specific)} finding(s) and low scores in {', '.join(low_dimensions) or 'no scored dimensions below threshold'}.",
+                "finding_count": len(route_specific),
+                "low_dimensions": low_dimensions,
+                "recommended_fixes": recommended_fixes or ["Re-check the route against DESIGN.md and re-run browse evidence."],
+            }
+        )
+    return route_findings
+
+
+def _build_visual_checklist(
+    route_scores: list[dict[str, Any]],
+    findings: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    dimensions = (
+        "hierarchy",
+        "navigation_clarity",
+        "state_clarity",
+        "copy_quality",
+        "responsiveness",
+        "density_control",
+        "evidence_readability",
+        "product_feel",
+    )
+    route_lookup = {str(item.get("route") or ""): item for item in route_scores}
+    checklist: list[dict[str, Any]] = []
+    for dimension in dimensions:
+        related_routes = []
+        related_findings = []
+        for finding in findings:
+            route = str(finding.get("route") or "unknown")
+            route_score = route_lookup.get(route)
+            low_dimensions = [
+                key for key, detail in (route_score or {}).get("dimensions", {}).items() if int(detail["score"]) < 8
+            ]
+            dimension_markers = {
+                "hierarchy": {"hierarchy", "information_density"},
+                "navigation_clarity": {"navigation", "interaction"},
+                "state_clarity": {"clarity", "interaction"},
+                "copy_quality": {"clarity"},
+                "responsiveness": {"responsiveness"},
+                "density_control": {"information_density"},
+                "evidence_readability": {"clarity", "information_density"},
+                "product_feel": {"visual_maturity", "hierarchy"},
+            }
+            if any(marker in low_dimensions for marker in dimension_markers[dimension]):
+                related_routes.append(route)
+                related_findings.append(finding["description"])
+        verdict = "pass" if not related_routes else "fix"
+        checklist.append(
+            {
+                "dimension": dimension,
+                "verdict": verdict,
+                "routes": sorted(set(related_routes)),
+                "notes": related_findings[:3],
+            }
+        )
+    return checklist
+
+
+def _build_visual_verdict(
+    overall_scores: dict[str, dict[str, Any]],
+    findings: list[dict[str, str]],
+    *,
+    before_paths: list[str],
+    after_paths: list[str],
+) -> dict[str, Any]:
+    failing_dimensions = [
+        dimension
+        for dimension, detail in overall_scores.items()
+        if int(detail.get("score") or 0) < 8
+    ]
+    return {
+        "passed": not failing_dimensions and not any(item.get("severity") == "blocking" for item in findings),
+        "failing_dimensions": failing_dimensions,
+        "before_count": len(before_paths),
+        "after_count": len(after_paths),
+        "summary": "Design review passed." if not failing_dimensions else f"Design review needs fixes in {', '.join(failing_dimensions)}.",
+    }

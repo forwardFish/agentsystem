@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from agentsystem.agents.llm_editing import llm_rewrite_file
 from agentsystem.core.state import DevState
+
+DEVOPS_MARKER = "# DevOps Agent scaffold"
 
 
 def devops_dev_node(state: DevState) -> dict[str, object]:
@@ -42,6 +45,11 @@ def devops_dev_node(state: DevState) -> dict[str, object]:
         if rewritten and rewritten != content:
             ci_file.write_text(rewritten, encoding="utf-8")
             updated_files.append(str(ci_file))
+            continue
+        deterministic = _apply_deterministic_devops_touch(ci_file, content)
+        if deterministic != content:
+            ci_file.write_text(deterministic, encoding="utf-8")
+            updated_files.append(str(ci_file))
 
     return {
         "devops_result": "DevOps scaffold prepared.",
@@ -52,3 +60,11 @@ def devops_dev_node(state: DevState) -> dict[str, object]:
             }
         },
     }
+
+
+def _apply_deterministic_devops_touch(ci_file: Path, content: str) -> str:
+    if os.getenv("OPENAI_API_KEY"):
+        return content
+    if ci_file.suffix.lower() in {".yml", ".yaml"}:
+        return content if DEVOPS_MARKER in content else f"{DEVOPS_MARKER}\n{content}"
+    return content

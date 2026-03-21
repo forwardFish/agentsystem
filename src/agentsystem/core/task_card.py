@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -18,6 +18,11 @@ class TaskCard(BaseModel):
     sprint: str | None = None
     epic: str | None = None
     story_id: str | None = None
+    auto_run: bool | None = None
+    execution_policy: str | None = None
+    interaction_policy: str | None = None
+    pause_policy: str | None = None
+    blocker_class: Literal["story_local_blocker", "shared_dependency_blocker"] | None = None
     blast_radius: Literal["L1", "L2", "L3"]
     business_value: str | None = None
     execution_mode: Literal["Fast", "Safe"] | None = None
@@ -125,3 +130,31 @@ class TaskCard(BaseModel):
             outputs.append(f"Updated story artifacts in: {', '.join(scoped_files)}")
         outputs.append("Validation evidence and delivery artifacts archived for this story.")
         return outputs
+
+
+def normalize_runtime_task_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return TaskCard.model_validate(payload).to_runtime_dict()
+    except Exception:
+        if not str(payload.get("skill_mode") or "").strip():
+            raise
+
+    relaxed = dict(payload)
+    relaxed.setdefault("blast_radius", "L1")
+    relaxed["goal"] = str(
+        relaxed.get("goal")
+        or relaxed.get("task_name")
+        or relaxed.get("title")
+        or relaxed.get("skill_mode")
+        or "Run specialized skill mode"
+    ).strip()
+    if not relaxed.get("acceptance_criteria"):
+        relaxed["acceptance_criteria"] = [f"Generate the expected artifacts for skill mode {relaxed.get('skill_mode')}."]
+    if not relaxed.get("related_files"):
+        related_files = list(relaxed.get("primary_files") or relaxed.get("doc_targets") or [])
+        if not related_files:
+            related_files = ["docs/README.md"]
+        relaxed["related_files"] = related_files
+    if not relaxed.get("primary_files"):
+        relaxed["primary_files"] = list(relaxed.get("related_files") or [])
+    return TaskCard.model_validate(relaxed).to_runtime_dict()

@@ -45,7 +45,8 @@
   "skill_mode_manifest_path": "D:\\lyh\\agent\\agent-frame\\agentsystem\\config\\skill_modes\\software_engineering.yaml",
   "metadata": {
     "kind": "qa",
-    "host_surface": "claude_skill",
+    "host_surface": "codex_adapted",
+    "upstream_skill": "vendors/gstack/qa/SKILL.md",
     "status": "executable",
     "template_source": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa\\AGENT.md.tmpl",
     "skill_output": "D:\\lyh\\agent\\agent-frame\\agentsystem\\.claude\\agents\\qa\\SKILL.md"

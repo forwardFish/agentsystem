@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import unittest
@@ -38,6 +39,30 @@ class WorkspaceManagerTestCase(unittest.TestCase):
                 (worktree_path / ".env.example").read_text(encoding="utf-8"),
                 "ADMIN_EMAIL=owner@example.com\n",
             )
+
+    def test_create_worktree_uses_snapshot_mode_when_repo_is_dirty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            worktree_root = base / "worktrees"
+
+            self._git(repo_root, "init", "-b", "main")
+            self._git(repo_root, "config", "user.email", "codex@example.com")
+            self._git(repo_root, "config", "user.name", "Codex")
+
+            (repo_root / "README.md").write_text("initial\n", encoding="utf-8")
+            self._git(repo_root, "add", "README.md")
+            self._git(repo_root, "commit", "-m", "initial")
+            (repo_root / "README.md").write_text("dirty\n", encoding="utf-8")
+
+            manager = WorkspaceManager(repo_root, worktree_root)
+            worktree_path = manager.create_worktree("task-dirty", "agent/l1-task-dirty")
+            snapshot_state = json.loads((worktree_root / ".meta" / "task-dirty" / "snapshot_state.json").read_text(encoding="utf-8"))
+
+            self.assertTrue((worktree_path / "README.md").exists())
+            self.assertEqual(snapshot_state["mode"], "snapshot")
+            self.assertEqual(snapshot_state["snapshot_reason"], "dirty_worktree")
 
     def test_release_lock_ignores_permission_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

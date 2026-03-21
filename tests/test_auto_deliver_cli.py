@@ -36,6 +36,28 @@ class AutoDeliverCliTestCase(unittest.TestCase):
         )
         return story_path
 
+    def _write_story_card_with_dependencies(self, sprint_dir: Path, story_id: str, dependencies: list[str]) -> Path:
+        epic_dir = sprint_dir / "epic_demo"
+        epic_dir.mkdir(parents=True, exist_ok=True)
+        story_path = epic_dir / f"{story_id}_demo.yaml"
+        story_path.write_text(
+            yaml.safe_dump(
+                {
+                    "task_id": story_id,
+                    "story_id": story_id,
+                    "blast_radius": "L1",
+                    "goal": f"Implement {story_id}",
+                    "acceptance_criteria": ["done"],
+                    "related_files": ["apps/api/src/demo.py"],
+                    "dependencies": dependencies,
+                },
+                allow_unicode=True,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        return story_path
+
     def _write_success_audit(self, runs_dir: Path, *, project: str, backlog_id: str, sprint_id: str, story_id: str, task_id: str) -> None:
         runs_dir.mkdir(parents=True, exist_ok=True)
         (runs_dir / f"prod_audit_{task_id}.json").write_text(
@@ -73,6 +95,32 @@ class AutoDeliverCliTestCase(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+
+    def _pre_hook_payload(self, base: Path) -> dict[str, str]:
+        paths = {
+            "advice_path": str(base / "advice.json"),
+            "office_hours_path": str(base / "office_hours.md"),
+            "plan_ceo_review_path": str(base / "plan_ceo_review.md"),
+            "sprint_framing_path": str(base / "sprint_framing.json"),
+        }
+        for path in paths.values():
+            Path(path).write_text("artifact\n", encoding="utf-8")
+        return paths
+
+    def _post_hook_payload(self, base: Path) -> dict[str, str | None]:
+        paths = {
+            "document_release_path": str(base / "document_release.md"),
+            "retro_path": str(base / "retro.md"),
+            "ship_advice_path": None,
+            "ship_report_path": str(base / "ship_report.md"),
+            "sprint_close_bundle_path": str(base / "sprint_close_bundle.json"),
+            "runtime_validation_path": None,
+        }
+        for key, path in paths.items():
+            if path and key != "sprint_close_bundle_path":
+                Path(path).write_text("artifact\n", encoding="utf-8")
+        Path(str(paths["sprint_close_bundle_path"])).write_text("{}", encoding="utf-8")
+        return paths
 
     def test_auto_deliver_without_auto_run_only_generates_backlog(self) -> None:
         runner = CliRunner()
@@ -156,14 +204,10 @@ class AutoDeliverCliTestCase(unittest.TestCase):
                         "story_cards": [{}, {}],
                     },
                 ) as analyze_mock,
-                patch("cli.run_sprint_pre_hooks", return_value={"advice_path": str(base / "advice.json")}),
+                patch("cli.run_sprint_pre_hooks", return_value=self._pre_hook_payload(base)),
                 patch(
                     "cli.run_sprint_post_hooks",
-                    return_value={
-                        "document_release_path": str(base / "document_release.md"),
-                        "retro_path": str(base / "retro.md"),
-                        "ship_advice_path": None,
-                    },
+                    return_value=self._post_hook_payload(base),
                 ),
                 patch(
                     "cli.run_prod_task",
@@ -358,14 +402,10 @@ class AutoDeliverCliTestCase(unittest.TestCase):
 
             with (
                 patch.object(cli_module, "ROOT_DIR", base),
-                patch("cli.run_sprint_pre_hooks", return_value={"advice_path": str(base / "advice.json")}),
+                patch("cli.run_sprint_pre_hooks", return_value=self._pre_hook_payload(base)),
                 patch(
                     "cli.run_sprint_post_hooks",
-                    return_value={
-                        "document_release_path": str(base / "document_release.md"),
-                        "retro_path": str(base / "retro.md"),
-                        "ship_advice_path": None,
-                    },
+                    return_value=self._post_hook_payload(base),
                 ),
                 patch(
                     "cli.run_prod_task",
@@ -396,7 +436,7 @@ class AutoDeliverCliTestCase(unittest.TestCase):
             self.assertTrue((repo_path / "tasks" / "runtime" / "story_handoffs" / "S0-001.md").exists())
             self.assertTrue((repo_path / "tasks" / "runtime" / "story_handoffs" / "S1-002.md").exists())
 
-    def test_execute_auto_delivery_stops_after_first_failed_story(self) -> None:
+    def test_execute_auto_delivery_continues_after_story_local_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             repo_path = base / "demo_repo"
@@ -418,14 +458,71 @@ class AutoDeliverCliTestCase(unittest.TestCase):
 
             with (
                 patch.object(cli_module, "ROOT_DIR", base),
-                patch("cli.run_sprint_pre_hooks", return_value={"advice_path": str(base / "advice.json")}),
+                patch("cli.run_sprint_pre_hooks", return_value=self._pre_hook_payload(base)),
                 patch(
                     "cli.run_sprint_post_hooks",
-                    return_value={
-                        "document_release_path": str(base / "document_release.md"),
-                        "retro_path": str(base / "retro.md"),
-                        "ship_advice_path": None,
-                    },
+                    return_value=self._post_hook_payload(base),
+                ),
+                patch(
+                    "cli.run_prod_task",
+                    side_effect=[
+                        {
+                            "success": False,
+                            "task_id": "task-s1-001",
+                            "error": "workflow_failed",
+                            "state": {"last_node": "reviewer", "interruption_reason": "workflow_failed", "blocker_class": "story_local_blocker"},
+                        },
+                        {"success": True, "task_id": "task-s1-002", "branch": "agent/l1-task-s1-002", "commit": "def"},
+                    ],
+                ) as run_prod_task_mock,
+            ):
+                summary_path = cli_module._execute_auto_delivery(
+                    backlog_result=backlog_result,
+                    repo_b_path=repo_path,
+                    tasks_root=tasks_root,
+                    env="test",
+                    project="demo",
+                    release=False,
+                    echo=lambda _message: None,
+                )
+
+            self.assertTrue(summary_path.exists())
+            self.assertEqual(run_prod_task_mock.call_count, 2)
+            resume_state = json.loads((repo_path / "tasks" / "runtime" / "auto_resume_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(resume_state["status"], "completed")
+            self.assertEqual(resume_state["run_policy"], "single_pass_to_completion")
+            self.assertEqual(resume_state["acceptance_policy"], "must_pass_all_required_runs")
+            self.assertEqual(resume_state["retry_policy"], "auto_repair_until_green")
+            self.assertTrue(resume_state["final_green_required"])
+            failure_snapshot = json.loads((repo_path / "tasks" / "runtime" / "story_failures" / "S1-001.json").read_text(encoding="utf-8"))
+            self.assertEqual(failure_snapshot["blocker_class"], "story_local_blocker")
+
+    def test_execute_auto_delivery_stops_after_shared_dependency_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_path = base / "demo_repo"
+            tasks_root = repo_path / "tasks"
+            backlog_root = tasks_root / "backlog_demo"
+            sprint_1 = backlog_root / "sprint_1_beta"
+            sprint_1.mkdir(parents=True)
+            (backlog_root / "sprint_overview.md").write_text("# Demo Backlog", encoding="utf-8")
+            (sprint_1 / "execution_order.txt").write_text("S1-001\nS1-002\n", encoding="utf-8")
+            self._write_story_card(sprint_1, "S1-001")
+            self._write_story_card(sprint_1, "S1-002")
+
+            backlog_result = {
+                "backlog_root": str(backlog_root),
+                "overview_path": str(backlog_root / "sprint_overview.md"),
+                "sprint_dirs": [str(sprint_1)],
+                "story_cards": ["S1-001", "S1-002"],
+            }
+
+            with (
+                patch.object(cli_module, "ROOT_DIR", base),
+                patch("cli.run_sprint_pre_hooks", return_value=self._pre_hook_payload(base)),
+                patch(
+                    "cli.run_sprint_post_hooks",
+                    return_value=self._post_hook_payload(base),
                 ),
                 patch(
                     "cli.run_prod_task",
@@ -433,7 +530,7 @@ class AutoDeliverCliTestCase(unittest.TestCase):
                         "success": False,
                         "task_id": "task-s1-001",
                         "error": "workflow_failed",
-                        "state": {"last_node": "reviewer", "interruption_reason": "workflow_failed"},
+                        "state": {"last_node": "reviewer", "interruption_reason": "workflow_failed", "blocker_class": "shared_dependency_blocker"},
                     },
                 ) as run_prod_task_mock,
             ):
@@ -452,6 +549,62 @@ class AutoDeliverCliTestCase(unittest.TestCase):
             resume_state = json.loads((repo_path / "tasks" / "runtime" / "auto_resume_state.json").read_text(encoding="utf-8"))
             self.assertEqual(resume_state["status"], "interrupted")
             self.assertEqual(resume_state["story_id"], "S1-001")
+            self.assertEqual(resume_state["blocker_class"], "shared_dependency_blocker")
+            self.assertEqual(resume_state["acceptance_failure_class"], "shared_dependency_blocker")
+
+    def test_execute_auto_delivery_escalates_failed_story_when_downstream_depends_on_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_path = base / "demo_repo"
+            tasks_root = repo_path / "tasks"
+            backlog_root = tasks_root / "backlog_demo"
+            sprint_1 = backlog_root / "sprint_1_beta"
+            sprint_1.mkdir(parents=True)
+            (backlog_root / "sprint_overview.md").write_text("# Demo Backlog", encoding="utf-8")
+            (sprint_1 / "execution_order.txt").write_text("S1-001\nS1-002\n", encoding="utf-8")
+            self._write_story_card(sprint_1, "S1-001")
+            self._write_story_card_with_dependencies(sprint_1, "S1-002", ["S1-001"])
+
+            backlog_result = {
+                "backlog_root": str(backlog_root),
+                "overview_path": str(backlog_root / "sprint_overview.md"),
+                "sprint_dirs": [str(sprint_1)],
+                "story_cards": ["S1-001", "S1-002"],
+            }
+
+            with (
+                patch.object(cli_module, "ROOT_DIR", base),
+                patch("cli.run_sprint_pre_hooks", return_value=self._pre_hook_payload(base)),
+                patch(
+                    "cli.run_sprint_post_hooks",
+                    return_value=self._post_hook_payload(base),
+                ),
+                patch(
+                    "cli.run_prod_task",
+                    return_value={
+                        "success": False,
+                        "task_id": "task-s1-001",
+                        "error": "workflow_failed",
+                        "state": {"last_node": "reviewer", "interruption_reason": "workflow_failed", "blocker_class": "story_local_blocker"},
+                    },
+                ) as run_prod_task_mock,
+            ):
+                with self.assertRaises(click.ClickException):
+                    cli_module._execute_auto_delivery(
+                        backlog_result=backlog_result,
+                        repo_b_path=repo_path,
+                        tasks_root=tasks_root,
+                        env="test",
+                        project="demo",
+                        release=False,
+                        echo=lambda _message: None,
+                    )
+
+            self.assertEqual(run_prod_task_mock.call_count, 1)
+            resume_state = json.loads((repo_path / "tasks" / "runtime" / "auto_resume_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(resume_state["status"], "interrupted")
+            self.assertEqual(resume_state["blocker_class"], "shared_dependency_blocker")
+            self.assertEqual(resume_state["run_policy"], "single_pass_to_completion")
 
 
 if __name__ == "__main__":

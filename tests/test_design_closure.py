@@ -53,6 +53,8 @@ class DesignClosureTestCase(unittest.TestCase):
             self.assertIn("design-consultation", result["state"]["executed_modes"])
             self.assertTrue((repo_path / "DESIGN.md").exists())
             self.assertTrue((repo_path.parent / ".meta" / repo_path.name / "design_consultation" / "design_preview.html").exists())
+            self.assertTrue((repo_path.parent / ".meta" / repo_path.name / "design_consultation" / "consultation_rounds.json").exists())
+            self.assertTrue((repo_path.parent / ".meta" / repo_path.name / "design_consultation" / "design_decisions.json").exists())
 
     def test_frontend_builder_uses_design_contract_on_minimal_page(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,6 +169,19 @@ class DesignClosureTestCase(unittest.TestCase):
             self.assertTrue(updated["qa_design_review_success"])
             self.assertIn("The first screen explains what the page is for.", updated["qa_design_review_report"])
             self.assertIn("Visual density should stay legible under real data.", updated["qa_design_review_report"])
+            self.assertIn("## Route-Level Findings", updated["qa_design_review_report"])
+            self.assertTrue(
+                (repo_path.parent / ".meta" / repo_path.name / "qa_design_review" / "route_findings.json").exists()
+            )
+            self.assertTrue(
+                (repo_path.parent / ".meta" / repo_path.name / "qa_design_review" / "design_evidence_bundle.json").exists()
+            )
+            self.assertTrue(
+                (repo_path.parent / ".meta" / repo_path.name / "qa_design_review" / "visual_checklist.json").exists()
+            )
+            self.assertTrue(
+                (repo_path.parent / ".meta" / repo_path.name / "qa_design_review" / "visual_verdict.json").exists()
+            )
 
 
 def _create_repo_fixture(repo_path: Path) -> None:

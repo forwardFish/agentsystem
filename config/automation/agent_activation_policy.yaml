@@ -50,6 +50,13 @@ qa:
   default_mode: qa-only
   high_risk_mode: qa
 advisory:
+  office-hours:
+    story_kinds:
+      - ui
+      - mixed
+      - api
+      - runtime_data
+    min_risk: medium
   plan-ceo-review:
     story_kinds:
       - ui

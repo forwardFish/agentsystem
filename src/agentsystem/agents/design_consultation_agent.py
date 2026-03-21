@@ -45,6 +45,32 @@ def design_consultation_node(state: DevState) -> DevState:
     modules = _suggest_modules(surface_scope, acceptance)
     visual_tokens = _visual_tokens(surface_scope)
     interaction_rules = _interaction_rules(risk_level)
+    auto_run = bool(state.get("auto_run")) or str(state.get("interaction_policy") or "").strip() == "non_interactive_auto_run"
+    consultation_rounds = _build_consultation_rounds(
+        goal=goal,
+        audience=audience,
+        visual_direction=visual_direction,
+        safe_choice=safe_choice,
+        creative_risk=creative_risk,
+        modules=modules,
+        auto_run=auto_run,
+    )
+    design_decisions = {
+        "goal": goal or "n/a",
+        "audience": audience,
+        "visual_direction": visual_direction,
+        "safe_choice": safe_choice,
+        "creative_risk": creative_risk,
+        "modules": modules,
+        "auto_run": auto_run,
+        "decision_mode": "auto_run" if auto_run else "interactive_ready",
+        "assumptions": [
+            "Defaulted to a product-grade surface when goal details were incomplete." if not goal else "",
+            "Preserved existing repository structure and route shape.",
+            "Preferred strong summary-first hierarchy over neutral dashboard density.",
+        ],
+    }
+    design_decisions["assumptions"] = [item for item in design_decisions["assumptions"] if item]
     scope_lines = [f"- {item}" for item in surface_scope] or ["- No explicit UI file scope declared."]
     constraint_lines = [f"- {item}" for item in constraints] or [
         "- Preserve current navigation, working states, and repository patterns."
@@ -70,6 +96,9 @@ def design_consultation_node(state: DevState) -> DevState:
         "",
         "## Recommended Modules",
         *[f"- {item}" for item in modules],
+        "",
+        "## Consultation Rounds",
+        *[f"- Round {item['round']}: {item['prompt']} => {item['answer']}" for item in consultation_rounds],
         "",
         "## Interaction Rules",
         *[f"- {item}" for item in interaction_rules],
@@ -105,6 +134,7 @@ def design_consultation_node(state: DevState) -> DevState:
         "- Preserve current data contracts and route shape.",
         "- Use layered panels, strong hierarchy, and explicit summary sections above dense detail blocks.",
         "- Keep empty, loading, partial-data, and failure states visible.",
+        "- Route-level design review should compare the built page against these decisions, not just screenshots.",
         "",
         "## Review Checklist",
         "- The first screen explains what the page is for.",
@@ -121,6 +151,8 @@ def design_consultation_node(state: DevState) -> DevState:
         "recommended_modules": modules,
         "interaction_rules": interaction_rules,
         "visual_tokens": visual_tokens,
+        "consultation_rounds": consultation_rounds,
+        "design_decisions": design_decisions,
     }
 
     preview_html = _build_preview_html(goal, audience, visual_direction, modules, safe_choice, creative_risk)
@@ -129,11 +161,15 @@ def design_consultation_node(state: DevState) -> DevState:
     contract_file = design_contract_path(repo_b_path)
     preview_notes_file = design_preview_notes_path(repo_b_path)
     preview_file = design_preview_path(repo_b_path)
+    consultation_rounds_file = meta_dir / "consultation_rounds.json"
+    design_decisions_file = meta_dir / "design_decisions.json"
 
     report_file.write_text("\n".join(report_lines).strip() + "\n", encoding="utf-8")
     contract_file.write_text("\n".join(design_md_lines).strip() + "\n", encoding="utf-8")
     preview_notes_file.write_text(json.dumps(preview_notes, ensure_ascii=False, indent=2), encoding="utf-8")
     preview_file.write_text(preview_html, encoding="utf-8")
+    consultation_rounds_file.write_text(json.dumps(consultation_rounds, ensure_ascii=False, indent=2), encoding="utf-8")
+    design_decisions_file.write_text(json.dumps(design_decisions, ensure_ascii=False, indent=2), encoding="utf-8")
 
     shared_blackboard = dict(state.get("shared_blackboard") or {})
     shared_blackboard["design_consultation"] = {
@@ -143,11 +179,15 @@ def design_consultation_node(state: DevState) -> DevState:
         "modules": modules,
         "contract_path": str(contract_file),
         "preview_path": str(preview_file),
+        "consultation_rounds_path": str(consultation_rounds_file),
+        "design_decisions_path": str(design_decisions_file),
     }
 
     state["design_consultation_success"] = True
     state["design_consultation_dir"] = str(meta_dir)
     state["design_consultation_report"] = report_file.read_text(encoding="utf-8")
+    state["design_consultation_rounds"] = consultation_rounds
+    state["design_decisions"] = design_decisions
     state["design_contract_path"] = str(contract_file)
     state["design_preview_path"] = str(preview_file)
     state["shared_blackboard"] = shared_blackboard
@@ -186,6 +226,14 @@ def design_consultation_node(state: DevState) -> DevState:
                     type="html",
                     path=f".meta/{task_scope_name}/design_consultation/design_preview.html",
                     description="Preview artifact describing the intended product direction before implementation.",
+                    created_by=AgentRole.DESIGN_CONSULTATION,
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Consultation Rounds",
+                    type="report",
+                    path=f".meta/{task_scope_name}/design_consultation/consultation_rounds.json",
+                    description="Structured multi-round consultation record for design direction convergence.",
                     created_by=AgentRole.DESIGN_CONSULTATION,
                 ),
             ],
@@ -375,3 +423,36 @@ def _build_preview_html(
   </body>
 </html>
 """
+
+
+def _build_consultation_rounds(
+    *,
+    goal: str,
+    audience: str,
+    visual_direction: str,
+    safe_choice: str,
+    creative_risk: str,
+    modules: list[str],
+    auto_run: bool,
+) -> list[dict[str, str]]:
+    mode = "auto_run" if auto_run else "interactive_ready"
+    return [
+        {
+            "round": 1,
+            "prompt": "Who is this surface for and what must they understand immediately?",
+            "answer": f"{audience}; first-screen thesis should map directly to: {goal or 'product value'}",
+            "mode": mode,
+        },
+        {
+            "round": 2,
+            "prompt": "What visual direction and hierarchy should carry the page?",
+            "answer": f"{visual_direction}; safe baseline: {safe_choice}",
+            "mode": mode,
+        },
+        {
+            "round": 3,
+            "prompt": "What distinctive move is worth keeping, and which modules must exist?",
+            "answer": f"{creative_risk}; modules: {', '.join(modules[:4])}",
+            "mode": mode,
+        },
+    ]

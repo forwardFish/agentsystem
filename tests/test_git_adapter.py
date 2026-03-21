@@ -1,44 +1,64 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from agentsystem.adapters.git_adapter import GitAdapter
 
 
 class GitAdapterTestCase(unittest.TestCase):
-    def test_checkout_main_and_pull_skips_repo_mutation_when_already_on_main_and_dirty(self) -> None:
-        adapter = object.__new__(GitAdapter)
-        adapter.repo_path = Path("D:/workspace/repo")
-        adapter.repo = MagicMock()
-        adapter.repo.active_branch.name = "main"
-        adapter.repo.is_dirty.return_value = True
-        adapter.repo.remotes = [MagicMock(name="origin")]
-        adapter.repo.git = MagicMock()
+    def test_snapshot_workspace_under_parent_git_repo_uses_snapshot_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            parent_repo = base / "parent"
+            parent_repo.mkdir()
+            self._git(parent_repo, "init", "-b", "main")
+            self._git(parent_repo, "config", "user.email", "codex@example.com")
+            self._git(parent_repo, "config", "user.name", "Codex")
+            (parent_repo / "README.md").write_text("parent\n", encoding="utf-8")
+            self._git(parent_repo, "add", "README.md")
+            self._git(parent_repo, "commit", "-m", "init")
 
-        adapter.checkout_main_and_pull("main")
+            snapshot_repo = parent_repo / "repo-worktree" / "task-demo"
+            snapshot_repo.mkdir(parents=True)
+            (snapshot_repo / "app.txt").write_text("hello\n", encoding="utf-8")
 
-        adapter.repo.git.checkout.assert_not_called()
-        adapter.repo.git.rev_parse.assert_not_called()
-        adapter.repo.git.pull.assert_not_called()
+            snapshot_meta = parent_repo / "repo-worktree" / ".meta" / "task-demo"
+            snapshot_meta.mkdir(parents=True)
+            (snapshot_meta / "snapshot_base").mkdir()
+            (snapshot_meta / "snapshot_base" / "app.txt").write_text("hello\n", encoding="utf-8")
+            (snapshot_meta / "snapshot_state.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "snapshot",
+                        "branch": "agent/l1-task-demo",
+                        "base_branch": "main",
+                        "base_commit": "abc123",
+                        "current_commit": "abc123",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
 
-    def test_checkout_main_and_pull_updates_clean_repo_when_branch_switch_is_needed(self) -> None:
-        adapter = object.__new__(GitAdapter)
-        adapter.repo_path = Path("D:/workspace/repo")
-        adapter.repo = MagicMock()
-        adapter.repo.active_branch.name = "feature/demo"
-        adapter.repo.is_dirty.return_value = False
-        origin = MagicMock()
-        origin.name = "origin"
-        adapter.repo.remotes = [origin]
-        adapter.repo.git = MagicMock()
+            adapter = GitAdapter(snapshot_repo)
 
-        adapter.checkout_main_and_pull("main")
+            self.assertTrue(adapter.snapshot_mode)
+            self.assertEqual(adapter.get_current_branch(), "agent/l1-task-demo")
+            self.assertEqual(adapter.get_current_commit(), "abc123")
+            self.assertFalse(adapter.is_dirty())
 
-        adapter.repo.git.checkout.assert_called_once_with("main")
-        adapter.repo.git.rev_parse.assert_called_once_with("--verify", "origin/main")
-        adapter.repo.git.pull.assert_called_once_with("--ff-only", "origin", "main")
+    def _git(self, repo_root: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 if __name__ == "__main__":

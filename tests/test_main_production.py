@@ -122,15 +122,28 @@ class MainProductionTestCase(unittest.TestCase):
                 patch("main_production._prepare_local_dependencies", return_value=None),
                 patch("main_production.get_logger", return_value=FakeLogger()),
             ):
-                output = main_production_module.run_prod_task(story_file, env="test", project="agentHire")
+                output = main_production_module.run_prod_task(
+                    story_file,
+                    env="test",
+                    project="agentHire",
+                    task_overrides={
+                        "auto_run": False,
+                        "formal_entry": False,
+                    },
+                )
 
             self.assertFalse(output["success"])
             self.assertIn("INVALID_CONCURRENT_GRAPH_UPDATE", output["error"])
             self.assertTrue((repo_root / "tasks" / "runtime" / "story_failures" / "S1-001.json").exists())
             self.assertTrue((repo_root / "tasks" / "runtime" / "story_handoffs" / "S1-001.md").exists())
+            self.assertTrue((repo_root / "tasks" / "runtime" / "story_admissions" / "S1-001.json").exists())
             resume_state = json.loads((repo_root / "tasks" / "runtime" / "auto_resume_state.json").read_text(encoding="utf-8"))
             self.assertEqual(resume_state["status"], "interrupted")
             self.assertEqual(resume_state["story_id"], "S1-001")
+            self.assertIn("execution_policy", resume_state)
+            self.assertIn("interaction_policy", resume_state)
+            self.assertIn("pause_policy", resume_state)
+            self.assertIn("blocker_class", resume_state)
             status_registry = json.loads((repo_root / "tasks" / "story_status_registry.json").read_text(encoding="utf-8"))
             self.assertEqual(status_registry["stories"][0]["status"], "failed")
             reviews = json.loads((repo_root / "tasks" / "story_acceptance_reviews.json").read_text(encoding="utf-8"))

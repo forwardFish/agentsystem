@@ -140,12 +140,14 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
             self.assertTrue(final_state["pr_prep_dir"].endswith("pr_prep"))
             self.assertIn("## Change Summary", final_state["pr_desc"])
             self.assertIn("feat(auto-dev):", final_state["commit_msg"])
+            self.assertTrue(final_state["code_style_review_passed"])
             self.assertTrue(final_state["review_success"])
             self.assertTrue(final_state["review_passed"])
             self.assertTrue(final_state["review_dir"].endswith("review"))
             self.assertTrue(final_state["code_acceptance_success"])
             self.assertTrue(final_state["code_acceptance_passed"])
             self.assertTrue(final_state["code_acceptance_dir"].endswith("code_acceptance"))
+            self.assertTrue(final_state["acceptance_passed"])
             self.assertTrue(final_state["acceptance_dir"].endswith("acceptance"))
             self.assertTrue(final_state["delivery_dir"].endswith("delivery"))
 
@@ -158,6 +160,7 @@ class LangGraphWorkflowTestCase(unittest.TestCase):
                 repo_path / "apps" / "api" / "src" / "domain" / "agent_registry" / "service.py"
             ).read_text(encoding="utf-8")
             self.assertIn('Position(symbol="000001.SZ", qty=300, avg_cost=12.45)', backend_content)
+            self.assertNotIn("Target file:", backend_content)
 
             repo = Repo(repo_path)
             self.assertEqual(repo.active_branch.name, final_state["branch_name"])

@@ -9,10 +9,10 @@ allowed-tools:
 - audit_log
 workflow_plugin_id: software_engineering
 workflow_manifest_path: D:\lyh\agent\agent-frame\agentsystem\config\workflows\software_engineering.yaml
-runtime_ready: false
-execution_status: template_only
-entry_mode: not_wired
-stop_after: not_wired
+runtime_ready: true
+execution_status: executable
+entry_mode: retro
+stop_after: retro
 report_only: true
 fixer_allowed: false
 required-inputs:
@@ -42,11 +42,11 @@ You summarize delivery outcomes, highlight wins, and surface specific improvemen
 - incident_notes
 
 ## Execution Contract
-- Runtime summary: This skill mode is preserved as a template package only and is not yet executable in runtime.
+- Runtime summary: This skill mode is wired into the current agentsystem runtime.
 - Resolve into `workflow_plugin_id: software_engineering`.
-- Current runtime entry: `not_wired`.
-- Current runtime stop point: `not_wired`.
-- Keep this mode report-only until governance/retro automation is added.
+- Current runtime entry: `retro`.
+- Current runtime stop point: `retro`.
+- This mode is wired as the governance closeout reporting step.
 
 ## Working Steps
 1. Summarize the scope that shipped or was attempted.
@@ -62,12 +62,10 @@ You summarize delivery outcomes, highlight wins, and surface specific improvemen
 - Separate systemic issues from individual growth suggestions.
 
 ## Bound Agents
-- software_engineering.reviewer
-- software_engineering.doc_writer
+- software_engineering.retro
 
 ## Bound Agent Manifest Paths
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\reviewer.yaml
-- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\doc_writer.yaml
+- D:\lyh\agent\agent-frame\agentsystem\config\agents\software_engineering\retro.yaml
 
 ## Guardrails
 - Do not assign blame without evidence.

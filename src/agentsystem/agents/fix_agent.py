@@ -87,10 +87,7 @@ def fix_node(state: DevState) -> DevState:
         return state
 
     target_file = repo_b_path / candidate_files[0]
-    if not target_file.exists() and not (
-        project_key == "versefina"
-        and str(task_payload.get("story_id", "")).strip() in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006", "S0-007", "S1-001"}
-    ):
+    if not target_file.exists() and not _can_regenerate_contract_story_artifacts(task_payload):
         state["fixer_success"] = False
         state["fix_result"] = f"Target file missing: {target_file}"
         state["error_message"] = state.get("test_failure_info") or state.get("error_message")
@@ -107,7 +104,7 @@ def fix_node(state: DevState) -> DevState:
         or "Unknown validation failure"
     )
 
-    if project_key == "versefina" and story_id in {"S0-001", "S0-002", "S0-003", "S0-004", "S0-005", "S0-006", "S0-007", "S1-001"}:
+    if _can_regenerate_contract_story_artifacts(task_payload):
         regenerated_files = _regenerate_contract_story_artifacts(repo_b_path, task_payload)
     elif project_key == "agenthire" and story_id == "S5-002":
         regenerated_files = _regenerate_agenthire_seed_catalog_artifacts(repo_b_path)
@@ -330,6 +327,19 @@ def _regenerate_contract_story_artifacts(repo_b_path: Path, task_payload: dict[s
     if story_id == "S1-001":
         return materialize_statement_upload_api_artifacts(repo_b_path, related_files)
     return []
+
+
+def _can_regenerate_contract_story_artifacts(task_payload: dict[str, object]) -> bool:
+    return str(task_payload.get("story_id", "")).strip() in {
+        "S0-001",
+        "S0-002",
+        "S0-003",
+        "S0-004",
+        "S0-005",
+        "S0-006",
+        "S0-007",
+        "S1-001",
+    }
 
 
 def _regenerate_agenthire_seed_catalog_artifacts(repo_b_path: Path) -> list[str]:

@@ -73,6 +73,16 @@ class WorkspaceManager:
     def _is_git_repo(self) -> bool:
         return (self.repo_root / ".git").exists()
 
+    def _repo_is_dirty(self) -> bool:
+        if not self._is_git_repo():
+            return False
+        result = subprocess.run(
+            ["git", "-C", str(self.repo_root), "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+
     def _clear_stale_git_locks(self) -> None:
         git_dir = self.repo_root / ".git"
         if not git_dir.is_dir():
@@ -103,10 +113,13 @@ class WorkspaceManager:
         worktree_path = self.worktree_root / task_id
         try:
             if self._is_git_repo():
-                try:
-                    self._create_git_worktree(worktree_path, branch)
-                except Exception:
-                    self._create_snapshot_workspace(worktree_path, branch, task_id)
+                if self._repo_is_dirty():
+                    self._create_snapshot_workspace(worktree_path, branch, task_id, reason="dirty_worktree")
+                else:
+                    try:
+                        self._create_git_worktree(worktree_path, branch)
+                    except Exception:
+                        self._create_snapshot_workspace(worktree_path, branch, task_id, reason="git_worktree_fallback")
             else:
                 worktree_path.mkdir(parents=True, exist_ok=False)
         except Exception:
@@ -163,7 +176,7 @@ class WorkspaceManager:
             text=True,
         )
 
-    def _create_snapshot_workspace(self, worktree_path: Path, branch: str, task_id: str) -> None:
+    def _create_snapshot_workspace(self, worktree_path: Path, branch: str, task_id: str, reason: str = "snapshot_mode") -> None:
         snapshot_ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "pytest-cache-files-*")
         shutil.rmtree(worktree_path, ignore_errors=True)
         shutil.copytree(self.repo_root, worktree_path, ignore=snapshot_ignore)
@@ -187,6 +200,7 @@ class WorkspaceManager:
             json.dumps(
                 {
                     "mode": "snapshot",
+                    "snapshot_reason": reason,
                     "branch": branch,
                     "base_branch": "main",
                     "base_commit": base_commit,
