@@ -208,6 +208,24 @@ def browser_qa_node(state: DevState) -> DevState:
             issues.append(issue)
 
     task_scope_name = repo_b_path.name
+
+    # Build risk list with context
+    risks: list[str] = []
+    if blocking_findings:
+        risks.extend(blocking_findings[:3])  # Top 3 blocking issues
+    if important_findings:
+        risks.extend(important_findings[:2])  # Top 2 important issues
+    if not risks and reference_warnings:
+        risks.extend(reference_warnings[:2])  # Top 2 reference warnings if no other risks
+
+    # Add contextual risks
+    if health_score < 80 and not report_only:
+        risks.append(f"Health score {health_score}/100 is below the 80 threshold for confident release.")
+    if not current_observations:
+        risks.append("No current surface was captured; browser QA cannot validate the actual implementation.")
+    if len(targets) > 5:
+        risks.append(f"Large target count ({len(targets)} URLs) increases QA execution time and maintenance cost.")
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -215,17 +233,14 @@ def browser_qa_node(state: DevState) -> DevState:
             from_agent=AgentRole.BROWSER_QA,
             to_agent=AgentRole.FIXER if issues else (AgentRole.QA_DESIGN_REVIEW if _should_enter_design_review(state) else AgentRole.SECURITY_SCANNER),
             status=HandoffStatus.BLOCKED if issues else HandoffStatus.COMPLETED,
-            what_i_did=(
-                "Used real Chromium captures across current and reference surfaces, then recorded screenshots, "
-                "DOM snapshots, console logs, and structured browse observations."
-            ),
+            what_i_did=f"Executed real Chromium captures across {len(current_observations)} current and {len(reference_observations)} reference surfaces, recorded screenshots, DOM snapshots, console logs, and computed health score {health_score}/100.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Browser QA Report",
                     type="report",
                     path=f".meta/{task_scope_name}/browser_qa/browser_qa_report.md",
-                    description="Structured browser QA report with screenshots, observations, and risk summary.",
+                    description=f"Browser QA report with {len(structured_findings)} structured findings, health score {health_score}/100, and ship readiness assessment.",
                     created_by=AgentRole.BROWSER_QA,
                 ),
                 Deliverable(
@@ -233,7 +248,7 @@ def browser_qa_node(state: DevState) -> DevState:
                     name="Browser Session Manifest",
                     type="report",
                     path=f".meta/{task_scope_name}/browser_runtime/session.json",
-                    description="Persistent browser runtime session manifest and artifact index.",
+                    description="Persistent browser runtime session manifest with screenshot paths, observation artifacts, and console log references.",
                     created_by=AgentRole.BROWSER_QA,
                 ),
                 Deliverable(
@@ -241,15 +256,19 @@ def browser_qa_node(state: DevState) -> DevState:
                     name="QA Summary",
                     type="report",
                     path=f".meta/{task_scope_name}/qa/qa_summary.json",
-                    description="Shared QA contract artifact with structured findings and rerun guidance.",
+                    description="Shared QA contract with structured findings, regression recommendations, and verification rerun plan for downstream agents.",
                     created_by=AgentRole.BROWSER_QA,
                 ),
             ],
-            what_risks_i_found=blocking_findings or important_findings or reference_warnings,
+            what_risks_i_found=risks[:5],  # Limit to top 5 risks
             what_i_require_next=(
-                "Fix blocking browser issues, then rerun Browser QA."
+                f"Fix {len(blocking_findings)} blocking browser issue(s), then rerun Browser QA to confirm resolution."
                 if issues
-                else "Continue into design review or the downstream QA chain with the recorded evidence."
+                else (
+                    "Proceed to design review with captured screenshots and observations."
+                    if _should_enter_design_review(state)
+                    else "Continue to security scanner with browser QA evidence and health score."
+                )
             ),
             issues=issues,
             trace_id=str(state.get("collaboration_trace_id") or ""),

@@ -82,6 +82,20 @@ def code_acceptance_node(state: DevState) -> DevState:
         )
         add_issue(state, issue)
         issues.append(issue)
+    # Build risk list with context
+    risks: list[str] = []
+    blocking_issues = state.get("code_acceptance_issues") or []
+    if blocking_issues:
+        risks.extend(str(item) for item in blocking_issues[:5])  # Limit to top 5
+    else:
+        # Even if passed, note potential risks
+        changed_files = _collect_changed_files(state)
+        if len(changed_files) > 20:
+            risks.append(f"Large change set ({len(changed_files)} files) increases merge conflict risk.")
+        json_files = [f for f in changed_files if f.endswith('.json')]
+        if json_files:
+            risks.append(f"Modified {len(json_files)} JSON config file(s); runtime validation recommended.")
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -89,19 +103,23 @@ def code_acceptance_node(state: DevState) -> DevState:
             from_agent=AgentRole.CODE_ACCEPTANCE,
             to_agent=AgentRole.ACCEPTANCE_GATE if state.get("code_acceptance_passed") else AgentRole.FIXER,
             status=HandoffStatus.COMPLETED if state.get("code_acceptance_passed") else HandoffStatus.BLOCKED,
-            what_i_did="Checked final code acceptance gates including UTF-8 readability, whitespace hygiene, and JSON validity where applicable.",
+            what_i_did="Verified UTF-8 encoding, whitespace hygiene, and JSON parseability across all changed files before final acceptance gate.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Code Acceptance Report",
                     type="report",
                     path=str(Path(str(state.get('code_acceptance_dir') or '')) / 'code_acceptance_report.md'),
-                    description="Final code acceptance report for the current story.",
+                    description="Final code hygiene report confirming delivery readiness for the current story.",
                     created_by=AgentRole.CODE_ACCEPTANCE,
                 )
             ],
-            what_risks_i_found=[str(item) for item in (state.get("code_acceptance_issues") or [])],
-            what_i_require_next="If this step passed, perform final acceptance checks. If it failed, fix the reported style issues and return for another validation pass.",
+            what_risks_i_found=risks,
+            what_i_require_next=(
+                "Proceed to final acceptance gate and verify all story criteria are satisfied."
+                if state.get("code_acceptance_passed")
+                else "Fix the reported hygiene issues, then return for another code acceptance pass before final gate."
+            ),
             issues=issues,
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),

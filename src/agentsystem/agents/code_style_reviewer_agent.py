@@ -86,6 +86,28 @@ def code_style_review_node(state: DevState) -> DevState:
         if severity == IssueSeverity.BLOCKING and not state.get("code_style_review_passed"):
             add_issue(state, issue)
 
+    # Build risk list with context
+    risks: list[str] = []
+    blocking_issues = [str(item) for item in (state.get("code_style_review_issues") or []) if "tabs are not allowed" in str(item) or "trailing spaces" in str(item) or "not readable" in str(item) or "missing from worktree" in str(item)]
+    important_issues = [str(item) for item in (state.get("code_style_review_issues") or []) if "line length exceeds" in str(item)]
+
+    if blocking_issues:
+        risks.extend(blocking_issues[:3])  # Top 3 blocking issues
+    if important_issues:
+        risks.extend(important_issues[:2])  # Top 2 important issues
+
+    # Add contextual risks
+    changed_files = _collect_changed_files(state)
+    if not changed_files:
+        risks.append("No changed files were recorded; style review cannot validate code hygiene.")
+    if len(changed_files) > 20:
+        risks.append(f"Large change set ({len(changed_files)} files) increases style inconsistency risk.")
+
+    repo_b_path = Path(str(state.get("repo_b_path", "."))).resolve()
+    style_guide_path = repo_b_path / ".agents" / "style_guide.md"
+    if not style_guide_path.exists():
+        risks.append("No style guide (.agents/style_guide.md) found; review relies on basic hygiene checks only.")
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -93,22 +115,22 @@ def code_style_review_node(state: DevState) -> DevState:
             from_agent=AgentRole.CODE_STYLE_REVIEWER,
             to_agent=AgentRole.TESTER if state.get("code_style_review_passed") else AgentRole.FIXER,
             status=HandoffStatus.COMPLETED if state.get("code_style_review_passed") else HandoffStatus.BLOCKED,
-            what_i_did="Reviewed the current changed files for UTF-8 readability, whitespace hygiene, and basic style consistency against the project guide.",
+            what_i_did=f"Reviewed {len(changed_files)} changed file(s) for UTF-8 encoding, whitespace hygiene (tabs, trailing spaces), and line length consistency against project style guide.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Code Style Review Report",
                     type="report",
                     path=str(Path(str(state.get("code_style_review_dir") or "")) / "code_style_review_report.md"),
-                    description="Pre-test code style and file hygiene review for the current story.",
+                    description=f"Pre-test style review with {len(blocking_issues)} blocking and {len(important_issues)} important issue(s) for the current story.",
                     created_by=AgentRole.CODE_STYLE_REVIEWER,
                 )
             ],
-            what_risks_i_found=[str(item) for item in (state.get("code_style_review_issues") or [])],
+            what_risks_i_found=risks[:5],  # Limit to top 5 risks
             what_i_require_next=(
-                "Proceed to story validation and tests."
+                "Proceed to story validation with test execution."
                 if state.get("code_style_review_passed")
-                else "Resolve the reported style blockers, then return for another code style review before testing."
+                else f"Fix {len(blocking_issues)} blocking style issue(s), then return for another code style review pass before testing."
             ),
             issues=[] if state.get("code_style_review_passed") else issues,
             trace_id=str(state.get("collaboration_trace_id") or ""),

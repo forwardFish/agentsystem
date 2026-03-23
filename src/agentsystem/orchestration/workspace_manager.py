@@ -177,7 +177,7 @@ class WorkspaceManager:
         )
 
     def _create_snapshot_workspace(self, worktree_path: Path, branch: str, task_id: str, reason: str = "snapshot_mode") -> None:
-        snapshot_ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "pytest-cache-files-*")
+        snapshot_ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "pytest-cache-files-*", "node_modules", ".next", "dist", "build")
         shutil.rmtree(worktree_path, ignore_errors=True)
         shutil.copytree(self.repo_root, worktree_path, ignore=snapshot_ignore)
 

@@ -44,7 +44,29 @@ def frontend_dev_node(state: DevState) -> dict[str, object]:
     for file_path in updated_files:
         print(f"[Frontend Dev Agent] Updated: {file_path}")
 
+    # Build risk list with context
+    risks: list[str] = []
+    if not updated_files:
+        risks.append("No frontend files were modified; implementation may be incomplete or skipped.")
+
+    if not design_inputs["design_contract_used"]:
+        risks.append("No DESIGN.md contract found; frontend implementation relies on generic patterns without design guidance.")
+
+    if len(updated_files) > 5:
+        risks.append(f"Large frontend change set ({len(updated_files)} files) increases UI consistency and testing complexity.")
+
+    task_payload = state.get("task_payload") or {}
+    primary_files = task_payload.get("primary_files") or []
+    if primary_files:
+        missing_primary = [f for f in primary_files if str(f) not in [str(u) for u in updated_files]]
+        if missing_primary:
+            risks.append(f"{len(missing_primary)} primary file(s) were not modified: {', '.join(str(f) for f in missing_primary[:2])}")
+
+    if not constitution:
+        risks.append("Project constitution was not loaded; frontend implementation lacks project-specific context and patterns.")
+
     print("[Frontend Dev Agent] Frontend work completed")
+    task_scope_name = repo_b_path.name
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -53,9 +75,10 @@ def frontend_dev_node(state: DevState) -> dict[str, object]:
             to_agent=AgentRole.SYNC,
             status=HandoffStatus.COMPLETED,
             what_i_did=(
-                "Implemented the frontend portion of the story using project constitution, task context, and DESIGN.md."
-                if design_inputs["design_contract_used"]
-                else "Implemented the frontend portion of the story using project constitution and task context."
+                f"Implemented {len(frontend_tasks)} frontend subtask(s) and materialized {len(updated_files)} frontend artifact(s) "
+                f"using {len(constitution)} chars of project constitution"
+                + (f" and DESIGN.md contract" if design_inputs["design_contract_used"] else "")
+                + "."
             ),
             what_i_produced=[
                 Deliverable(
@@ -63,13 +86,13 @@ def frontend_dev_node(state: DevState) -> dict[str, object]:
                     name=Path(file_path).name,
                     type="code",
                     path=str(file_path),
-                    description="Frontend artifact produced by the builder step.",
+                    description=f"Frontend artifact for {Path(file_path).parent.name} module, built with constitution and design contract guidance.",
                     created_by=AgentRole.BUILDER,
                 )
                 for file_path in updated_files
             ],
-            what_risks_i_found=[],
-            what_i_require_next="Consolidate the frontend change set, prepare PR materials, and send it to validation.",
+            what_risks_i_found=risks[:5],  # Limit to top 5 risks
+            what_i_require_next=f"Consolidate {len(updated_files)} frontend change(s), prepare PR materials, and send to validation with browser QA.",
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),
     )

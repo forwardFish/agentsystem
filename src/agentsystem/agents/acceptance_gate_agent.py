@@ -97,6 +97,21 @@ def acceptance_gate_node(state: DevState) -> DevState:
             add_issue(state, issue)
         issues.append(issue)
 
+    # Build risk list with context
+    risks: list[str] = []
+    if blocking_issues:
+        risks.extend(str(item) for item in blocking_issues[:5])  # Limit to top 5
+    else:
+        # Even if passed, note potential risks
+        if not acceptance_items:
+            risks.append("No acceptance criteria were defined; story value relies on implicit understanding.")
+        if len(changed_files) > 15:
+            risks.append(f"Large change set ({len(changed_files)} files) increases integration risk despite passing all gates.")
+        if state.get("fix_attempts", 0) > 1:
+            risks.append(f"Story required {state.get('fix_attempts')} fix attempts; review for potential regression or design issues.")
+        if not related_files:
+            risks.append("No explicit file scope was declared; scope drift may have occurred without detection.")
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -104,19 +119,23 @@ def acceptance_gate_node(state: DevState) -> DevState:
             from_agent=AgentRole.ACCEPTANCE_GATE,
             to_agent=AgentRole.DOC_WRITER if state.get("acceptance_passed") else AgentRole.FIXER,
             status=HandoffStatus.COMPLETED if state.get("acceptance_passed") else HandoffStatus.BLOCKED,
-            what_i_did="Cross-checked acceptance criteria, task scope, code style review, reviewer status, and code acceptance status for the story.",
+            what_i_did=f"Verified {len(acceptance_items)} acceptance criteria, validated scope boundaries against {len(related_files)} declared files, and confirmed all upstream gates (code style, review, code acceptance) passed.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Acceptance Gate Report",
                     type="report",
                     path=str(report_dir / "acceptance_report.md"),
-                    description="Final acceptance checklist and scope-verification report.",
+                    description="Final acceptance checklist with criterion-by-criterion evaluation and scope-drift detection results.",
                     created_by=AgentRole.ACCEPTANCE_GATE,
                 )
             ],
-            what_risks_i_found=[str(item) for item in blocking_issues],
-            what_i_require_next="If accepted, generate the delivery report. If blocked, fix the outstanding acceptance issues before trying again.",
+            what_risks_i_found=risks,
+            what_i_require_next=(
+                "Generate delivery report and result report, then archive for human sign-off."
+                if state.get("acceptance_passed")
+                else "Fix all outstanding acceptance issues and scope violations, then return for another acceptance gate pass."
+            ),
             issues=issues if not state.get("acceptance_passed") else [],
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),

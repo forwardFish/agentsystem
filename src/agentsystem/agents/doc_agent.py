@@ -164,6 +164,21 @@ def doc_node(state: DevState) -> DevState:
     state["delivery_dir"] = str(delivery_dir)
     state["current_step"] = "doc_done"
     state["collaboration_ended_at"] = datetime.now().isoformat(timespec="seconds")
+
+    # Build risk list with context
+    risks: list[str] = []
+    if not _is_story_fully_accepted(state):
+        risks.append("Story is not fully accepted; delivery report documents incomplete work.")
+    if not acceptance_items:
+        risks.append("No acceptance criteria were defined; human reviewer must validate story value without explicit checklist.")
+    if not story_outputs:
+        risks.append("No planned output was declared; actual output may not match stakeholder expectations.")
+    if state.get("fix_attempts", 0) > 0:
+        risks.append(f"Story required {state.get('fix_attempts')} fix attempt(s); review for potential regression risk.")
+    blocking_issues = state.get("issues_to_fix") or []
+    if blocking_issues:
+        risks.append(f"{len(blocking_issues)} blocking issue(s) remain unresolved; story should not be merged until cleared.")
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -171,14 +186,14 @@ def doc_node(state: DevState) -> DevState:
             from_agent=AgentRole.DOC_WRITER,
             to_agent=AgentRole.DOC_WRITER,
             status=HandoffStatus.COMPLETED,
-            what_i_did="Compiled the story completion standard, the delivery report, and the result report for archival and human sign-off.",
+            what_i_did="Compiled story completion standard, delivery report, and result report with planned contract vs. actual outcome comparison for archival and human sign-off.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Story Completion Standard",
                     type="report",
                     path=str(standard_path),
-                    description="Definition of done used for story completion checks.",
+                    description="Definition of done standard used for story completion validation across all gates.",
                     created_by=AgentRole.DOC_WRITER,
                 ),
                 Deliverable(
@@ -186,7 +201,7 @@ def doc_node(state: DevState) -> DevState:
                     name="Story Delivery Report",
                     type="report",
                     path=str(report_path),
-                    description="Final delivery summary for the completed story.",
+                    description="Final delivery summary with validation gates, acceptance evidence, and completion verdict.",
                     created_by=AgentRole.DOC_WRITER,
                 ),
                 Deliverable(
@@ -194,12 +209,12 @@ def doc_node(state: DevState) -> DevState:
                     name="Story Result Report",
                     type="report",
                     path=str(result_report_path),
-                    description="Actual input, process evidence, output, and verification outcome for human acceptance.",
+                    description="Actual input, process evidence, output, and verification outcome compared against planned contract for human acceptance review.",
                     created_by=AgentRole.DOC_WRITER,
                 ),
             ],
-            what_risks_i_found=[],
-            what_i_require_next="Archive the delivery artifacts and expose both the planned contract and the actual result report through the dashboard.",
+            what_risks_i_found=risks[:5],  # Limit to top 5 risks
+            what_i_require_next="Archive delivery artifacts, expose planned contract and actual result report through dashboard, then await human sign-off before treating story as shippable.",
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),
     )

@@ -222,6 +222,23 @@ def runtime_qa_node(state: DevState) -> DevState:
             add_issue(state, issue)
             issues.append(issue)
 
+    # Build risk list with context
+    risks: list[str] = []
+    if blocking_findings:
+        risks.extend(blocking_findings[:3])  # Top 3 blocking issues
+    if warnings:
+        risks.extend(warnings[:2])  # Top 2 warnings
+
+    # Add contextual risks
+    if health_score < 80 and not report_only:
+        risks.append(f"Health score {health_score}/100 is below the 80 threshold for confident release.")
+    if not commands:
+        risks.append("No runtime QA commands were configured; validation relies on heuristics only.")
+    if not verification_basis:
+        risks.append("No verification basis was declared; runtime QA cannot validate against explicit success criteria.")
+    if not test_context.get("qa_handoff"):
+        risks.append("No QA handoff from plan-eng-review; runtime QA had to infer validation scope without architectural guidance.")
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -229,14 +246,22 @@ def runtime_qa_node(state: DevState) -> DevState:
             from_agent=AgentRole.RUNTIME_QA,
             to_agent=AgentRole.FIXER if issues else AgentRole.SECURITY_SCANNER,
             status=HandoffStatus.BLOCKED if issues else HandoffStatus.COMPLETED,
-            what_i_did="Ran runtime-oriented verification for non-UI story scope using repository QA commands and verification basis.",
+            what_i_did=f"Executed {len(commands)} runtime QA command(s) against {len(verification_basis)} verification criteria, computed health score {health_score}/100, and validated non-UI story scope.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Runtime QA Report",
                     type="report",
                     path=f".meta/{repo_b_path.name}/runtime_qa/runtime_qa_report.md",
-                    description="Non-UI QA report with runtime and artifact validation findings.",
+                    description=f"Non-UI QA report with {len(structured_findings)} structured findings, health score {health_score}/100, and ship readiness assessment.",
+                    created_by=AgentRole.RUNTIME_QA,
+                ),
+                Deliverable(
+                    deliverable_id=str(uuid.uuid4()),
+                    name="Runtime QA Command Log",
+                    type="report",
+                    path=f".meta/{repo_b_path.name}/runtime_qa/runtime_qa_commands.log",
+                    description="Execution log for all runtime QA commands with stdout, stderr, and exit codes.",
                     created_by=AgentRole.RUNTIME_QA,
                 ),
                 Deliverable(
@@ -244,15 +269,15 @@ def runtime_qa_node(state: DevState) -> DevState:
                     name="QA Summary",
                     type="report",
                     path=f".meta/{repo_b_path.name}/qa/qa_summary.json",
-                    description="Shared QA contract artifact with structured findings and rerun guidance.",
+                    description="Shared QA contract with structured findings, regression recommendations, and verification rerun plan for downstream agents.",
                     created_by=AgentRole.RUNTIME_QA,
                 ),
             ],
-            what_risks_i_found=blocking_findings or warnings,
+            what_risks_i_found=risks[:5],  # Limit to top 5 risks
             what_i_require_next=(
-                "Resolve every blocking runtime QA issue, then run Runtime QA again."
+                f"Fix {len(blocking_findings)} blocking runtime issue(s), then rerun Runtime QA to confirm resolution."
                 if issues
-                else "Continue into security and review checks."
+                else "Continue to security scanner with runtime QA evidence and health score."
             ),
             issues=issues,
             trace_id=str(state.get("collaboration_trace_id") or ""),

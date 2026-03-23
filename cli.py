@@ -11,6 +11,12 @@ import click
 import uvicorn
 import yaml
 
+# Fix stdout encoding for Windows
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.platform == "win32" and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT_DIR = Path(__file__).resolve().parent
 SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
@@ -1689,7 +1695,8 @@ def run_task(task_file: str, env: str, project: str | None, resume: bool) -> Non
 
     click.echo("Task completed")
     click.echo(f"  Branch: {output['branch']}")
-    click.echo(f"  Commit: {output['commit']}")
+    if 'commit' in output:
+        click.echo(f"  Commit: {output['commit']}")
     click.echo(f"  Audit log: {output['audit_path']}")
 
 

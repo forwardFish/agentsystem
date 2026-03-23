@@ -183,6 +183,21 @@ def requirement_analysis_node(state: DevState) -> DevState:
         repo_b_path = Path(str(state["repo_b_path"])).resolve()
         _write_requirement_artifacts(repo_b_path, state)
         task_scope_name = repo_b_path.name
+
+    # Build risk list with context
+    risks: list[str] = []
+    if not acceptance_checklist:
+        risks.append("No acceptance criteria provided; downstream validation may lack clear success criteria.")
+    if not primary_files and not related_files:
+        risks.append("No explicit file scope declared; implementation may drift beyond intended boundaries.")
+    if len(subtasks) > 5:
+        risks.append(f"Large subtask count ({len(subtasks)}) may indicate scope creep or insufficient decomposition.")
+    if not verification_basis:
+        risks.append("No verification basis provided; QA may lack concrete test scenarios.")
+    new_files = [f for f in (primary_files or related_files) if not (repo_b_path / f).exists()] if state.get("repo_b_path") else []
+    if new_files:
+        risks.append(f"{len(new_files)} target file(s) need to be created from scratch, increasing implementation risk.")
+
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -190,14 +205,14 @@ def requirement_analysis_node(state: DevState) -> DevState:
             from_agent=AgentRole.REQUIREMENT,
             to_agent=AgentRole.BUILDER,
             status=HandoffStatus.COMPLETED,
-            what_i_did="Parsed the story card into executable scope, checklist, constraints, and file targets.",
+            what_i_did=f"Decomposed the story card into {len(subtasks)} executable subtasks with scope boundaries, acceptance checklist, and file targets.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name="Parsed Requirement JSON",
                     type="report",
                     path=f".meta/{task_scope_name}/requirement/parsed_requirement.json",
-                    description="Structured requirement payload for downstream agents.",
+                    description="Structured requirement payload with subtasks, constraints, and verification basis for downstream agents.",
                     created_by=AgentRole.REQUIREMENT,
                 ),
                 Deliverable(
@@ -205,12 +220,12 @@ def requirement_analysis_node(state: DevState) -> DevState:
                     name="Intent Confirmation Markdown",
                     type="report",
                     path=f".meta/{task_scope_name}/requirement/intent_confirmation.md",
-                    description="Human-readable requirement interpretation and boundaries.",
+                    description="Human-readable requirement interpretation confirming goal, acceptance criteria, and implementation boundaries.",
                     created_by=AgentRole.REQUIREMENT,
                 ),
             ],
-            what_risks_i_found=["Some target files may need to be created from scratch."] if related_files else [],
-            what_i_require_next="Modify only the declared primary files, satisfy every checklist item, and keep edits within the task boundary.",
+            what_risks_i_found=risks[:5],  # Limit to top 5 risks
+            what_i_require_next="Implement only the declared primary files, satisfy every acceptance checklist item, and preserve all constraints while staying within the task boundary.",
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),
     )

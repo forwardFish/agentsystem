@@ -40,7 +40,26 @@ def backend_dev_node(state: DevState) -> dict[str, object]:
     for file_path in updated_files:
         print(f"[Backend Dev Agent] Updated: {file_path}")
 
+    # Build risk list with context
+    risks: list[str] = []
+    if not updated_files:
+        risks.append("No backend files were modified; implementation may be incomplete or skipped.")
+    if len(updated_files) > 10:
+        risks.append(f"Large backend change set ({len(updated_files)} files) increases integration and testing complexity.")
+
+    task_payload = state.get("task_payload") or {}
+    primary_files = task_payload.get("primary_files") or []
+    if primary_files:
+        missing_primary = [f for f in primary_files if str(f) not in [str(u) for u in updated_files]]
+        if missing_primary:
+            risks.append(f"{len(missing_primary)} primary file(s) were not modified: {', '.join(str(f) for f in missing_primary[:3])}")
+
+    story_id = str(task_payload.get("story_id", "")).strip()
+    if story_id and not any(story_id in str(f) for f in updated_files):
+        risks.append(f"Story-specific artifacts for {story_id} may not have been materialized correctly.")
+
     print("[Backend Dev Agent] Backend work completed")
+    task_scope_name = repo_b_path.name
     add_handoff_packet(
         state,
         HandoffPacket(
@@ -48,20 +67,20 @@ def backend_dev_node(state: DevState) -> dict[str, object]:
             from_agent=AgentRole.BUILDER,
             to_agent=AgentRole.SYNC,
             status=HandoffStatus.COMPLETED,
-            what_i_did="Implemented the backend portion of the story and wrote the requested backend artifacts.",
+            what_i_did=f"Implemented {len(backend_tasks)} backend subtask(s) and materialized {len(updated_files)} backend artifact(s) according to story requirements.",
             what_i_produced=[
                 Deliverable(
                     deliverable_id=str(uuid.uuid4()),
                     name=Path(file_path).name,
                     type="code",
                     path=str(file_path),
-                    description="Backend artifact produced by the builder step.",
+                    description=f"Backend artifact for {Path(file_path).parent.name} module, produced by builder step.",
                     created_by=AgentRole.BUILDER,
                 )
                 for file_path in updated_files
             ],
-            what_risks_i_found=[],
-            what_i_require_next="Consolidate the changed files, prepare PR materials, and move the story into validation.",
+            what_risks_i_found=risks[:5],  # Limit to top 5 risks
+            what_i_require_next=f"Consolidate {len(updated_files)} changed file(s), prepare PR materials, and move the story into validation.",
             trace_id=str(state.get("collaboration_trace_id") or ""),
         ),
     )
