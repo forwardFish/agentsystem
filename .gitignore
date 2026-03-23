@@ -1,9 +1,12 @@
 .env
 .runtime/
+.codex-runtime/
 runs/
 logs/
 dashboard_*.log
 repo-worktree/
+codex_skills/
+vendors/
 agent-workspaces/*/temp/
 agent-workspaces/*/HEARTBEAT.md.bak
 config/local_*.yaml
