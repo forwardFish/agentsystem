@@ -57,6 +57,8 @@ def runtime_qa_node(state: DevState) -> DevState:
                 cwd=repo_b_path,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=120,
                 shell=True,
                 check=False,

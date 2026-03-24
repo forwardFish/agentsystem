@@ -11,6 +11,21 @@ from agentsystem.orchestration.workspace_manager import WorkspaceManager
 
 
 class WorkspaceManagerTestCase(unittest.TestCase):
+    def test_repo_is_dirty_uses_utf8_subprocess_decoding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "repo"
+            repo_root.mkdir()
+            (repo_root / ".git").mkdir()
+            manager = WorkspaceManager(repo_root, Path(tmp) / "worktrees")
+
+            with patch("agentsystem.orchestration.workspace_manager.subprocess.run") as run_mock:
+                run_mock.return_value = subprocess.CompletedProcess(args=["git"], returncode=0, stdout=" M README.md", stderr="")
+                self.assertTrue(manager._repo_is_dirty())
+
+            kwargs = run_mock.call_args.kwargs
+            self.assertEqual(kwargs["encoding"], "utf-8")
+            self.assertEqual(kwargs["errors"], "replace")
+
     def test_create_worktree_resets_existing_agent_branch_to_main(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

@@ -17,10 +17,17 @@ class ContextAssembler:
     def build_constitution(self) -> str:
         constitution_parts: list[str] = []
 
-        agents_file = self.repo_b_root / "AGENTS.md"
-        if agents_file.exists():
+        agent_paths = []
+        repo_agents = self.repo_b_root / "AGENTS.md"
+        workspace_agents = self.repo_b_root.parent / "AGENTS.md"
+        if repo_agents.exists():
+            agent_paths.append(repo_agents)
+        if workspace_agents.exists() and workspace_agents != repo_agents:
+            agent_paths.append(workspace_agents)
+
+        for agents_file in agent_paths:
             constitution_parts.append("=" * 40)
-            constitution_parts.append("Execution Rules (AGENTS.md)")
+            constitution_parts.append(f"Execution Rules ({agents_file.name})")
             constitution_parts.append("=" * 40)
             constitution_parts.append(agents_file.read_text(encoding="utf-8"))
             constitution_parts.append("\n" + "=" * 40 + "\n")
@@ -71,6 +78,11 @@ class ContextAssembler:
         context_parts.append(f"Constraints: {json.dumps(constraints, ensure_ascii=False)}")
         context_parts.append("")
 
+        continuity_section = self._build_continuity_section(task_payload)
+        if continuity_section:
+            context_parts.extend(continuity_section)
+            context_parts.append("")
+
         if related_files:
             context_parts.append("# Related Files")
             for raw_path in related_files:
@@ -90,6 +102,36 @@ class ContextAssembler:
             context_parts.extend(focused_tree)
 
         return "\n".join(context_parts).strip()
+
+    def _build_continuity_section(self, task_payload: dict[str, Any]) -> list[str]:
+        summary = task_payload.get("continuity_summary") if isinstance(task_payload.get("continuity_summary"), dict) else {}
+        now_doc = task_payload.get("continuity_now") if isinstance(task_payload.get("continuity_now"), dict) else {}
+        refs = task_payload.get("continuity_refs") if isinstance(task_payload.get("continuity_refs"), dict) else {}
+        if not summary and not now_doc and not refs:
+            return []
+
+        lines = ["# Continuity Summary"]
+        safe_point = str(summary.get("safe_point") or "").strip()
+        status = str(summary.get("status") or now_doc.get("status") or "").strip()
+        why = str(summary.get("why_resumed_here") or now_doc.get("next_action") or "").strip()
+        allowed = str(summary.get("allowed_next_action") or now_doc.get("next_action") or "").strip()
+        if safe_point:
+            lines.append(f"Current safe point: {safe_point}")
+        if status:
+            lines.append(f"Current status: {status}")
+        if why:
+            lines.append(f"Why resumed here: {why}")
+        if allowed:
+            lines.append(f"Allowed next action: {allowed}")
+
+        relevant = summary.get("relevant_artifacts")
+        if isinstance(relevant, list) and relevant:
+            lines.append("Relevant artifacts:")
+            lines.extend(f"- {item}" for item in relevant[:8] if str(item).strip())
+        elif isinstance(refs.get("required"), list) and refs.get("required"):
+            lines.append("Relevant artifacts:")
+            lines.extend(f"- {item}" for item in refs.get("required", [])[:8] if str(item).strip())
+        return lines
 
     def _build_focused_tree(self, related_files: list[str]) -> list[str]:
         roots: set[Path] = set()

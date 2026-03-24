@@ -26,7 +26,7 @@ def run_sprint_pre_hooks(sprint_dir: str | Path, *, project: str, release: bool 
     sprint_path = Path(sprint_dir).resolve()
     stories = _load_story_payloads(sprint_path)
     advice = summarize_sprint_advice(stories, release=release)
-    repo_b_path = sprint_path.parents[2] if len(sprint_path.parents) >= 3 else sprint_path.parent
+    repo_b_path = _resolve_repo_path_from_sprint_dir(sprint_path)
     advice_payload = {
         "project": project,
         "sprint_id": sprint_path.name,
@@ -52,7 +52,7 @@ def run_sprint_post_hooks(sprint_dir: str | Path, *, project: str, release: bool
     sprint_path = Path(sprint_dir).resolve()
     stories = _load_story_payloads(sprint_path)
     output_dir = _ensure_output_dir(project, sprint_path.name)
-    repo_b_path = sprint_path.parents[2] if len(sprint_path.parents) >= 3 else sprint_path.parent
+    repo_b_path = _resolve_repo_path_from_sprint_dir(sprint_path)
     synthetic_state = {
         "retro_window": sprint_path.name,
         "mode_execution_order": ["ship", "document-release", "retro"],
@@ -127,11 +127,36 @@ def run_sprint_post_hooks(sprint_dir: str | Path, *, project: str, release: bool
 
 def _load_story_payloads(sprint_dir: Path) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
-    for story_file in sorted(sprint_dir.rglob("S*.yaml")):
+    story_files = _resolve_story_files(sprint_dir)
+    for story_file in story_files:
         payload = yaml.safe_load(story_file.read_text(encoding="utf-8"))
         if isinstance(payload, dict):
             payloads.append(payload)
     return payloads
+
+
+def _resolve_story_files(sprint_dir: Path) -> list[Path]:
+    execution_file = sprint_dir / "execution_order.txt"
+    if execution_file.exists():
+        ordered: list[Path] = []
+        for raw_line in execution_file.read_text(encoding="utf-8").splitlines():
+            story_id = str(raw_line).strip()
+            if not story_id:
+                continue
+            story_file = next(sprint_dir.rglob(f"{story_id}_*.yaml"), None)
+            if story_file is not None:
+                ordered.append(story_file)
+        if ordered:
+            return ordered
+    return sorted(path for path in sprint_dir.rglob("*.yaml") if path.is_file())
+
+
+def _resolve_repo_path_from_sprint_dir(sprint_path: Path) -> Path:
+    current = sprint_path.resolve()
+    for candidate in (current, *current.parents):
+        if candidate.name == "tasks":
+            return candidate.parent
+    return sprint_path.parent
 
 
 def _generate_sprint_framing_artifacts(

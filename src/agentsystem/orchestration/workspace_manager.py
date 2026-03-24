@@ -80,6 +80,8 @@ class WorkspaceManager:
             ["git", "-C", str(self.repo_root), "status", "--porcelain", "--untracked-files=all"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         return result.returncode == 0 and bool(result.stdout.strip())
 
@@ -155,6 +157,8 @@ class WorkspaceManager:
             ["git", "-C", str(self.repo_root), "rev-parse", "--verify", branch],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         ).returncode == 0
         if branch_exists:
             # Reusing deterministic task ids is fine, but the branch must be rebased to the
@@ -164,6 +168,8 @@ class WorkspaceManager:
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
         command = ["git", "-C", str(self.repo_root), "worktree", "add"]
         if not branch_exists:
@@ -174,6 +180,8 @@ class WorkspaceManager:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
     def _create_snapshot_workspace(self, worktree_path: Path, branch: str, task_id: str, reason: str = "snapshot_mode") -> None:
@@ -192,6 +200,8 @@ class WorkspaceManager:
                 ["git", "-C", str(self.repo_root), "rev-parse", "HEAD"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 base_commit = result.stdout.strip()
@@ -239,6 +249,8 @@ class WorkspaceManager:
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             return
         except subprocess.CalledProcessError:
@@ -247,6 +259,8 @@ class WorkspaceManager:
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             shutil.rmtree(worktree_path, ignore_errors=True)
 

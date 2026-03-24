@@ -53,6 +53,7 @@ class MainProductionTestCase(unittest.TestCase):
             base = Path(tmp)
             system_root = base / "agentsystem_root"
             repo_root = base / "agentHire"
+            (base / "AGENTS.md").write_text("Workspace rules\n", encoding="utf-8")
             sprint_dir = repo_root / "tasks" / "backlog_v1" / "sprint_1_demo"
             epic_dir = sprint_dir / "epic_demo"
             epic_dir.mkdir(parents=True)
@@ -149,6 +150,106 @@ class MainProductionTestCase(unittest.TestCase):
             reviews = json.loads((repo_root / "tasks" / "story_acceptance_reviews.json").read_text(encoding="utf-8"))
             self.assertEqual(reviews["reviews"][0]["verdict"], "rejected")
             self.assertTrue((system_root / "runs" / "prod_audit_task-demo.json").exists())
+
+    def test_run_prod_task_injects_continuity_bundle_into_workflow_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            system_root = base / "agentsystem_root"
+            repo_root = base / "versefina"
+            sprint_dir = repo_root / "tasks" / "backlog_v1" / "sprint_1_demo"
+            epic_dir = sprint_dir / "epic_demo"
+            epic_dir.mkdir(parents=True)
+            (base / "AGENTS.md").write_text("Workspace rules\n", encoding="utf-8")
+            story_file = epic_dir / "S1-001_demo.yaml"
+            story_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "task_id": "S1-001",
+                        "story_id": "S1-001",
+                        "blast_radius": "L1",
+                        "goal": "Inject continuity before workflow",
+                        "acceptance_criteria": ["done"],
+                        "related_files": ["apps/api/src/demo.py"],
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+
+            captured_task: dict[str, object] = {}
+
+            class FakeGitAdapter:
+                def __init__(self, _path: Path | str) -> None:
+                    self.path = Path(_path)
+
+                def checkout_main_and_pull(self, _branch: str) -> None:
+                    return None
+
+                def get_current_commit(self) -> str:
+                    return "abc123"
+
+                def is_dirty(self) -> bool:
+                    return False
+
+            class FakeWorkspaceManager:
+                def __init__(self, _repo_b_path: Path, worktree_root: Path) -> None:
+                    self.worktree_root = Path(worktree_root)
+                    self.worktree_root.mkdir(parents=True, exist_ok=True)
+
+                def generate_task_id(self, _seed: str) -> str:
+                    return "task-demo"
+
+                def create_worktree(self, task_id: str, _branch_name: str) -> Path:
+                    path = self.worktree_root / task_id
+                    path.mkdir(parents=True, exist_ok=True)
+                    return path
+
+                def update_task_state(self, _task_id: str, _payload: dict[str, object]) -> None:
+                    return None
+
+                def cleanup_task_resources(self, _task_id: str) -> None:
+                    return None
+
+            class FakeLogger:
+                def info(self, *_args, **_kwargs) -> None:
+                    return None
+
+                def error(self, *_args, **_kwargs) -> None:
+                    return None
+
+                def warning(self, *_args, **_kwargs) -> None:
+                    return None
+
+            class CapturingWorkflow:
+                def __init__(self, _config: dict, _worktree_path: str, task: dict, task_id: str | None = None) -> None:
+                    captured_task.update(task)
+                    self.task_id = task_id or "task-demo"
+
+                def run(self) -> dict:
+                    return {"success": True, "error": None, "state": {"current_step": "doc_done", "last_node": "doc_writer", "acceptance_passed": True}}
+
+            with (
+                patch.object(main_production_module, "ROOT_DIR", system_root),
+                patch("main_production.SystemConfigReader.load", return_value={"repo": {"versefina": str(repo_root)}, "agent": {"cleanup_on_success": "false"}}),
+                patch("main_production.GitAdapter", FakeGitAdapter),
+                patch("main_production.WorkspaceManager", FakeWorkspaceManager),
+                patch("main_production.DevWorkflow", CapturingWorkflow),
+                patch("main_production._prepare_local_dependencies", return_value=None),
+                patch("main_production.get_logger", return_value=FakeLogger()),
+                patch("main_production.RepoBConfigReader.load_all_config", return_value=type("Cfg", (), {"commands": {"format": []}})()),
+            ):
+                output = main_production_module.run_prod_task(
+                    story_file,
+                    env="test",
+                    project="versefina",
+                    task_overrides={"auto_run": False, "formal_entry": False},
+                )
+
+            self.assertTrue(output["success"])
+            self.assertEqual(captured_task["continuity_trigger"], "fresh_start")
+            self.assertIn("continuity_summary", captured_task)
+            self.assertIn("continuity_now", captured_task)
 
     def test_collect_changed_files_from_state_merges_staged_files_and_filters_cache_entries(self) -> None:
         files = _collect_changed_files_from_state(

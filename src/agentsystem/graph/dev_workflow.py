@@ -8,6 +8,7 @@ from langgraph.graph import END, StateGraph
 from agentsystem.adapters.git_adapter import GitAdapter
 from agentsystem.core.state import DevState, build_mode_coverage
 from agentsystem.dashboard.hooks import send_log, send_node_end, send_node_start, send_workflow_state
+from agentsystem.orchestration.continuity import sync_continuity
 from agentsystem.orchestration.runtime_memory import collect_mode_artifact_paths, write_node_checkpoint
 from agentsystem.orchestration.skill_mode_registry import resolve_runtime_task
 from agentsystem.orchestration.workflow_registry import get_workflow_plugin
@@ -58,6 +59,13 @@ class DevWorkflow:
             "retro_window": self.task.get("retro_window"),
             "workflow_enforcement_policy": self.task.get("workflow_enforcement_policy"),
             "upstream_agent_parity": self.task.get("upstream_agent_parity"),
+            "continuity_trigger": self.task.get("continuity_trigger"),
+            "continuity_summary": self.task.get("continuity_summary"),
+            "continuity_now": self.task.get("continuity_now"),
+            "continuity_state": self.task.get("continuity_state"),
+            "continuity_decisions": self.task.get("continuity_decisions"),
+            "continuity_refs": self.task.get("continuity_refs"),
+            "continuity_last_synced_at": self.task.get("continuity_last_synced_at"),
             "required_modes": list(self.task.get("required_modes") or []),
             "advisory_modes": list(self.task.get("advisory_modes") or []),
             "next_recommended_actions": list(self.task.get("next_recommended_actions") or []),
@@ -331,6 +339,11 @@ def _instrument_node(node_name: str, node_func):
                 error_message=str(state.get("error_message") or "") or None,
                 extra={"last_node": node_name},
             )
+            _sync_node_boundary(
+                checkpoint_repo_path,
+                state.get("task_payload"),
+                trigger="node_boundary",
+            )
 
         try:
             result = node_func(state)
@@ -354,6 +367,11 @@ def _instrument_node(node_name: str, node_func):
                     error_message=str(result.get("error_message") or "") or None,
                     extra={"last_node": node_name},
                 )
+                _sync_node_boundary(
+                    checkpoint_repo_path,
+                    result.get("task_payload") or state.get("task_payload"),
+                    trigger="node_boundary",
+                )
             return result
         except Exception as exc:
             send_log(task_id, "ERROR", f"{node_name} node failed: {exc}")
@@ -375,6 +393,11 @@ def _instrument_node(node_name: str, node_func):
                         "interruption_reason": "workflow_node_exception",
                         "last_node": node_name,
                     },
+                )
+                _sync_node_boundary(
+                    checkpoint_repo_path,
+                    state.get("task_payload"),
+                    trigger="node_boundary",
                 )
             raise
 
@@ -416,3 +439,12 @@ def _dedupe_state_lists(state: DevState) -> None:
             seen.add(marker)
             deduped.append(item)
         state[key] = deduped
+
+
+def _sync_node_boundary(repo_root: Path, task_payload: dict[str, object] | None, *, trigger: str) -> None:
+    task = dict(task_payload or {})
+    project = str(task.get("project") or repo_root.name).strip() or repo_root.name
+    try:
+        sync_continuity(trigger, project, repo_root, task_payload=task)
+    except Exception:
+        return

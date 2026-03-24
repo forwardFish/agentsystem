@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import webbrowser
 from datetime import datetime
@@ -28,6 +29,13 @@ from agentsystem.adapters.git_adapter import GitAdapter
 from agentsystem.core.state import build_mode_coverage
 from agentsystem.core.task_card import TaskCard, normalize_runtime_task_payload
 from agentsystem.orchestration.agent_activation_resolver import apply_agent_activation_policy
+from agentsystem.orchestration.continuity import (
+    ContinuityGuardError,
+    assert_continuity_ready,
+    load_continuity_bundle,
+    resolve_continuity_paths,
+    sync_continuity,
+)
 from agentsystem.orchestration.gstack_parity_audit import write_gstack_parity_audit
 from agentsystem.orchestration.sprint_hooks import run_sprint_post_hooks, run_sprint_pre_hooks
 from agentsystem.orchestration.runtime_memory import (
@@ -155,14 +163,89 @@ def _build_backlog_from_requirement(
 
 def _sort_sprint_paths(paths: list[Path]) -> list[Path]:
     def sort_key(path: Path) -> tuple[int, str]:
-        name = path.name
-        try:
-            number = int(name.split("_", 2)[1])
-        except Exception:
-            number = 10**6
-        return (number, name)
+        return (_extract_sprint_number(path.name), path.name)
 
     return sorted(paths, key=sort_key)
+
+
+def _extract_sprint_number(name: str) -> int:
+    for pattern in (r"(?:^|_)sprint_(\d+)(?:_|$)", r"(?:^|_)sprint(\d+)(?:_|$)"):
+        match = re.search(pattern, name)
+        if match:
+            try:
+                return int(match.group(1))
+            except Exception:
+                return 10**6
+    return 10**6
+
+
+def _read_execution_story_ids(execution_file: Path) -> list[str]:
+    if not execution_file.exists():
+        return []
+    return [line.strip() for line in execution_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _resolve_story_card_paths(sprint_dir: Path) -> list[Path]:
+    execution_file = sprint_dir / "execution_order.txt"
+    story_ids = _read_execution_story_ids(execution_file)
+    ordered: list[Path] = []
+    seen: set[Path] = set()
+    for story_id in story_ids:
+        story_file = next(sprint_dir.rglob(f"{story_id}_*.yaml"), None)
+        if story_file is None:
+            continue
+        story_file = story_file.resolve()
+        if story_file in seen:
+            continue
+        seen.add(story_file)
+        ordered.append(story_file)
+    if ordered:
+        return ordered
+    return sorted(path.resolve() for path in sprint_dir.rglob("*.yaml") if path.is_file())
+
+
+def _derive_backlog_context_from_sprint_dir(
+    sprint_dir: Path,
+    repo_b_path: Path,
+    *,
+    backlog_id_override: str | None = None,
+    backlog_root_override: str | None = None,
+) -> tuple[str, str]:
+    if str(backlog_id_override or "").strip() and str(backlog_root_override or "").strip():
+        return str(backlog_id_override), str(backlog_root_override)
+
+    tasks_root = repo_b_path / "tasks"
+    sprint_path = sprint_dir.resolve()
+    if sprint_path.parent.resolve() == tasks_root.resolve() and "_sprint_" in sprint_path.name:
+        derived_backlog_id = sprint_path.name.split("_sprint_", 1)[0].strip() or tasks_root.name
+        return (
+            str(backlog_id_override or derived_backlog_id),
+            str(backlog_root_override or tasks_root),
+        )
+
+    derived_backlog_id = sprint_path.parent.name
+    derived_backlog_root = str(sprint_path.parent)
+    return (
+        str(backlog_id_override or derived_backlog_id),
+        str(backlog_root_override or derived_backlog_root),
+    )
+
+
+def _build_roadmap_resume_command(
+    *,
+    project: str,
+    env: str,
+    tasks_root: Path,
+    roadmap_prefix: str,
+    release: bool,
+) -> str:
+    command = (
+        f'python cli.py run-roadmap --project {project} --env {env} '
+        f'--tasks-root "{tasks_root}" --roadmap-prefix {roadmap_prefix} --resume'
+    )
+    if release:
+        command += " --release"
+    return command
 
 
 def _load_existing_backlog_result(repo_b_path: Path, project: str, prefix: str) -> tuple[dict[str, object], Path, Path]:
@@ -171,7 +254,7 @@ def _load_existing_backlog_result(repo_b_path: Path, project: str, prefix: str) 
     if not backlog_root.exists() or not (backlog_root / "sprint_overview.md").exists():
         raise click.ClickException(f"Existing backlog does not exist: {backlog_root}")
     sprint_dirs = _sort_sprint_paths([path for path in backlog_root.iterdir() if path.is_dir() and path.name.startswith("sprint_")])
-    story_cards = [str(path) for sprint_dir in sprint_dirs for path in sorted(sprint_dir.rglob("S*.yaml"))]
+    story_cards = [str(path) for sprint_dir in sprint_dirs for path in _resolve_story_card_paths(sprint_dir)]
     return (
         {
             "backlog_root": str(backlog_root),
@@ -656,6 +739,601 @@ def _persist_auto_delivery_runtime(
     )
 
 
+def _write_roadmap_summary(payload: dict[str, object], summary_path: Path | None = None) -> Path:
+    output_dir = ROOT_DIR / "runs" / "roadmaps"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if summary_path is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        roadmap_prefix = str(payload.get("roadmap_prefix") or "roadmap").replace("\\", "_").replace("/", "_")
+        summary_path = output_dir / f"{roadmap_prefix}_{timestamp}.json"
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary_path
+
+
+def _refresh_roadmap_counts(payload: dict[str, object]) -> None:
+    sprints = payload.get("sprints") or []
+    if not isinstance(sprints, list):
+        payload["completed_story_count"] = 0
+        payload["failed_story_count"] = 0
+        return
+    payload["completed_story_count"] = sum(len(item.get("completed_stories") or []) for item in sprints if isinstance(item, dict))
+    payload["failed_story_count"] = sum(len(item.get("failed_stories") or []) for item in sprints if isinstance(item, dict))
+
+
+def _load_successful_story_status_index(repo_b_path: Path, backlog_id: str) -> dict[str, dict[str, object]]:
+    registry_path = repo_b_path / "tasks" / "story_status_registry.json"
+    index: dict[str, dict[str, object]] = {}
+    for entry in _read_registry_entries(registry_path, "stories"):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("backlog_id") or "").strip() != str(backlog_id).strip():
+            continue
+        if str(entry.get("status") or "").strip() != "done":
+            continue
+        story_id = str(entry.get("story_id") or "").strip()
+        if not story_id:
+            continue
+        index[story_id] = {
+            "story_id": story_id,
+            "task_id": entry.get("task_id"),
+            "commit": entry.get("commit"),
+            "branch": entry.get("branch"),
+            "status": "done",
+        }
+    return index
+
+
+def _discover_roadmap_result(tasks_root: Path, roadmap_prefix: str) -> dict[str, object]:
+    tasks_path = tasks_root.resolve()
+    sprint_dirs = _sort_sprint_paths(
+        [path for path in tasks_path.iterdir() if path.is_dir() and path.name.startswith(f"{roadmap_prefix}_sprint_")]
+    )
+    if not sprint_dirs:
+        raise click.ClickException(f"No sprint directories found for roadmap prefix: {roadmap_prefix}")
+    story_cards = [str(path) for sprint_dir in sprint_dirs for path in _resolve_story_card_paths(sprint_dir)]
+    return {
+        "roadmap_prefix": roadmap_prefix,
+        "tasks_root": str(tasks_path),
+        "sprint_dirs": [str(path) for path in sprint_dirs],
+        "story_cards": story_cards,
+    }
+
+
+def _preflight_story_file(
+    story_file: Path,
+    *,
+    repo_b_path: Path,
+    project: str,
+    backlog_id: str,
+    backlog_root: str,
+    sprint_id: str,
+) -> dict[str, object]:
+    try:
+        task = _load_story_payload(story_file, repo_b_path, project)
+        task.update(
+            {
+                "backlog_id": backlog_id,
+                "backlog_root": backlog_root,
+                "sprint_id": sprint_id,
+                "auto_run": True,
+                "formal_entry": True,
+                "execution_policy": "continuous_full_sprint",
+                "interaction_policy": "non_interactive_auto_run",
+                "office_hours_path": "preflight://office-hours",
+                "plan_ceo_review_path": "preflight://plan-ceo-review",
+                "sprint_framing_path": "preflight://sprint-framing",
+                "gstack_parity_manifest_path": "preflight://gstack-parity",
+                "gstack_acceptance_checklist_path": "preflight://gstack-checklist",
+            }
+        )
+        admission = build_story_admission(task, repo_b_path, story_file=story_file)
+    except Exception as exc:
+        return {
+            "story_id": story_file.stem,
+            "story_file": str(story_file),
+            "admitted": False,
+            "errors": [str(exc)],
+        }
+    return {
+        "story_id": str(task.get("story_id") or task.get("task_id") or story_file.stem),
+        "story_file": str(story_file),
+        "admitted": bool(admission.get("admitted")),
+        "errors": list(admission.get("errors") or []),
+        "warnings": list(admission.get("warnings") or []),
+        "required_modes": list(admission.get("required_modes") or []),
+        "advisory_modes": list(admission.get("advisory_modes") or []),
+    }
+
+
+def _preflight_roadmap(
+    *,
+    repo_b_path: Path,
+    project: str,
+    tasks_root: Path,
+    roadmap_result: dict[str, object],
+) -> dict[str, object]:
+    roadmap_prefix = str(roadmap_result.get("roadmap_prefix") or "").strip()
+    sprint_dirs = [Path(item).resolve() for item in (roadmap_result.get("sprint_dirs") or [])]
+    preflight: dict[str, object] = {
+        "roadmap_prefix": roadmap_prefix,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "story_count": len(roadmap_result.get("story_cards") or []),
+        "passed": True,
+        "errors": [],
+        "sprints": [],
+    }
+    for sprint_dir in sprint_dirs:
+        sprint_errors: list[str] = []
+        sprint_execution_file = sprint_dir / "execution_order.txt"
+        sprint_plan_path = sprint_dir / "sprint_plan.md"
+        if not sprint_plan_path.exists():
+            sprint_errors.append(f"Missing sprint_plan.md: {sprint_plan_path}")
+        if not sprint_execution_file.exists():
+            sprint_errors.append(f"Missing execution_order.txt: {sprint_execution_file}")
+        story_ids = _read_execution_story_ids(sprint_execution_file)
+        if not story_ids:
+            sprint_errors.append(f"No stories declared in execution_order.txt: {sprint_execution_file}")
+        sprint_summary = {
+            "sprint_dir": str(sprint_dir),
+            "sprint_id": sprint_dir.name,
+            "story_count": len(story_ids),
+            "stories": [],
+            "errors": sprint_errors,
+        }
+        for story_id in story_ids:
+            matches = [path.resolve() for path in sprint_dir.rglob(f"{story_id}_*.yaml")]
+            if len(matches) != 1:
+                sprint_errors.append(
+                    f"Story {story_id} must resolve to exactly one YAML, found {len(matches)} in {sprint_dir}"
+                )
+                sprint_summary["stories"].append(
+                    {
+                        "story_id": story_id,
+                        "admitted": False,
+                        "errors": [f"Ambiguous or missing story file for {story_id}"],
+                    }
+                )
+                continue
+            sprint_summary["stories"].append(
+                _preflight_story_file(
+                    matches[0],
+                    repo_b_path=repo_b_path,
+                    project=project,
+                    backlog_id=roadmap_prefix,
+                    backlog_root=str(tasks_root),
+                    sprint_id=sprint_dir.name,
+                )
+            )
+        story_errors = [
+            error
+            for story in sprint_summary["stories"]
+            if isinstance(story, dict)
+            for error in (story.get("errors") or [])
+            if str(error).strip()
+        ]
+        sprint_summary["errors"] = sprint_errors + story_errors
+        if sprint_summary["errors"]:
+            preflight["passed"] = False
+            preflight["errors"].extend(sprint_summary["errors"])
+        preflight["sprints"].append(sprint_summary)
+    return preflight
+
+
+def _resolve_roadmap_resume_cursor(
+    repo_b_path: Path,
+    *,
+    roadmap_prefix: str,
+    sprint_dirs: list[Path],
+    successful_story_index: dict[str, dict[str, object]],
+) -> tuple[str | None, str | None, str | None, str | None]:
+    resume_state = read_resume_state(repo_b_path)
+    resume_backlog_id = str(resume_state.get("backlog_id") or resume_state.get("roadmap_prefix") or "").strip()
+    interruption_reason = None
+    if str(resume_state.get("status") or "").strip() == "interrupted" and resume_backlog_id == roadmap_prefix:
+        sprint_id = str(resume_state.get("sprint_id") or "").strip() or None
+        story_id = str(resume_state.get("resume_from_story") or resume_state.get("story_id") or "").strip() or None
+        interruption_reason = str(resume_state.get("interruption_reason") or "").strip() or None
+        last_success_story = str(resume_state.get("last_success_story") or "").strip() or None
+        if sprint_id and any(item.name == sprint_id for item in sprint_dirs):
+            return sprint_id, story_id, last_success_story, interruption_reason
+
+    last_success_story: str | None = None
+    for sprint_dir in sprint_dirs:
+        for story_id in _read_execution_story_ids(sprint_dir / "execution_order.txt"):
+            if story_id in successful_story_index:
+                last_success_story = story_id
+                continue
+            return sprint_dir.name, story_id, last_success_story, interruption_reason
+    return None, None, last_success_story, interruption_reason
+
+
+def _build_roadmap_verification(
+    *,
+    repo_b_path: Path,
+    project: str,
+    roadmap_summary: dict[str, object],
+) -> dict[str, object]:
+    continuity_paths = resolve_continuity_paths(repo_b_path, project)
+    continuity = {
+        "now_md_exists": continuity_paths["now_md"].exists(),
+        "state_md_exists": continuity_paths["state_md"].exists(),
+        "decisions_md_exists": continuity_paths["decisions_md"].exists(),
+        "manifest_exists": continuity_paths["manifest_json"].exists(),
+    }
+    gstack: list[dict[str, object]] = []
+    for sprint in (roadmap_summary.get("sprints") or []):
+        if not isinstance(sprint, dict):
+            continue
+        pre_hook = sprint.get("pre_hook") if isinstance(sprint.get("pre_hook"), dict) else {}
+        gstack.append(
+            {
+                "sprint_id": sprint.get("sprint_id") or Path(str(sprint.get("sprint_dir") or "")).name,
+                "office_hours_ready": Path(str(pre_hook.get("office_hours_path") or "")).exists(),
+                "plan_ceo_review_ready": Path(str(pre_hook.get("plan_ceo_review_path") or "")).exists(),
+                "sprint_framing_ready": Path(str(pre_hook.get("sprint_framing_path") or "")).exists(),
+                "parity_manifest_ready": Path(str(pre_hook.get("parity_manifest_path") or "")).exists(),
+                "acceptance_checklist_ready": Path(str(pre_hook.get("acceptance_checklist_path") or "")).exists(),
+            }
+        )
+    return {"continuity": continuity, "gstack": gstack}
+
+
+def _persist_roadmap_runtime(
+    repo_b_path: Path,
+    summary_path: Path,
+    payload: dict[str, object],
+    *,
+    next_action: str,
+    cleanup_note: str,
+) -> None:
+    checkpoint_at = datetime.now().isoformat(timespec="seconds")
+    payload["last_updated_at"] = checkpoint_at
+    payload["last_checkpoint_at"] = checkpoint_at
+    payload["verification"] = _build_roadmap_verification(repo_b_path=repo_b_path, project=str(payload.get("project") or ""), roadmap_summary=payload)
+    _refresh_roadmap_counts(payload)
+    _write_roadmap_summary(payload, summary_path)
+    clear_keys = (
+        ["current_story", "current_node", "resume_from_story", "interruption_reason", "error_message", "failure_snapshot_path"]
+        if str(payload.get("status") or "") == "completed"
+        else []
+    )
+    write_resume_state(
+        repo_b_path,
+        {
+            "project": payload.get("project"),
+            "backlog_id": payload.get("roadmap_prefix"),
+            "backlog_root": payload.get("tasks_root"),
+            "sprint_id": payload.get("current_sprint"),
+            "story_id": payload.get("current_story") or payload.get("last_success_story"),
+            "current_node": payload.get("current_node"),
+            "status": payload.get("status"),
+            "last_success_story": payload.get("last_success_story"),
+            "resume_from_story": payload.get("resume_from_story"),
+            "interruption_reason": payload.get("interruption_reason"),
+            "error_message": payload.get("error_message"),
+            "execution_policy": payload.get("execution_policy"),
+            "interaction_policy": payload.get("interaction_policy"),
+            "pause_policy": payload.get("pause_policy"),
+            "run_policy": payload.get("run_policy"),
+            "acceptance_policy": payload.get("acceptance_policy"),
+            "retry_policy": payload.get("retry_policy"),
+            "acceptance_attempt": payload.get("acceptance_attempt"),
+            "acceptance_failure_class": payload.get("acceptance_failure_class"),
+            "repair_iteration": payload.get("repair_iteration"),
+            "final_green_required": payload.get("final_green_required"),
+            "roadmap_prefix": payload.get("roadmap_prefix"),
+            "roadmap_summary_path": str(summary_path),
+        },
+        clear_keys=clear_keys,
+    )
+    write_current_handoff(
+        repo_b_path,
+        {
+            "project": payload.get("project"),
+            "backlog_id": payload.get("roadmap_prefix"),
+            "sprint_id": payload.get("current_sprint"),
+            "story_id": payload.get("current_story") or payload.get("resume_from_story") or payload.get("last_success_story"),
+            "current_node": payload.get("current_node"),
+            "status": payload.get("status"),
+            "last_success_story": payload.get("last_success_story"),
+            "resume_from_story": payload.get("resume_from_story"),
+            "interruption_reason": payload.get("interruption_reason"),
+            "root_cause": payload.get("error_message")
+            or payload.get("interruption_reason")
+            or ("Roadmap execution completed." if str(payload.get("status") or "") == "completed" else "Roadmap execution state persisted."),
+            "next_action": next_action,
+            "resume_command": _build_roadmap_resume_command(
+                project=str(payload.get("project") or ""),
+                env=str(payload.get("env") or "test"),
+                tasks_root=Path(str(payload.get("tasks_root") or "")),
+                roadmap_prefix=str(payload.get("roadmap_prefix") or ""),
+                release=bool(payload.get("release")),
+            ),
+            "evidence_paths": [str(summary_path)],
+            "cleanup_note": cleanup_note,
+            "execution_policy": payload.get("execution_policy"),
+            "interaction_policy": payload.get("interaction_policy"),
+            "pause_policy": payload.get("pause_policy"),
+            "run_policy": payload.get("run_policy"),
+            "acceptance_policy": payload.get("acceptance_policy"),
+            "retry_policy": payload.get("retry_policy"),
+            "acceptance_attempt": payload.get("acceptance_attempt"),
+            "acceptance_failure_class": payload.get("acceptance_failure_class"),
+            "repair_iteration": payload.get("repair_iteration"),
+            "final_green_required": payload.get("final_green_required"),
+        },
+    )
+
+
+def _execute_roadmap(
+    *,
+    roadmap_result: dict[str, object],
+    repo_b_path: Path,
+    tasks_root: Path,
+    env: str,
+    project: str,
+    release: bool,
+    echo: Callable[[str], Any] | None = None,
+) -> Path:
+    printer = echo or click.echo
+    roadmap_prefix = str(roadmap_result.get("roadmap_prefix") or "").strip()
+    sprint_dirs = [Path(item).resolve() for item in (roadmap_result.get("sprint_dirs") or [])]
+    resume_command = _build_roadmap_resume_command(
+        project=project,
+        env=env,
+        tasks_root=tasks_root,
+        roadmap_prefix=roadmap_prefix,
+        release=release,
+    )
+    successful_story_index = _load_successful_story_status_index(repo_b_path, roadmap_prefix)
+    resume_sprint_id, resume_story_id, last_success_story, interruption_reason = _resolve_roadmap_resume_cursor(
+        repo_b_path,
+        roadmap_prefix=roadmap_prefix,
+        sprint_dirs=sprint_dirs,
+        successful_story_index=successful_story_index,
+    )
+    roadmap_summary: dict[str, object] = {
+        "project": project,
+        "env": env,
+        "repo_path": str(repo_b_path),
+        "tasks_root": str(tasks_root),
+        "roadmap_prefix": roadmap_prefix,
+        "story_count": len(roadmap_result.get("story_cards") or []),
+        "release": release,
+        "status": "running",
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "execution_policy": "continuous_full_sprint",
+        "interaction_policy": "non_interactive_auto_run",
+        "pause_policy": "story_boundary_or_shared_blocker_only",
+        "run_policy": "single_pass_to_completion",
+        "acceptance_policy": "must_pass_all_required_runs",
+        "retry_policy": "auto_repair_until_green",
+        "acceptance_attempt": 0,
+        "acceptance_failure_class": None,
+        "repair_iteration": 0,
+        "final_green_required": True,
+        "sprint_count": len(sprint_dirs),
+        "sprint_dirs": [str(path) for path in sprint_dirs],
+        "sprints": [],
+        "current_sprint": resume_sprint_id,
+        "current_story": resume_story_id,
+        "current_node": None,
+        "last_success_story": last_success_story,
+        "resume_from_story": resume_story_id,
+        "interruption_reason": interruption_reason,
+        "error_message": None,
+    }
+    summary_path = _write_roadmap_summary(roadmap_summary)
+    _persist_roadmap_runtime(
+        repo_b_path,
+        summary_path,
+        roadmap_summary,
+        next_action="Run roadmap execution from the current safe point.",
+        cleanup_note="No cleanup required before roadmap execution continues.",
+    )
+
+    def upsert_sprint_result(sprint_payload: dict[str, object]) -> None:
+        sprint_id = Path(str(sprint_payload.get("sprint_dir") or "")).name
+        sprint_payload = {**sprint_payload, "sprint_id": sprint_id}
+        existing = roadmap_summary.get("sprints")
+        if not isinstance(existing, list):
+            existing = []
+            roadmap_summary["sprints"] = existing
+        for index, current in enumerate(existing):
+            if isinstance(current, dict) and str(current.get("sprint_id") or "") == sprint_id:
+                existing[index] = sprint_payload
+                break
+        else:
+            existing.append(sprint_payload)
+
+    start_index = 0
+    if resume_sprint_id:
+        for index, sprint_dir in enumerate(sprint_dirs):
+            if sprint_dir.name == resume_sprint_id:
+                start_index = index
+                break
+
+    try:
+        for sprint_dir in sprint_dirs[start_index:]:
+            current_resume_story = resume_story_id if sprint_dir.name == resume_sprint_id else None
+            sprint_success_index = {
+                story_id: snapshot
+                for story_id, snapshot in successful_story_index.items()
+                if story_id in _read_execution_story_ids(sprint_dir / "execution_order.txt")
+            }
+
+            def progress_callback(progress: dict[str, object], *, sprint_name: str = sprint_dir.name) -> None:
+                current_payload = dict(progress)
+                current_payload["sprint_id"] = sprint_name
+                upsert_sprint_result(current_payload)
+                roadmap_summary["current_sprint"] = sprint_name
+                roadmap_summary["current_story"] = current_payload.get("current_story")
+                roadmap_summary["current_node"] = current_payload.get("current_node")
+                roadmap_summary["last_success_story"] = current_payload.get("last_success_story") or roadmap_summary.get("last_success_story")
+                roadmap_summary["resume_from_story"] = current_payload.get("resume_from_story")
+                roadmap_summary["interruption_reason"] = current_payload.get("interruption_reason")
+                roadmap_summary["error_message"] = current_payload.get("error_message")
+                _persist_roadmap_runtime(
+                    repo_b_path,
+                    summary_path,
+                    roadmap_summary,
+                    next_action=f"Continue sprint {sprint_name} from the recorded safe point.",
+                    cleanup_note="Inspect the current sprint evidence before resuming if a blocker remains.",
+                )
+
+            roadmap_summary["current_sprint"] = sprint_dir.name
+            roadmap_summary["current_story"] = current_resume_story
+            roadmap_summary["resume_from_story"] = current_resume_story
+            _persist_roadmap_runtime(
+                repo_b_path,
+                summary_path,
+                roadmap_summary,
+                next_action=f"Execute sprint {sprint_dir.name}.",
+                cleanup_note="No cleanup required before the next sprint starts.",
+            )
+            sprint_result = _run_sprint_directory(
+                sprint_dir,
+                repo_b_path=repo_b_path,
+                env=env,
+                project=project,
+                release=release,
+                start_story_id=current_resume_story,
+                continue_on_failure=False,
+                echo=printer,
+                successful_story_index=sprint_success_index,
+                progress_callback=progress_callback,
+                backlog_id_override=roadmap_prefix,
+                backlog_root_override=str(tasks_root),
+                resume_command_override=resume_command,
+            )
+            upsert_sprint_result(sprint_result)
+            roadmap_summary["last_success_story"] = sprint_result.get("last_success_story") or roadmap_summary.get("last_success_story")
+            roadmap_summary["current_story"] = None
+            roadmap_summary["current_node"] = sprint_result.get("current_node")
+            roadmap_summary["resume_from_story"] = None
+            roadmap_summary["interruption_reason"] = None
+            roadmap_summary["error_message"] = None
+            _persist_roadmap_runtime(
+                repo_b_path,
+                summary_path,
+                roadmap_summary,
+                next_action=f"Move to the next sprint after {sprint_dir.name}.",
+                cleanup_note="No cleanup required before continuing to the next sprint.",
+            )
+
+        roadmap_summary["status"] = "completed"
+        roadmap_summary["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        roadmap_summary["current_sprint"] = None
+        roadmap_summary["current_story"] = None
+        roadmap_summary["current_node"] = "doc_writer"
+        roadmap_summary["resume_from_story"] = None
+        roadmap_summary["interruption_reason"] = None
+        roadmap_summary["error_message"] = None
+        _persist_roadmap_runtime(
+            repo_b_path,
+            summary_path,
+            roadmap_summary,
+            next_action="Roadmap execution completed.",
+            cleanup_note="No cleanup required.",
+        )
+        printer(f"Roadmap summary: {summary_path}")
+        printer(f"Completed stories: {roadmap_summary.get('completed_story_count')}")
+        printer(f"Failed stories: {roadmap_summary.get('failed_story_count')}")
+        return summary_path
+    except click.ClickException as exc:
+        roadmap_summary["status"] = "interrupted"
+        roadmap_summary["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        roadmap_summary["error_message"] = str(exc)
+        roadmap_summary["interruption_reason"] = str(roadmap_summary.get("interruption_reason") or exc)
+        _persist_roadmap_runtime(
+            repo_b_path,
+            summary_path,
+            roadmap_summary,
+            next_action="Inspect the last failed story and resume roadmap execution from the safe point.",
+            cleanup_note="A failed worktree or sprint artifact may need inspection before retry.",
+        )
+        raise
+
+
+def _sync_and_assert_continuity(
+    *,
+    trigger: str,
+    project: str,
+    repo_b_path: Path,
+    task_payload: dict[str, Any] | None = None,
+    current_story_path: Path | None = None,
+    sprint_artifact_refs: list[str] | None = None,
+    artifact_refs: list[str] | None = None,
+    decision_refs: list[str] | None = None,
+) -> dict[str, Any]:
+    sync_continuity(
+        trigger,
+        project,
+        repo_b_path,
+        task_payload=task_payload,
+        current_story_path=current_story_path,
+        sprint_artifact_refs=sprint_artifact_refs,
+        artifact_refs=artifact_refs,
+        decision_refs=decision_refs,
+    )
+    bundle = load_continuity_bundle(
+        trigger,
+        project,
+        repo_b_path,
+        current_story_path=current_story_path,
+        strict=False,
+    )
+    assert_continuity_ready(bundle, strict=True)
+    return bundle
+
+
+def _story_boundary_overrides(
+    *,
+    project: str,
+    repo_b_path: Path,
+    story_file: Path,
+    pre_hook: dict[str, Any] | None = None,
+    backlog_id: str | None = None,
+    backlog_root: str | None = None,
+    sprint_id: str | None = None,
+) -> dict[str, Any]:
+    sprint_refs = [
+        str(item)
+        for item in (
+            (pre_hook or {}).get("office_hours_path"),
+            (pre_hook or {}).get("plan_ceo_review_path"),
+            (pre_hook or {}).get("sprint_framing_path"),
+            (pre_hook or {}).get("parity_manifest_path"),
+            (pre_hook or {}).get("acceptance_checklist_path"),
+        )
+        if str(item or "").strip()
+    ]
+    story_payload = yaml.safe_load(story_file.read_text(encoding="utf-8"))
+    if not isinstance(story_payload, dict):
+        story_payload = {}
+    if backlog_id is not None:
+        story_payload["backlog_id"] = backlog_id
+    if backlog_root is not None:
+        story_payload["backlog_root"] = backlog_root
+    if sprint_id is not None:
+        story_payload["sprint_id"] = sprint_id
+    _sync_and_assert_continuity(
+        trigger="story_boundary",
+        project=project,
+        repo_b_path=repo_b_path,
+        task_payload=story_payload,
+        current_story_path=story_file,
+        sprint_artifact_refs=sprint_refs,
+    )
+    return {
+        "continuity_trigger": "story_boundary",
+        "continuity_story_path": str(story_file),
+        "continuity_sprint_artifact_refs": sprint_refs,
+        "gstack_parity_manifest_path": (pre_hook or {}).get("parity_manifest_path"),
+        "gstack_acceptance_checklist_path": (pre_hook or {}).get("acceptance_checklist_path"),
+    }
+
+
 def _execute_auto_delivery(
     *,
     backlog_result: dict[str, object],
@@ -856,6 +1534,9 @@ def _run_sprint_directory(
     echo: callable | None = None,
     successful_story_index: dict[str, dict[str, object]] | None = None,
     progress_callback: Callable[[dict[str, object]], Any] | None = None,
+    backlog_id_override: str | None = None,
+    backlog_root_override: str | None = None,
+    resume_command_override: str | None = None,
 ) -> dict[str, object]:
     printer = echo or click.echo
     target_dir = sprint_dir.resolve()
@@ -863,15 +1544,43 @@ def _run_sprint_directory(
     if not target_dir.exists() or not execution_file.exists():
         raise click.ClickException(f"Sprint directory or execution_order.txt is missing: {target_dir}")
 
-    story_ids = [line.strip() for line in execution_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    story_ids = _read_execution_story_ids(execution_file)
     if start_story_id and start_story_id in story_ids:
         start_from = story_ids.index(start_story_id)
     if start_from < 0 or start_from >= len(story_ids):
         raise click.ClickException(f"start-from is out of range: {start_from}")
+    effective_backlog_id, effective_backlog_root = _derive_backlog_context_from_sprint_dir(
+        target_dir,
+        repo_b_path,
+        backlog_id_override=backlog_id_override,
+        backlog_root_override=backlog_root_override,
+    )
+    effective_resume_command = resume_command_override or (
+        f"python cli.py auto-deliver --project {project} --env {env} --prefix {effective_backlog_id or 'backlog_v1'} --auto-run"
+    )
 
     baseline = _capture_sprint_registry_baseline(repo_b_path, target_dir)
     authoritative_attempt = _build_authoritative_attempt(target_dir)
     pre_hook = run_sprint_pre_hooks(target_dir, project=project, release=release)
+    try:
+        _sync_and_assert_continuity(
+            trigger="sprint_boundary",
+            project=project,
+            repo_b_path=repo_b_path,
+            sprint_artifact_refs=[
+                str(item)
+                for item in (
+                    pre_hook.get("office_hours_path"),
+                    pre_hook.get("plan_ceo_review_path"),
+                    pre_hook.get("sprint_framing_path"),
+                    pre_hook.get("parity_manifest_path"),
+                    pre_hook.get("acceptance_checklist_path"),
+                )
+                if str(item or "").strip()
+            ],
+        )
+    except ContinuityGuardError as exc:
+        raise click.ClickException(str(exc)) from exc
     if _is_finahunt_sprint5_authoritative_rerun(project, target_dir):
         _mark_existing_sprint_attempts_stale(
             repo_b_path=repo_b_path,
@@ -929,8 +1638,8 @@ def _run_sprint_directory(
             repo_b_path,
             {
                 "project": project,
-                "backlog_root": str(target_dir.parent),
-                "backlog_id": target_dir.parent.name,
+                "backlog_root": effective_backlog_root,
+                "backlog_id": effective_backlog_id,
                 "sprint_id": target_dir.name,
                 "story_id": story_id,
                 "current_node": current_node,
@@ -957,7 +1666,7 @@ def _run_sprint_directory(
             repo_b_path,
             {
                 "project": project,
-                "backlog_id": target_dir.parent.name,
+                "backlog_id": effective_backlog_id,
                 "sprint_id": target_dir.name,
                 "story_id": story_id,
                 "current_node": current_node,
@@ -966,7 +1675,7 @@ def _run_sprint_directory(
                 "interruption_reason": reason,
                 "root_cause": message,
                 "next_action": f"Fix the blocker for {story_id}, then resume automatic delivery from this story.",
-                "resume_command": f"python cli.py auto-deliver --project {project} --env {env} --prefix {target_dir.parent.name} --auto-run",
+                "resume_command": effective_resume_command,
                 "evidence_paths": evidence_paths,
                 "cleanup_note": "Inspect the failed story and rerun from the latest checkpoint.",
                 "blocker_class": blocker_class,
@@ -994,8 +1703,8 @@ def _run_sprint_directory(
                 repo_b_path,
                 {
                     "project": project,
-                    "backlog_root": str(target_dir.parent),
-                    "backlog_id": target_dir.parent.name,
+                    "backlog_root": effective_backlog_root,
+                    "backlog_id": effective_backlog_id,
                     "sprint_id": target_dir.name,
                     "story_id": story_id,
                     "status": "running",
@@ -1032,6 +1741,11 @@ def _run_sprint_directory(
                 "office_hours_path": pre_hook.get("office_hours_path"),
                 "plan_ceo_review_path": pre_hook.get("plan_ceo_review_path"),
                 "sprint_framing_path": pre_hook.get("sprint_framing_path"),
+                "gstack_parity_manifest_path": pre_hook.get("parity_manifest_path"),
+                "gstack_acceptance_checklist_path": pre_hook.get("acceptance_checklist_path"),
+                "backlog_id": effective_backlog_id,
+                "backlog_root": effective_backlog_root,
+                "sprint_id": target_dir.name,
                 "authoritative_attempt": authoritative_attempt,
                 "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
                 "formal_entry": True,
@@ -1077,11 +1791,32 @@ def _run_sprint_directory(
             raise click.ClickException(message)
 
         printer(f"[{index}/{len(story_ids)}] Running {story_id}")
+        try:
+            continuity_overrides = _story_boundary_overrides(
+                project=project,
+                repo_b_path=repo_b_path,
+                story_file=story_file,
+                pre_hook=pre_hook,
+                backlog_id=effective_backlog_id,
+                backlog_root=effective_backlog_root,
+                sprint_id=target_dir.name,
+            )
+        except ContinuityGuardError as exc:
+            message = str(exc)
+            failed.append({"story_id": story_id, "error": message, "blocker_class": "shared_dependency_blocker"})
+            persist_interruption(
+                story_id,
+                "continuity_guard_blocked",
+                message,
+                [str(story_file)],
+                blocker_class="shared_dependency_blocker",
+            )
+            raise click.ClickException(message) from exc
         update_story_status(
             repo_b_path,
             {
                 "project": project,
-                "backlog_id": target_dir.parent.name,
+                "backlog_id": effective_backlog_id,
                 "sprint_id": target_dir.name,
                 "story_id": story_id,
                 "status": "running",
@@ -1096,8 +1831,8 @@ def _run_sprint_directory(
             repo_b_path,
             {
                 "project": project,
-                "backlog_root": str(target_dir.parent),
-                "backlog_id": target_dir.parent.name,
+                "backlog_root": effective_backlog_root,
+                "backlog_id": effective_backlog_id,
                 "sprint_id": target_dir.name,
                 "story_id": story_id,
                 "status": "running",
@@ -1120,14 +1855,14 @@ def _run_sprint_directory(
             repo_b_path,
             {
                 "project": project,
-                "backlog_id": target_dir.parent.name,
+                "backlog_id": effective_backlog_id,
                 "sprint_id": target_dir.name,
                 "story_id": story_id,
                 "status": "running",
                 "resume_from_story": story_id,
                 "root_cause": "Story execution in progress.",
                 "next_action": f"Execute story {story_id}.",
-                "resume_command": f"python cli.py auto-deliver --project {project} --env {env} --prefix {target_dir.parent.name} --auto-run",
+                "resume_command": effective_resume_command,
                 "evidence_paths": [str(story_file)],
                 "cleanup_note": "No cleanup required before continuing.",
                 "execution_policy": "continuous_full_sprint",
@@ -1161,9 +1896,15 @@ def _run_sprint_directory(
                     "repair_iteration": 0,
                     "final_green_required": True,
                     "formal_entry": True,
+                    "backlog_id": effective_backlog_id,
+                    "backlog_root": effective_backlog_root,
+                    "sprint_id": target_dir.name,
                     "office_hours_path": pre_hook.get("office_hours_path"),
                     "plan_ceo_review_path": pre_hook.get("plan_ceo_review_path"),
                     "sprint_framing_path": pre_hook.get("sprint_framing_path"),
+                    "gstack_parity_manifest_path": pre_hook.get("parity_manifest_path"),
+                    "gstack_acceptance_checklist_path": pre_hook.get("acceptance_checklist_path"),
+                    **continuity_overrides,
                     "authoritative_attempt": authoritative_attempt,
                     "sprint_rerun_policy": "isolation_snapshot_full_rerun" if _is_finahunt_sprint5_authoritative_rerun(project, target_dir) else None,
                 },
@@ -1177,7 +1918,7 @@ def _run_sprint_directory(
                 story_id,
                 {
                     "project": project,
-                    "backlog_id": target_dir.parent.name,
+                    "backlog_id": effective_backlog_id,
                     "sprint_id": target_dir.name,
                     "story_id": story_id,
                     "task_name": story_id,
@@ -1207,8 +1948,8 @@ def _run_sprint_directory(
                 repo_b_path,
                 {
                     "project": project,
-                    "backlog_root": str(target_dir.parent),
-                    "backlog_id": target_dir.parent.name,
+                    "backlog_root": effective_backlog_root,
+                    "backlog_id": effective_backlog_id,
                     "sprint_id": target_dir.name,
                     "story_id": story_id,
                     "status": "running",
@@ -1242,7 +1983,7 @@ def _run_sprint_directory(
             story_id,
             {
                 "project": project,
-                "backlog_id": target_dir.parent.name,
+                "backlog_id": effective_backlog_id,
                 "sprint_id": target_dir.name,
                 "story_id": story_id,
                 "task_id": output.get("task_id"),
@@ -1294,6 +2035,24 @@ def _run_sprint_directory(
         raise click.ClickException(f"Task execution failed for {story_id}: {failure_message}")
 
     post_hook = run_sprint_post_hooks(target_dir, project=project, release=release)
+    try:
+        _sync_and_assert_continuity(
+            trigger="sprint_boundary",
+            project=project,
+            repo_b_path=repo_b_path,
+            sprint_artifact_refs=[
+                str(item)
+                for item in (
+                    post_hook.get("document_release_path"),
+                    post_hook.get("retro_path"),
+                    post_hook.get("ship_advice_path"),
+                    post_hook.get("sprint_close_bundle_path"),
+                )
+                if str(item or "").strip()
+            ],
+        )
+    except ContinuityGuardError as exc:
+        raise click.ClickException(str(exc)) from exc
     report_path = _write_sprint_special_acceptance_report(
         target_dir=target_dir,
         repo_b_path=repo_b_path,
@@ -1322,6 +2081,8 @@ def _run_sprint_directory(
         "post_hook": post_hook,
         "authoritative_attempt": authoritative_attempt,
         "special_acceptance_report_path": str(report_path),
+        "backlog_id": effective_backlog_id,
+        "backlog_root": effective_backlog_root,
         "status": "completed",
         "current_story": None,
         "current_node": "doc_writer" if not failed else None,
@@ -1834,6 +2595,60 @@ def auto_deliver(
         release=release,
         echo=click.echo,
     )
+
+
+@cli.command("run-roadmap")
+@click.option("--tasks-root", required=True, help="Tasks root directory, for example D:\\lyh\\agent\\agent-frame\\versefina\\tasks")
+@click.option("--roadmap-prefix", required=True, help="Roadmap prefix, for example roadmap_1_6")
+@click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
+@click.option("--resume", is_flag=True, help="Resume from the recorded roadmap safe point")
+@click.option("--release", is_flag=True, help="Mark roadmap sprint runs as release candidates and emit ship advice")
+@click.option("--preflight-only", is_flag=True, help="Only validate roadmap structure and workflow admission without executing stories")
+def run_roadmap(
+    tasks_root: str,
+    roadmap_prefix: str,
+    env: str,
+    project: str,
+    resume: bool,
+    release: bool,
+    preflight_only: bool,
+) -> None:
+    """Run every sprint inside a roadmap prefix with roadmap-level persistence and verification."""
+    repo_b_path = _resolve_project_repo_path(_load_env_config(env), project)
+    tasks_root_path = Path(tasks_root).resolve()
+    if not tasks_root_path.exists():
+        raise click.ClickException(f"Tasks root does not exist: {tasks_root_path}")
+
+    roadmap_result = _discover_roadmap_result(tasks_root_path, roadmap_prefix)
+    preflight = _preflight_roadmap(
+        repo_b_path=repo_b_path,
+        project=project,
+        tasks_root=tasks_root_path,
+        roadmap_result=roadmap_result,
+    )
+    preflight_output = ROOT_DIR / "runs" / "roadmaps" / f"{roadmap_prefix}_preflight.json"
+    preflight_output.parent.mkdir(parents=True, exist_ok=True)
+    preflight_output.write_text(json.dumps(preflight, ensure_ascii=False, indent=2), encoding="utf-8")
+    click.echo(f"Roadmap preflight report: {preflight_output}")
+    if not preflight.get("passed"):
+        raise click.ClickException("Roadmap preflight failed. Inspect the generated preflight report before execution.")
+    if preflight_only:
+        click.echo("Roadmap preflight passed.")
+        return
+    if resume:
+        click.echo("Roadmap resume mode enabled; the latest safe point will be reused when available.")
+
+    summary_path = _execute_roadmap(
+        roadmap_result=roadmap_result,
+        repo_b_path=repo_b_path,
+        tasks_root=tasks_root_path,
+        env=env,
+        project=project,
+        release=release,
+        echo=click.echo,
+    )
+    click.echo(f"Roadmap completed: {summary_path}")
 
 
 @cli.command("plan-ceo-review")

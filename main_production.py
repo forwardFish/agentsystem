@@ -22,6 +22,13 @@ from agentsystem.graph.dev_workflow import DevWorkflow
 from agentsystem.core.state import build_mode_coverage
 from agentsystem.core.task_card import normalize_runtime_task_payload
 from agentsystem.orchestration.agent_activation_resolver import apply_agent_activation_policy
+from agentsystem.orchestration.continuity import (
+    ContinuityGuardError,
+    assert_continuity_ready,
+    inject_continuity_into_task,
+    load_continuity_bundle,
+    sync_continuity,
+)
 from agentsystem.orchestration.runtime_memory import (
     collect_mode_artifact_paths,
     ensure_runtime_layout,
@@ -545,6 +552,54 @@ def run_prod_task(
         },
         clear_keys=["failure_type", "interruption_reason", "error_message", "failure_snapshot_path", "commit"],
     )
+    continuity_story_path = str(task_path)
+    continuity_trigger = str(task.get("continuity_trigger") or "").strip()
+    if not continuity_trigger:
+        resume_state = read_resume_state(repo_b_path)
+        continuity_trigger = "resume_interrupt" if str(resume_state.get("status") or "") == "interrupted" else "fresh_start"
+    continuity_sprint_artifact_refs = [str(item) for item in (task.get("continuity_sprint_artifact_refs") or []) if str(item).strip()]
+    continuity_artifact_refs = [str(item) for item in (task.get("continuity_artifact_refs") or []) if str(item).strip()]
+    continuity_decision_refs = [str(item) for item in (task.get("continuity_decision_refs") or []) if str(item).strip()]
+
+    try:
+        sync_continuity(
+            continuity_trigger,
+            project_id,
+            repo_b_path,
+            task_payload=task,
+            current_story_path=continuity_story_path,
+            sprint_artifact_refs=continuity_sprint_artifact_refs,
+            artifact_refs=continuity_artifact_refs,
+            decision_refs=continuity_decision_refs,
+        )
+        continuity_bundle = load_continuity_bundle(
+            continuity_trigger,
+            project_id,
+            repo_b_path,
+            current_story_path=continuity_story_path,
+            strict=False,
+        )
+        assert_continuity_ready(continuity_bundle, strict=True)
+        task = inject_continuity_into_task(task, continuity_bundle)
+    except ContinuityGuardError as exc:
+        logger.error(
+            "Continuity guard blocked task execution",
+            extra={"task_id": task_id, "agent_type": "system"},
+        )
+        return _handle_story_failure(
+            repo_b_path=repo_b_path,
+            project_id=project_id,
+            task=task,
+            task_id=task_id,
+            branch_name=branch_name,
+            worktree_path=worktree_path,
+            workspace_manager=workspace_manager,
+            env=env,
+            state=None,
+            error_message=str(exc),
+            default_failure_type="continuity_guard_blocked",
+            workspace_context=workspace_context,
+        )
     logger.info(
         "Workspace created",
         extra={"task_id": task_id, "agent_type": "system"},

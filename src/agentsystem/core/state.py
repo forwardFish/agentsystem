@@ -221,6 +221,13 @@ class DevState(TypedDict, total=False):
     retro_window: str | None
     workflow_enforcement_policy: str | None
     upstream_agent_parity: dict[str, Any] | None
+    continuity_trigger: str | None
+    continuity_summary: dict[str, Any] | None
+    continuity_now: dict[str, Any] | None
+    continuity_state: dict[str, Any] | None
+    continuity_decisions: dict[str, Any] | None
+    continuity_refs: dict[str, Any] | None
+    continuity_last_synced_at: str | None
     awaiting_user_input: bool | None
     dialogue_state: dict[str, Any] | None
     next_question: dict[str, Any] | None

@@ -31,9 +31,9 @@ def test_node(state: DevState) -> DevState:
     results: list[str] = []
     task_payload = state.get("task_payload") or {}
     install_commands = config.commands.get("install", [])
-    lint_commands = config.commands.get("lint", [])
-    typecheck_commands = config.commands.get("typecheck", [])
-    test_commands = config.commands.get("test", [])
+    lint_commands, lint_scope_reason = _filter_validation_commands(config.commands.get("lint", []), task_payload)
+    typecheck_commands, typecheck_scope_reason = _filter_validation_commands(config.commands.get("typecheck", []), task_payload)
+    test_commands, test_scope_reason = _filter_validation_commands(config.commands.get("test", []), task_payload)
     state["test_passed"] = True
     state["test_failure_info"] = None
     state["error_message"] = None
@@ -57,6 +57,8 @@ def test_node(state: DevState) -> DevState:
             print(f"[Test Agent] Lint output: {lint_output[:200]}")
             state["error_message"] = f"Lint failed: {lint_output}"
             state["test_passed"] = False
+    elif lint_scope_reason:
+        results.append(f"Lint: SKIP ({lint_scope_reason})")
     else:
         results.append("Lint: SKIP (not configured)")
 
@@ -68,6 +70,8 @@ def test_node(state: DevState) -> DevState:
             print(f"[Test Agent] Typecheck output: {typecheck_output[:200]}")
             state["error_message"] = f"Typecheck failed: {typecheck_output}"
             state["test_passed"] = False
+    elif typecheck_scope_reason:
+        results.append(f"Typecheck: SKIP ({typecheck_scope_reason})")
     else:
         results.append("Typecheck: SKIP (not configured)")
 
@@ -79,6 +83,8 @@ def test_node(state: DevState) -> DevState:
             print(f"[Test Agent] Test output: {test_output[:200]}")
             state["error_message"] = f"Test failed: {test_output}"
             state["test_passed"] = False
+    elif test_scope_reason:
+        results.append(f"Test: SKIP ({test_scope_reason})")
     else:
         results.append("Test: SKIP (not configured)")
 
@@ -110,6 +116,67 @@ def test_node(state: DevState) -> DevState:
 
     print("[Test Agent] Validation completed")
     return state
+
+
+def _filter_validation_commands(commands: list[str], task_payload: dict[str, object]) -> tuple[list[str], str | None]:
+    normalized_commands = [str(command).strip() for command in commands if str(command).strip()]
+    if not normalized_commands:
+        return [], None
+
+    scoped_files = _collect_scoped_files(task_payload)
+    if not scoped_files:
+        return normalized_commands, None
+
+    filtered = [command for command in normalized_commands if _command_matches_scope(command, scoped_files)]
+    if filtered:
+        return filtered, None
+    return [], "out of scope"
+
+
+def _collect_scoped_files(task_payload: dict[str, object]) -> list[str]:
+    scoped: list[str] = []
+    for key in ("primary_files", "related_files"):
+        raw = task_payload.get(key)
+        if isinstance(raw, list):
+            scoped.extend(str(item).strip() for item in raw if str(item).strip())
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in scoped:
+        normalized = item.replace("\\", "/")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _command_matches_scope(command: str, scoped_files: list[str]) -> bool:
+    normalized_command = command.lower().replace("\\", "/")
+    if _is_frontend_command(normalized_command):
+        return any(_is_frontend_path(path) for path in scoped_files)
+    if _is_backend_command(normalized_command):
+        return any(_is_backend_path(path) for path in scoped_files)
+    return True
+
+
+def _is_frontend_command(command: str) -> bool:
+    frontend_tokens = ("apps/web", "next ", "nextjs", "vite", "vitest", "eslint", "prettier")
+    return any(token in command for token in frontend_tokens)
+
+
+def _is_backend_command(command: str) -> bool:
+    backend_tokens = ("apps/api", "pytest", "uvicorn", "python -m pytest", "alembic")
+    return any(token in command for token in backend_tokens)
+
+
+def _is_frontend_path(path: str) -> bool:
+    normalized = path.lower().replace("\\", "/")
+    return normalized.startswith("apps/web/") or normalized.endswith((".tsx", ".jsx", ".ts", ".js", ".css", ".scss", ".html"))
+
+
+def _is_backend_path(path: str) -> bool:
+    normalized = path.lower().replace("\\", "/")
+    return normalized.startswith("apps/api/") or normalized.endswith((".py", ".sql"))
 
 
 def _record_test_handoff(state: DevState) -> None:

@@ -102,6 +102,8 @@ class AutoDeliverCliTestCase(unittest.TestCase):
             "office_hours_path": str(base / "office_hours.md"),
             "plan_ceo_review_path": str(base / "plan_ceo_review.md"),
             "sprint_framing_path": str(base / "sprint_framing.json"),
+            "parity_manifest_path": str(base / "gstack_parity_manifest.json"),
+            "acceptance_checklist_path": str(base / "gstack_acceptance_checklist.md"),
         }
         for path in paths.values():
             Path(path).write_text("artifact\n", encoding="utf-8")
@@ -605,6 +607,148 @@ class AutoDeliverCliTestCase(unittest.TestCase):
             self.assertEqual(resume_state["status"], "interrupted")
             self.assertEqual(resume_state["blocker_class"], "shared_dependency_blocker")
             self.assertEqual(resume_state["run_policy"], "single_pass_to_completion")
+
+    def test_run_roadmap_executes_existing_roadmap_sprints_in_order(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_path = base / "versefina"
+            tasks_root = repo_path / "tasks"
+            sprint_1 = tasks_root / "roadmap_1_6_sprint_1_alpha"
+            sprint_2 = tasks_root / "roadmap_1_6_sprint_2_beta"
+            for sprint_dir, story_id in ((sprint_1, "E1-001"), (sprint_2, "E2-001")):
+                epic_dir = sprint_dir / "epic_demo"
+                epic_dir.mkdir(parents=True)
+                (sprint_dir / "sprint_plan.md").write_text("# sprint\n", encoding="utf-8")
+                (sprint_dir / "execution_order.txt").write_text(f"{story_id}\n", encoding="utf-8")
+                (epic_dir / f"{story_id}_demo.yaml").write_text(
+                    yaml.safe_dump(
+                        {
+                            "task_id": story_id,
+                            "story_id": story_id,
+                            "blast_radius": "L1",
+                            "goal": f"Implement {story_id}",
+                            "acceptance_criteria": ["done"],
+                            "related_files": ["apps/api/src/demo.py"],
+                        },
+                        allow_unicode=True,
+                        sort_keys=False,
+                    ),
+                    encoding="utf-8",
+                )
+
+            with (
+                patch("cli._load_env_config", return_value={"repo": {"versefina": str(repo_path)}}),
+                patch("cli.run_sprint_pre_hooks", return_value=self._pre_hook_payload(base)),
+                patch("cli.run_sprint_post_hooks", return_value=self._post_hook_payload(base)),
+                patch(
+                    "cli.run_prod_task",
+                    side_effect=[
+                        {"success": True, "task_id": "task-e1", "branch": "agent/l1-task-e1", "commit": "commit-e1"},
+                        {"success": True, "task_id": "task-e2", "branch": "agent/l1-task-e2", "commit": "commit-e2"},
+                    ],
+                ) as run_prod_task_mock,
+            ):
+                result = runner.invoke(
+                    cli,
+                    [
+                        "run-roadmap",
+                        "--project",
+                        "versefina",
+                        "--env",
+                        "test",
+                        "--tasks-root",
+                        str(tasks_root),
+                        "--roadmap-prefix",
+                        "roadmap_1_6",
+                    ],
+                )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Roadmap preflight report:", result.output)
+            self.assertIn("Roadmap summary:", result.output)
+            self.assertEqual(run_prod_task_mock.call_count, 2)
+            first_task = run_prod_task_mock.call_args_list[0].args[0]
+            second_task = run_prod_task_mock.call_args_list[1].args[0]
+            self.assertIn("roadmap_1_6_sprint_1_alpha", str(first_task))
+            self.assertIn("roadmap_1_6_sprint_2_beta", str(second_task))
+
+    def test_run_roadmap_preflight_fails_before_execution_when_story_card_is_missing(self) -> None:
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_path = base / "versefina"
+            tasks_root = repo_path / "tasks"
+            sprint_1 = tasks_root / "roadmap_1_6_sprint_1_alpha"
+            sprint_1.mkdir(parents=True)
+            (sprint_1 / "sprint_plan.md").write_text("# sprint\n", encoding="utf-8")
+            (sprint_1 / "execution_order.txt").write_text("E1-001\n", encoding="utf-8")
+
+            with (
+                patch("cli._load_env_config", return_value={"repo": {"versefina": str(repo_path)}}),
+                patch("cli.run_prod_task") as run_prod_task_mock,
+            ):
+                result = runner.invoke(
+                    cli,
+                    [
+                        "run-roadmap",
+                        "--project",
+                        "versefina",
+                        "--env",
+                        "test",
+                        "--tasks-root",
+                        str(tasks_root),
+                        "--roadmap-prefix",
+                        "roadmap_1_6",
+                        "--preflight-only",
+                    ],
+                )
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Roadmap preflight failed", result.output)
+            run_prod_task_mock.assert_not_called()
+
+    def test_story_boundary_overrides_include_gstack_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_path = base / "repo"
+            story_dir = repo_path / "tasks" / "roadmap_1_6_sprint_1_alpha" / "epic_demo"
+            story_dir.mkdir(parents=True)
+            story_file = story_dir / "E1-001_demo.yaml"
+            story_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "task_id": "E1-001",
+                        "story_id": "E1-001",
+                        "blast_radius": "L1",
+                        "goal": "Implement roadmap story",
+                        "acceptance_criteria": ["done"],
+                        "related_files": ["apps/api/src/demo.py"],
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("cli._sync_and_assert_continuity", return_value={"trigger": "story_boundary"}) as continuity_mock:
+                overrides = cli_module._story_boundary_overrides(
+                    project="demo",
+                    repo_b_path=repo_path,
+                    story_file=story_file,
+                    pre_hook=self._pre_hook_payload(base),
+                    backlog_id="roadmap_1_6",
+                    backlog_root=str(repo_path / "tasks"),
+                    sprint_id="roadmap_1_6_sprint_1_alpha",
+                )
+
+            self.assertEqual(overrides["gstack_parity_manifest_path"], str(base / "gstack_parity_manifest.json"))
+            self.assertEqual(overrides["gstack_acceptance_checklist_path"], str(base / "gstack_acceptance_checklist.md"))
+            self.assertIn(str(base / "gstack_parity_manifest.json"), overrides["continuity_sprint_artifact_refs"])
+            self.assertIn(str(base / "gstack_acceptance_checklist.md"), overrides["continuity_sprint_artifact_refs"])
+            kwargs = continuity_mock.call_args.kwargs
+            self.assertEqual(kwargs["task_payload"]["backlog_id"], "roadmap_1_6")
+            self.assertEqual(kwargs["task_payload"]["sprint_id"], "roadmap_1_6_sprint_1_alpha")
 
 
 if __name__ == "__main__":
