@@ -12,7 +12,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .project_registry import ProjectRegistration, RuntimeSurface
-from .snake import SnakeAdvanceRequest, SnakeNewGameRequest, advance_game, create_new_game
 from .versefina_runtime_showcase import load_versefina_runtime_showcase_data
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -82,11 +81,6 @@ async def get_story_dashboard() -> FileResponse:
     return FileResponse(Path(__file__).parent / "static" / "story.html")
 
 
-@app.get("/snake")
-async def get_snake_dashboard() -> FileResponse:
-    return FileResponse(Path(__file__).parent / "static" / "snake.html")
-
-
 @app.get("/projects/{project_id}/runtime")
 async def get_project_runtime_dashboard(project_id: str):
     return _runtime_dashboard_response(project_id)
@@ -125,16 +119,6 @@ async def get_metrics(project: str = "versefina") -> JSONResponse:
 @app.get("/api/projects")
 async def get_projects() -> JSONResponse:
     return JSONResponse({"projects": load_projects()})
-
-
-@app.post("/api/snake/new")
-async def post_snake_new_game(payload: SnakeNewGameRequest) -> JSONResponse:
-    return JSONResponse(create_new_game(width=payload.width, height=payload.height, seed=payload.seed).model_dump())
-
-
-@app.post("/api/snake/tick")
-async def post_snake_tick(payload: SnakeAdvanceRequest) -> JSONResponse:
-    return JSONResponse(advance_game(payload.state, requested_direction=payload.requested_direction).model_dump())
 
 
 @app.get("/api/projects/{project_id}/runtime/showcase")
@@ -204,6 +188,27 @@ async def get_finahunt_runtime_showcase(run_id: str | None = None) -> JSONRespon
 @app.get("/api/versefina/runtime/showcase")
 async def get_versefina_runtime_showcase() -> JSONResponse:
     return JSONResponse(load_versefina_runtime_showcase())
+
+
+@app.get("/api/versefina/runtime/report")
+async def get_versefina_runtime_report_json() -> JSONResponse:
+    payload = load_versefina_runtime_showcase()
+    report_path = Path(str(((payload.get("roadmap_showcase") or {}).get("report_paths") or {}).get("json_path") or ""))
+    if report_path.exists():
+        try:
+            return JSONResponse(json.loads(report_path.read_text(encoding="utf-8")))
+        except Exception:
+            return JSONResponse(status_code=500, content={"error": "report_json_invalid"})
+    return JSONResponse(status_code=404, content={"error": "report_json_missing"})
+
+
+@app.get("/versefina/runtime/report")
+async def get_versefina_runtime_report_markdown():
+    payload = load_versefina_runtime_showcase()
+    report_path = Path(str(((payload.get("roadmap_showcase") or {}).get("report_paths") or {}).get("markdown_path") or ""))
+    if report_path.exists():
+        return FileResponse(report_path, media_type="text/markdown; charset=utf-8", filename=report_path.name)
+    return JSONResponse(status_code=404, content={"error": "report_markdown_missing"})
 
 
 @app.websocket("/ws/{task_id}")
@@ -819,6 +824,7 @@ def load_versefina_runtime_showcase() -> dict[str, Any]:
         tasks_dir=TASKS_DIR,
         story_status_registry=STORY_STATUS_REGISTRY,
         story_acceptance_review_registry=STORY_ACCEPTANCE_REVIEW_REGISTRY,
+        agentsystem_root=BASE_DIR,
     )
 
 

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentsystem.orchestration.workspace_manager import WorkspaceManager
+from agentsystem.orchestration.workspace_manager import SnapshotSyncConflictError, WorkspaceManager
 
 
 class WorkspaceManagerTestCase(unittest.TestCase):
@@ -92,6 +92,116 @@ class WorkspaceManagerTestCase(unittest.TestCase):
                 manager._release_lock(lock_path)
 
             self.assertTrue(lock_path.exists())
+
+    def test_materialize_snapshot_changes_updates_target_repo_when_target_matches_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            worktree_root = base / "worktrees"
+            manager = WorkspaceManager(repo_root, worktree_root)
+
+            (repo_root / "apps" / "api" / "src").mkdir(parents=True)
+            (repo_root / "apps" / "api" / "src" / "demo.py").write_text("print('base')\n", encoding="utf-8")
+
+            task_id = "task-sync"
+            worktree_path = worktree_root / task_id
+            worktree_path.mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src").mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src" / "demo.py").write_text("print('agent')\n", encoding="utf-8")
+            (worktree_path / "apps" / "api" / "src" / "new_file.py").write_text("print('new')\n", encoding="utf-8")
+
+            snapshot_base = worktree_root / ".meta" / task_id / "snapshot_base"
+            snapshot_base.mkdir(parents=True)
+            (snapshot_base / "apps" / "api" / "src").mkdir(parents=True)
+            (snapshot_base / "apps" / "api" / "src" / "demo.py").write_text("print('base')\n", encoding="utf-8")
+
+            report = manager.materialize_snapshot_changes(task_id)
+
+            self.assertEqual(report["status"], "applied")
+            self.assertEqual((repo_root / "apps" / "api" / "src" / "demo.py").read_text(encoding="utf-8"), "print('agent')\n")
+            self.assertEqual((repo_root / "apps" / "api" / "src" / "new_file.py").read_text(encoding="utf-8"), "print('new')\n")
+            self.assertIn("apps/api/src/demo.py", report["applied_files"])
+            self.assertIn("apps/api/src/new_file.py", report["applied_files"])
+            self.assertTrue((worktree_root / ".meta" / task_id / "snapshot_sync_report.json").exists())
+
+    def test_materialize_snapshot_changes_raises_conflict_when_target_changed_since_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            worktree_root = base / "worktrees"
+            manager = WorkspaceManager(repo_root, worktree_root)
+
+            (repo_root / "apps" / "api" / "src").mkdir(parents=True)
+            (repo_root / "apps" / "api" / "src" / "demo.py").write_text("print('user-change')\n", encoding="utf-8")
+
+            task_id = "task-conflict"
+            worktree_path = worktree_root / task_id
+            worktree_path.mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src").mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src" / "demo.py").write_text("print('agent-change')\n", encoding="utf-8")
+
+            snapshot_base = worktree_root / ".meta" / task_id / "snapshot_base"
+            snapshot_base.mkdir(parents=True)
+            (snapshot_base / "apps" / "api" / "src").mkdir(parents=True)
+            (snapshot_base / "apps" / "api" / "src" / "demo.py").write_text("print('base')\n", encoding="utf-8")
+
+            with self.assertRaises(SnapshotSyncConflictError):
+                manager.materialize_snapshot_changes(task_id)
+
+            self.assertEqual((repo_root / "apps" / "api" / "src" / "demo.py").read_text(encoding="utf-8"), "print('user-change')\n")
+            report_path = worktree_root / ".meta" / task_id / "snapshot_sync_report.json"
+            self.assertTrue(report_path.exists())
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "conflicted")
+            self.assertEqual(report["conflicts"][0]["path"], "apps/api/src/demo.py")
+
+    def test_materialize_worktree_changes_updates_target_repo_from_isolated_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            worktree_root = base / "worktrees"
+            manager = WorkspaceManager(repo_root, worktree_root)
+
+            (repo_root / ".git").mkdir()
+            (repo_root / "apps" / "api" / "src").mkdir(parents=True)
+            (repo_root / "apps" / "api" / "src" / "demo.py").write_text("print('base')\n", encoding="utf-8")
+
+            task_id = "task-worktree-sync"
+            worktree_path = worktree_root / task_id
+            worktree_path.mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src").mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src" / "demo.py").write_text("print('agent')\n", encoding="utf-8")
+
+            with patch.object(WorkspaceManager, "_path_has_local_changes", return_value=False):
+                report = manager.materialize_worktree_changes(task_id, changed_files=["apps/api/src/demo.py"])
+
+            self.assertEqual(report["status"], "applied")
+            self.assertEqual((repo_root / "apps" / "api" / "src" / "demo.py").read_text(encoding="utf-8"), "print('agent')\n")
+
+    def test_materialize_worktree_changes_raises_conflict_when_target_path_is_dirty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            worktree_root = base / "worktrees"
+            manager = WorkspaceManager(repo_root, worktree_root)
+
+            (repo_root / ".git").mkdir()
+            (repo_root / "apps" / "api" / "src").mkdir(parents=True)
+            (repo_root / "apps" / "api" / "src" / "demo.py").write_text("print('user-change')\n", encoding="utf-8")
+
+            task_id = "task-worktree-conflict"
+            worktree_path = worktree_root / task_id
+            worktree_path.mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src").mkdir(parents=True)
+            (worktree_path / "apps" / "api" / "src" / "demo.py").write_text("print('agent-change')\n", encoding="utf-8")
+
+            with patch.object(WorkspaceManager, "_path_has_local_changes", return_value=True):
+                with self.assertRaises(SnapshotSyncConflictError):
+                    manager.materialize_worktree_changes(task_id, changed_files=["apps/api/src/demo.py"])
 
     def _git(self, repo_root: Path, *args: str) -> None:
         subprocess.run(

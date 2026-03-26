@@ -6,12 +6,25 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 
 class WorkspaceLockError(RuntimeError):
     pass
+
+
+class SnapshotSyncConflictError(RuntimeError):
+    def __init__(self, conflicts: list[dict[str, Any]]):
+        self.conflicts = conflicts
+        details = ", ".join(str(item.get("path") or "") for item in conflicts[:5])
+        if len(conflicts) > 5:
+            details += ", ..."
+        message = "Snapshot changes conflict with the target repository"
+        if details:
+            message = f"{message}: {details}"
+        super().__init__(message)
 
 
 class WorkspaceManager:
@@ -55,6 +68,15 @@ class WorkspaceManager:
 
     def _state_json_path(self, task_id: str) -> Path:
         return self._task_meta_dir(task_id) / "state.json"
+
+    def _snapshot_state_path(self, task_id: str) -> Path:
+        return self._task_meta_dir(task_id) / "snapshot_state.json"
+
+    def _snapshot_base_dir(self, task_id: str) -> Path:
+        return self._task_meta_dir(task_id) / "snapshot_base"
+
+    def _snapshot_sync_report_path(self, task_id: str) -> Path:
+        return self._task_meta_dir(task_id) / "snapshot_sync_report.json"
 
     def generate_task_id(self, task_seed: str) -> str:
         digest = hashlib.sha1(task_seed.encode("utf-8")).hexdigest()[:8]
@@ -222,6 +244,344 @@ class WorkspaceManager:
             ),
             encoding="utf-8",
         )
+
+    def materialize_snapshot_changes(
+        self,
+        task_id: str,
+        *,
+        target_repo_path: str | Path | None = None,
+        changed_files: list[str] | None = None,
+    ) -> dict[str, Any]:
+        worktree_path = self.worktree_root / task_id
+        snapshot_base_dir = self._snapshot_base_dir(task_id)
+        if not worktree_path.exists():
+            raise FileNotFoundError(f"Snapshot worktree does not exist for {task_id}: {worktree_path}")
+        if not snapshot_base_dir.exists():
+            raise FileNotFoundError(f"Snapshot baseline does not exist for {task_id}: {snapshot_base_dir}")
+
+        target_root = Path(target_repo_path).resolve() if target_repo_path else self.repo_root
+        report_path = self._snapshot_sync_report_path(task_id)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        plan = self._plan_snapshot_materialization(
+            worktree_path=worktree_path,
+            snapshot_base_dir=snapshot_base_dir,
+            target_root=target_root,
+            changed_files=changed_files,
+        )
+        plan["task_id"] = task_id
+        plan["target_repo_path"] = str(target_root)
+        plan["report_path"] = str(report_path)
+
+        if plan["conflicts"]:
+            plan["status"] = "conflicted"
+            report_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+            raise SnapshotSyncConflictError(plan["conflicts"])
+
+        applied_files: list[str] = []
+        deleted_files: list[str] = []
+        for operation in plan["operations"]:
+            rel = str(operation["path"])
+            action = str(operation["action"])
+            source_path = worktree_path / Path(*rel.split("/"))
+            target_path = target_root / Path(*rel.split("/"))
+            if action in {"add", "update"}:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, target_path)
+                applied_files.append(rel)
+                continue
+            if action == "delete":
+                if target_path.exists():
+                    target_path.unlink()
+                    self._prune_empty_dirs(target_path.parent, target_root)
+                deleted_files.append(rel)
+
+        plan["status"] = "applied" if applied_files or deleted_files else "noop"
+        plan["applied_files"] = applied_files
+        plan["deleted_files"] = deleted_files
+        plan["applied_at"] = datetime.now().isoformat(timespec="seconds")
+        report_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        snapshot_state_path = self._snapshot_state_path(task_id)
+        if snapshot_state_path.exists():
+            try:
+                snapshot_state = json.loads(snapshot_state_path.read_text(encoding="utf-8"))
+            except Exception:
+                snapshot_state = {}
+            snapshot_state["materialized_to_repo"] = True
+            snapshot_state["materialized_at"] = plan["applied_at"]
+            snapshot_state["materialized_report_path"] = str(report_path)
+            snapshot_state["materialized_target_repo_path"] = str(target_root)
+            snapshot_state_path.write_text(json.dumps(snapshot_state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return plan
+
+    def materialize_worktree_changes(
+        self,
+        task_id: str,
+        *,
+        target_repo_path: str | Path | None = None,
+        changed_files: list[str] | None = None,
+    ) -> dict[str, Any]:
+        worktree_path = self.worktree_root / task_id
+        if not worktree_path.exists():
+            raise FileNotFoundError(f"Worktree does not exist for {task_id}: {worktree_path}")
+        target_root = Path(target_repo_path).resolve() if target_repo_path else self.repo_root
+        report_path = self._snapshot_sync_report_path(task_id)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report = self._plan_worktree_materialization(
+            worktree_path=worktree_path,
+            target_root=target_root,
+            changed_files=changed_files,
+        )
+        report["task_id"] = task_id
+        report["target_repo_path"] = str(target_root)
+        report["report_path"] = str(report_path)
+
+        if report["conflicts"]:
+            report["status"] = "conflicted"
+            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            raise SnapshotSyncConflictError(report["conflicts"])
+
+        applied_files: list[str] = []
+        deleted_files: list[str] = []
+        for operation in report["operations"]:
+            rel = str(operation["path"])
+            action = str(operation["action"])
+            source_path = worktree_path / Path(*rel.split("/"))
+            target_path = target_root / Path(*rel.split("/"))
+            if action in {"add", "update"}:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, target_path)
+                applied_files.append(rel)
+                continue
+            if action == "delete":
+                if target_path.exists():
+                    target_path.unlink()
+                    self._prune_empty_dirs(target_path.parent, target_root)
+                deleted_files.append(rel)
+
+        report["status"] = "applied" if applied_files or deleted_files else "noop"
+        report["applied_files"] = applied_files
+        report["deleted_files"] = deleted_files
+        report["applied_at"] = datetime.now().isoformat(timespec="seconds")
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+
+    def _plan_snapshot_materialization(
+        self,
+        *,
+        worktree_path: Path,
+        snapshot_base_dir: Path,
+        target_root: Path,
+        changed_files: list[str] | None = None,
+    ) -> dict[str, Any]:
+        baseline = self._snapshot_file_hashes(snapshot_base_dir)
+        source = self._snapshot_file_hashes(worktree_path)
+        target = self._snapshot_file_hashes(target_root)
+
+        if changed_files:
+            candidate_paths = [
+                self._normalize_snapshot_relpath(item)
+                for item in changed_files
+                if self._normalize_snapshot_relpath(item)
+            ]
+        else:
+            candidate_paths = sorted(
+                path
+                for path in (set(baseline) | set(source))
+                if baseline.get(path) != source.get(path)
+            )
+
+        operations: list[dict[str, str]] = []
+        skipped: list[dict[str, str]] = []
+        conflicts: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for rel in candidate_paths:
+            if rel in seen:
+                continue
+            seen.add(rel)
+            base_hash = baseline.get(rel)
+            source_hash = source.get(rel)
+            target_hash = target.get(rel)
+            base_exists = base_hash is not None
+            source_exists = source_hash is not None
+            target_exists = target_hash is not None
+
+            if base_hash == source_hash:
+                skipped.append({"path": rel, "reason": "source_matches_baseline"})
+                continue
+
+            if source_hash == target_hash and source_hash is not None:
+                skipped.append({"path": rel, "reason": "already_materialized"})
+                continue
+
+            if not base_exists and source_exists:
+                if not target_exists:
+                    operations.append({"path": rel, "action": "add"})
+                else:
+                    conflicts.append({"path": rel, "reason": "target_added_different_content"})
+                continue
+
+            if base_exists and not source_exists:
+                if not target_exists:
+                    skipped.append({"path": rel, "reason": "already_deleted"})
+                elif target_hash == base_hash:
+                    operations.append({"path": rel, "action": "delete"})
+                else:
+                    conflicts.append({"path": rel, "reason": "target_modified_since_snapshot"})
+                continue
+
+            if base_exists and source_exists:
+                if target_hash == base_hash:
+                    operations.append({"path": rel, "action": "update"})
+                elif target_hash == source_hash:
+                    skipped.append({"path": rel, "reason": "already_materialized"})
+                else:
+                    conflicts.append({"path": rel, "reason": "target_modified_since_snapshot"})
+                continue
+
+            skipped.append({"path": rel, "reason": "no_effect"})
+
+        return {
+            "status": "planned",
+            "changed_files": sorted(seen),
+            "operations": operations,
+            "skipped": skipped,
+            "conflicts": conflicts,
+        }
+
+    def _plan_worktree_materialization(
+        self,
+        *,
+        worktree_path: Path,
+        target_root: Path,
+        changed_files: list[str] | None = None,
+    ) -> dict[str, Any]:
+        source = self._snapshot_file_hashes(worktree_path)
+        if changed_files:
+            candidate_paths = []
+            for item in changed_files:
+                normalized = self._normalize_snapshot_relpath(item)
+                if normalized:
+                    candidate_paths.append(normalized)
+        else:
+            candidate_paths = sorted(source)
+
+        operations: list[dict[str, str]] = []
+        skipped: list[dict[str, str]] = []
+        conflicts: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for rel in candidate_paths:
+            if rel in seen:
+                continue
+            seen.add(rel)
+            source_hash = source.get(rel)
+            target_path = target_root / Path(*rel.split("/"))
+            target_hash = hashlib.sha1(target_path.read_bytes()).hexdigest() if target_path.exists() and target_path.is_file() else None
+            target_dirty = self._path_has_local_changes(target_root, rel)
+
+            if source_hash is None:
+                if not target_path.exists():
+                    skipped.append({"path": rel, "reason": "already_deleted"})
+                elif target_dirty:
+                    conflicts.append({"path": rel, "reason": "target_modified_before_delete"})
+                else:
+                    operations.append({"path": rel, "action": "delete"})
+                continue
+
+            if target_hash == source_hash:
+                skipped.append({"path": rel, "reason": "already_materialized"})
+                continue
+
+            if target_dirty:
+                conflicts.append({"path": rel, "reason": "target_modified_before_materialization"})
+                continue
+
+            operations.append({"path": rel, "action": "add" if target_hash is None else "update"})
+
+        return {
+            "status": "planned",
+            "changed_files": sorted(seen),
+            "operations": operations,
+            "skipped": skipped,
+            "conflicts": conflicts,
+        }
+
+    def _snapshot_file_hashes(self, root: Path) -> dict[str, str]:
+        index: dict[str, str] = {}
+        if not root.exists():
+            return index
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = self._normalize_snapshot_relpath(path.relative_to(root).as_posix())
+            if not rel:
+                continue
+            index[rel] = hashlib.sha1(path.read_bytes()).hexdigest()
+        return index
+
+    def _normalize_snapshot_relpath(self, rel: str | Path) -> str:
+        raw = str(rel).replace("\\", "/").strip().lstrip("/")
+        if not raw or raw in {".", ".."}:
+            return ""
+        parts = [part for part in raw.split("/") if part and part != "."]
+        if not parts or any(part == ".." for part in parts):
+            return ""
+        normalized = "/".join(parts)
+        if self._is_ignored_snapshot_path(normalized):
+            return ""
+        return normalized
+
+    def _is_ignored_snapshot_path(self, rel: str) -> bool:
+        normalized = rel.replace("\\", "/")
+        return (
+            normalized.startswith(".git/")
+            or normalized.startswith("__pycache__/")
+            or "/__pycache__/" in normalized
+            or normalized.endswith(".pyc")
+            or normalized.startswith(".pytest_cache/")
+            or "/.pytest_cache/" in normalized
+            or "/pytest-cache-files-" in normalized
+            or normalized.startswith("pytest-cache-files-")
+            or normalized.startswith(".meta/")
+            or "/.meta/" in normalized
+            or normalized.startswith("node_modules/")
+            or "/node_modules/" in normalized
+            or normalized.startswith(".next/")
+            or "/.next/" in normalized
+            or normalized.startswith("dist/")
+            or "/dist/" in normalized
+            or normalized.startswith("build/")
+            or "/build/" in normalized
+        )
+
+    def _path_has_local_changes(self, repo_root: Path, rel: str) -> bool:
+        if not (repo_root / ".git").exists():
+            return False
+        target_path = Path(*rel.split("/"))
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain", "--", str(target_path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+
+    def _prune_empty_dirs(self, path: Path, stop_at: Path) -> None:
+        current = path
+        stop_path = stop_at.resolve()
+        while True:
+            try:
+                current_resolved = current.resolve()
+            except Exception:
+                return
+            if current_resolved == stop_path:
+                return
+            if not current.exists() or any(current.iterdir()):
+                return
+            current.rmdir()
+            current = current.parent
 
     def clean_worktree(self, task_id: str, *, archive: bool = True) -> None:
         worktree_path = self.worktree_root / task_id

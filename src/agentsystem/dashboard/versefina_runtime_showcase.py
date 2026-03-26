@@ -5,12 +5,15 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .roadmap_1_6_reporting import refresh_roadmap_1_6_execution_reports
+
 
 def load_versefina_runtime_showcase_data(
     runtime_root: Path,
     tasks_dir: Path,
     story_status_registry: Path,
     story_acceptance_review_registry: Path,
+    agentsystem_root: Path | None = None,
 ) -> dict[str, Any]:
     runtime_data = _load_runtime_data(runtime_root)
     validation_packs = _load_validation_packs(runtime_root)
@@ -55,6 +58,12 @@ def load_versefina_runtime_showcase_data(
         },
     ]
     all_story_cards = [story for group in sprint_groups for story in group["stories"]]
+    roadmap_showcase = (
+        refresh_roadmap_1_6_execution_reports(project_root=runtime_root.parent, agentsystem_root=agentsystem_root)
+        if agentsystem_root is not None
+        else {}
+    )
+    actual_outputs = _build_actual_outputs(runtime_root)
 
     return {
         "runtime_root": str(runtime_root),
@@ -83,6 +92,8 @@ def load_versefina_runtime_showcase_data(
         "validation_packs": validation_packs,
         "story_groups": sprint_groups,
         "evidence_notes": _build_evidence_notes(all_story_cards, bundle),
+        "roadmap_showcase": roadmap_showcase,
+        "actual_outputs": actual_outputs,
     }
 
 
@@ -294,6 +305,158 @@ def _build_evidence_notes(all_story_cards: list[dict[str, Any]], bundle: dict[st
     if not bundle.get("current_calendar"):
         notes.append("当前 .runtime 中没有找到 market world 缓存文件。")
     return notes
+
+
+def _build_actual_outputs(runtime_root: Path) -> dict[str, Any]:
+    return {
+        "event_demo": _build_event_demo(runtime_root),
+        "statement_demo": _build_statement_demo(runtime_root),
+        "acceptance_pack_demo": _build_acceptance_pack_demo(runtime_root),
+    }
+
+
+def _build_event_demo(runtime_root: Path) -> dict[str, Any]:
+    events_root = runtime_root / "events"
+    simulations_root = runtime_root / "event_simulations"
+    latest_record_path = _latest_json(events_root / "records")
+    if latest_record_path is None:
+        return {"status": "missing"}
+    record = _read_json_file(latest_record_path)
+    event_id = str((record or {}).get("event_id") or latest_record_path.stem)
+    structure = _read_json_file(events_root / "structures" / f"{event_id}.json")
+    mapping = _read_json_file(events_root / "mappings" / f"{event_id}.json")
+    casebook = _read_json_file(events_root / "casebook" / f"{event_id}.json")
+    outcome_path = _latest_matching_json(events_root / "outcomes", f"{event_id}-*.json")
+    outcome = _read_json_file(outcome_path) if outcome_path else None
+    run_path = _latest_matching_json(simulations_root / "runs", f"{event_id}-run-*.json")
+    run_payload = _read_json_file(run_path) if run_path else None
+    top_participants = []
+    if isinstance(run_payload, dict):
+        top_participants = sorted(
+            list(run_payload.get("participant_states") or []),
+            key=lambda item: float(item.get("authority_weight") or 0.0),
+            reverse=True,
+        )[:3]
+    action_log_path = Path(str((run_payload or {}).get("action_log_path") or ""))
+    action_log_preview = _read_jsonl_preview(action_log_path, limit=3)
+    return {
+        "status": "ready",
+        "headline": "真实事件链样例",
+        "event_id": event_id,
+        "record_path": str(latest_record_path),
+        "summary": {
+            "title": (record or {}).get("title"),
+            "event_type": (structure or {}).get("event_type"),
+            "status": (run_payload or {}).get("status") or (record or {}).get("status"),
+            "dominant_scenario": (run_payload or {}).get("dominant_scenario"),
+            "actual_outcome": (outcome or {}).get("dominant_scenario_actual"),
+            "score_label": (outcome or {}).get("score_label"),
+            "round_count": (run_payload or {}).get("round_count"),
+        },
+        "record": record,
+        "structure": structure,
+        "mapping": mapping,
+        "casebook": casebook,
+        "simulation_run": _subset(
+            run_payload,
+            ["run_id", "status", "graph_status", "dominant_scenario", "round_count", "action_log_path"],
+        ),
+        "top_participants": top_participants,
+        "outcome": outcome,
+        "action_log_preview": action_log_preview,
+    }
+
+
+def _build_statement_demo(runtime_root: Path) -> dict[str, Any]:
+    statement_meta_path = _latest_json(runtime_root / "statement_meta")
+    if statement_meta_path is None:
+        return {"status": "missing"}
+    statement_meta = _read_json_file(statement_meta_path)
+    statement_id = str((statement_meta or {}).get("statement_id") or statement_meta_path.stem)
+    parse_report = _read_json_file(runtime_root / "statement_parse_reports" / f"{statement_id}.json")
+    trade_records = _read_json_file(runtime_root / "trade_records" / f"{statement_id}.json")
+    profile = _read_json_file(runtime_root / "agent_profiles" / f"{statement_id}.json")
+    style_root = runtime_root / "statement_style"
+    features = _read_json_file(style_root / "features" / f"{statement_id}.json")
+    mirror_agent = _read_json_file(style_root / "mirror_agents" / f"{statement_id}.json")
+    mirror_validation = _read_json_file(style_root / "mirror_validation" / f"{statement_id}.json")
+    distribution = _read_json_file(style_root / "distribution_calibration" / f"{statement_id}.json")
+    return {
+        "status": "ready",
+        "headline": "真实 statement -> style / mirror 样例",
+        "statement_id": statement_id,
+        "summary": {
+            "file_name": (statement_meta or {}).get("file_name"),
+            "upload_status": (statement_meta or {}).get("upload_status"),
+            "detected_file_type": (statement_meta or {}).get("detected_file_type"),
+            "trade_count": len(trade_records) if isinstance(trade_records, list) else 0,
+            "mirror_archetype": (mirror_agent or {}).get("archetype_name"),
+            "mirror_family": (mirror_agent or {}).get("participant_family"),
+            "mirror_grade": (mirror_validation or {}).get("grading"),
+        },
+        "statement_meta": statement_meta,
+        "parse_report": parse_report,
+        "trade_record_sample": trade_records[:3] if isinstance(trade_records, list) else trade_records,
+        "profile": profile,
+        "style_features": features,
+        "mirror_agent": mirror_agent,
+        "mirror_validation": mirror_validation,
+        "distribution_calibration": distribution,
+    }
+
+
+def _build_acceptance_pack_demo(runtime_root: Path) -> dict[str, Any]:
+    acceptance_path = runtime_root / "roadmap_acceptance" / "roadmap_1_6.json"
+    payload = _read_json_file(acceptance_path)
+    if not isinstance(payload, dict):
+        return {"status": "missing"}
+    return {
+        "status": "ready",
+        "headline": "真实 acceptance pack 样例",
+        "path": str(acceptance_path),
+        "summary": {
+            "roadmap_id": payload.get("roadmap_id"),
+            "status": payload.get("status"),
+            "headline": payload.get("headline"),
+            "delivery_artifact_count": len(payload.get("delivery_artifacts") or []),
+            "p0_boundary": ((payload.get("p0_boundaries") or [{}])[0]).get("label"),
+            "p1_boundary": ((payload.get("p1_boundaries") or [{}])[0]).get("label"),
+        },
+        "pack": payload,
+    }
+
+
+def _latest_json(directory: Path) -> Path | None:
+    if not directory.exists():
+        return None
+    candidates = sorted(directory.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def _latest_matching_json(directory: Path, pattern: str) -> Path | None:
+    if not directory.exists():
+        return None
+    candidates = sorted(directory.glob(pattern), key=lambda item: item.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def _read_jsonl_preview(path: Path, limit: int = 3) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+        if len(rows) >= limit:
+            break
+    return rows
 
 
 def _build_story_cards(

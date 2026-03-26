@@ -211,6 +211,145 @@ class RuntimeMemoryTestCase(unittest.TestCase):
             self.assertNotIn("resume_from_story", payload)
             self.assertNotIn("interruption_reason", payload)
 
+    def test_invalid_delivery_batch_is_not_treated_as_formal_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "versefina"
+            (repo_root / "tasks").mkdir(parents=True)
+            status_path = update_story_status(
+                repo_root,
+                {
+                    "project": "versefina",
+                    "backlog_id": "roadmap_1_6",
+                    "sprint_id": "roadmap_1_6_sprint_1",
+                    "story_id": "E1-003",
+                    "status": "done",
+                    "attempt_status": "invalid_delivery_batch",
+                    "implementation_contract": {"required_artifact_types": ["service"]},
+                    "agent_execution_contract": [{"agent": "backend_dev"}],
+                    "required_artifact_types": ["service"],
+                },
+            )
+            payload = json.loads(status_path.read_text(encoding="utf-8"))
+            entry = payload["stories"][0]
+            self.assertEqual(entry["status"], "invalid_delivery_batch")
+            self.assertFalse(entry["formal_flow_complete"])
+            self.assertIn("invalid_delivery_batch", entry["formal_flow_gap_reasons"])
+
+    def test_authoritative_rerun_clears_prior_invalidation_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "versefina"
+            (repo_root / "tasks").mkdir(parents=True)
+            update_story_status(
+                repo_root,
+                {
+                    "project": "versefina",
+                    "backlog_id": "roadmap_1_6_sprint_4_lightweight_simulation_runtime",
+                    "sprint_id": "E4-001_simulation_prepare_from_graph.yaml",
+                    "story_id": "E4-001",
+                    "status": "invalid_delivery_batch",
+                    "attempt_status": "invalid_delivery_batch",
+                    "invalidated_at": "2026-03-25T13:56:11",
+                    "invalidated_reason": "invalid_delivery_batch",
+                    "implementation_contract": {"required_artifact_types": ["service"]},
+                    "agent_execution_contract": [{"agent": "backend_dev"}],
+                    "required_artifact_types": ["service"],
+                },
+            )
+            update_story_acceptance_review(
+                repo_root,
+                {
+                    "project": "versefina",
+                    "backlog_id": "roadmap_1_6_sprint_4_lightweight_simulation_runtime",
+                    "sprint_id": "E4-001_simulation_prepare_from_graph.yaml",
+                    "story_id": "E4-001",
+                    "reviewer": "acceptance_gate",
+                    "acceptance_status": "invalid_delivery_batch",
+                    "attempt_status": "invalid_delivery_batch",
+                    "invalidated_at": "2026-03-25T13:56:11",
+                    "invalidated_reason": "invalid_delivery_batch",
+                    "formal_entry": True,
+                    "implemented": True,
+                    "verified": True,
+                    "agentized": True,
+                    "accepted": True,
+                    "evidence_paths": ["runs/prod_audit_task-demo.json"],
+                },
+            )
+
+            status_path = update_story_status(
+                repo_root,
+                {
+                    "project": "versefina",
+                    "backlog_id": "roadmap_1_6_sprint_4_lightweight_simulation_runtime",
+                    "sprint_id": "E4-001_simulation_prepare_from_graph.yaml",
+                    "story_id": "E4-001",
+                    "status": "done",
+                    "formal_entry": True,
+                    "attempt_status": "authoritative",
+                    "required_modes": ["plan-eng-review", "review", "qa"],
+                    "executed_modes": ["plan-eng-review", "review", "qa"],
+                    "advisory_modes": [],
+                    "agent_mode_coverage": {
+                        "required": ["plan-eng-review", "review", "qa"],
+                        "executed": ["plan-eng-review", "review", "qa"],
+                        "advisory": [],
+                        "missing_required": [],
+                        "all_required_executed": True,
+                    },
+                    "formal_acceptance_reviewer": "acceptance_gate",
+                    "implementation_contract": {"required_artifact_types": ["schema", "service", "route", "container_wiring", "tests", "docs"]},
+                    "agent_execution_contract": [{"agent": "backend_dev"}, {"agent": "tester"}, {"agent": "acceptance_gate"}],
+                    "required_artifact_types": ["schema", "service", "route", "container_wiring", "tests", "docs"],
+                    "implemented": True,
+                    "verified": True,
+                    "agentized": True,
+                    "accepted": True,
+                    "evidence_paths": ["runs/prod_audit_task-demo.json"],
+                },
+            )
+            review_path = update_story_acceptance_review(
+                repo_root,
+                {
+                    "project": "versefina",
+                    "backlog_id": "roadmap_1_6_sprint_4_lightweight_simulation_runtime",
+                    "sprint_id": "E4-001_simulation_prepare_from_graph.yaml",
+                    "story_id": "E4-001",
+                    "reviewer": "acceptance_gate",
+                    "verdict": "approved",
+                    "acceptance_status": "approved",
+                    "formal_entry": True,
+                    "attempt_status": "authoritative",
+                    "agent_mode_coverage": {
+                        "required": ["plan-eng-review", "review", "qa"],
+                        "executed": ["plan-eng-review", "review", "qa"],
+                        "advisory": [],
+                        "missing_required": [],
+                        "all_required_executed": True,
+                    },
+                    "implementation_contract": {"required_artifact_types": ["schema", "service", "route", "container_wiring", "tests", "docs"]},
+                    "agent_execution_contract": [{"agent": "backend_dev"}, {"agent": "tester"}, {"agent": "acceptance_gate"}],
+                    "required_artifact_types": ["schema", "service", "route", "container_wiring", "tests", "docs"],
+                    "implemented": True,
+                    "verified": True,
+                    "agentized": True,
+                    "accepted": True,
+                    "evidence_paths": ["runs/prod_audit_task-demo.json"],
+                },
+            )
+
+            status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+            review_payload = json.loads(review_path.read_text(encoding="utf-8"))
+            status_entry = status_payload["stories"][0]
+            review_entry = review_payload["reviews"][0]
+            self.assertEqual(status_entry["status"], "done")
+            self.assertEqual(status_entry["attempt_status"], "authoritative")
+            self.assertNotIn("invalidated_at", status_entry)
+            self.assertNotIn("invalidated_reason", status_entry)
+            self.assertEqual(review_entry["acceptance_status"], "approved")
+            self.assertEqual(review_entry["attempt_status"], "authoritative")
+            self.assertNotIn("invalidated_at", review_entry)
+            self.assertNotIn("invalidated_reason", review_entry)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ from agentsystem.core.state import (
     add_handoff_packet,
     add_issue,
 )
+from agentsystem.orchestration.quality_sentry import evaluate_quality_sentry_for_state
 
 
 class CodeStyleReviewerAgent:
@@ -33,6 +34,8 @@ class CodeStyleReviewerAgent:
         blocking_issues: list[str] = []
         important_issues: list[str] = []
         notes: list[str] = []
+        quality = evaluate_quality_sentry_for_state(state, self.worktree_path, changed_files=changed_files)
+        blocking_issues.extend(_format_quality_issues(quality))
 
         if not changed_files:
             important_issues.append("No changed files were recorded for style review.")
@@ -247,3 +250,12 @@ def _build_report(
         lines.append("- No additional notes.")
     lines.extend(["", "## Verdict", "- [x] Code style review passed" if not blocking_issues else "- [ ] Code style review failed", ""])
     return "\n".join(lines)
+
+
+def _format_quality_issues(quality: dict[str, object]) -> list[str]:
+    issues = quality.get("issues") if isinstance(quality.get("issues"), list) else []
+    return [
+        f"{item.get('file') or 'story'}: {item.get('issue_type')}: {item.get('detail')}"
+        for item in issues
+        if isinstance(item, dict)
+    ]

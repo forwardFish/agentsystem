@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agentsystem.orchestration.agent_activation_resolver import apply_agent_activation_policy
+from agentsystem.orchestration.story_contracts import enrich_task_with_story_contracts
 
 
 def build_story_admission(
@@ -15,7 +16,11 @@ def build_story_admission(
     story_file: str | Path | None = None,
 ) -> dict[str, Any]:
     repo_path = Path(repo_b_path).resolve()
-    runtime_task = apply_agent_activation_policy(dict(task), repo_path)
+    runtime_task = dict(task)
+    if not runtime_task.get("agent_activation_plan") or not runtime_task.get("required_modes"):
+        runtime_task = apply_agent_activation_policy(runtime_task, repo_path)
+    elif not runtime_task.get("implementation_contract") or not runtime_task.get("agent_execution_contract"):
+        runtime_task = enrich_task_with_story_contracts(runtime_task)
 
     related_files = [str(item).strip() for item in (runtime_task.get("related_files") or []) if str(item).strip()]
     acceptance_criteria = [
@@ -37,6 +42,16 @@ def build_story_admission(
         errors.append("Story must declare acceptance_criteria before formal execution can start.")
     if not required_modes:
         errors.append("Workflow admission could not resolve required modes for this story.")
+    if not runtime_task.get("implementation_contract"):
+        errors.append("Workflow admission is missing implementation_contract.")
+    if not runtime_task.get("agent_execution_contract"):
+        errors.append("Workflow admission is missing agent_execution_contract.")
+    if not runtime_task.get("expanded_required_agents"):
+        errors.append("Workflow admission is missing expanded_required_agents.")
+    if not runtime_task.get("mode_to_agent_map"):
+        errors.append("Workflow admission is missing mode_to_agent_map.")
+    if not runtime_task.get("parity_evidence_contract"):
+        errors.append("Workflow admission is missing parity_evidence_contract.")
 
     has_browser_urls = any(
         str(item).strip()
@@ -73,6 +88,13 @@ def build_story_admission(
         "story_kind": story_kind,
         "required_modes": required_modes,
         "advisory_modes": advisory_modes,
+        "expanded_required_agents": list(runtime_task.get("expanded_required_agents") or []),
+        "mode_to_agent_map": dict(runtime_task.get("mode_to_agent_map") or {}),
+        "parity_evidence_contract": dict(runtime_task.get("parity_evidence_contract") or {}),
+        "implementation_contract": dict(runtime_task.get("implementation_contract") or {}),
+        "required_artifact_types": list(runtime_task.get("required_artifact_types") or []),
+        "agent_execution_contract": list(runtime_task.get("agent_execution_contract") or []),
+        "blocking_issue_types": list(runtime_task.get("blocking_issue_types") or []),
         "related_files": related_files,
         "acceptance_criteria_count": len(acceptance_criteria),
         "has_browser_urls": has_browser_surface,

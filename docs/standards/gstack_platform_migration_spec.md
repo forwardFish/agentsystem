@@ -1,6 +1,6 @@
 # gstack Agent Platform Migration Spec
 
-Last updated: 2026-03-20
+Last updated: 2026-03-25
 
 ## 1. Purpose
 
@@ -324,6 +324,13 @@ The companion workflow standard answers:
 - what artifacts each scenario must produce
 - how Stories and Sprints are judged complete
 
+The companion capability roadmap answers:
+
+- how `agentsystem` should first reach current `gstack` capability level
+- which gaps are parity-first blockers versus later optimization
+- which `agentsystem` strengths should become the post-parity advantage layer
+
 Companion document:
 
 - [story_sprint_agent_workflow_standard.md](D:/lyh/agent/agent-frame/agentsystem/docs/standards/story_sprint_agent_workflow_standard.md)
+- [agentsystem_gstack_capability_upgrade_roadmap.md](D:/lyh/agent/agent-frame/agentsystem/docs/standards/agentsystem_gstack_capability_upgrade_roadmap.md)

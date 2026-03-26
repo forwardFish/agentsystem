@@ -17,21 +17,23 @@ from agentsystem.core.state import (
     add_handoff_packet,
     add_issue,
 )
+from agentsystem.orchestration.quality_sentry import evaluate_quality_sentry_for_state
 
 
 def acceptance_gate_node(state: DevState) -> DevState:
     _safe_print("[Acceptance Gate] Evaluating acceptance criteria")
 
-    task_payload = state.get("task_payload") or {}
+    repo_b_path = Path(state["repo_b_path"]).resolve()
+    task_payload = _merge_acceptance_task_payload(state)
     acceptance_items = [str(item).strip() for item in task_payload.get("acceptance_criteria", []) if str(item).strip()]
     related_files = [str(item).strip() for item in task_payload.get("related_files", []) if str(item).strip()]
-    repo_b_path = Path(state["repo_b_path"]).resolve()
     report_dir = repo_b_path.parent / ".meta" / repo_b_path.name / "acceptance"
     report_dir.mkdir(parents=True, exist_ok=True)
 
     changed_files = _collect_changed_files(state, repo_b_path)
     checklist_lines: list[str] = []
     blocking_issues: list[str] = []
+    quality = evaluate_quality_sentry_for_state(state, repo_b_path, changed_files=changed_files)
 
     for criterion in acceptance_items:
         satisfied, detail = _evaluate_criterion(criterion, task_payload, related_files, changed_files, repo_b_path, state)
@@ -52,6 +54,11 @@ def acceptance_gate_node(state: DevState) -> DevState:
         blocking_issues.append("Code style review did not pass the change set.")
     if not state.get("code_acceptance_passed"):
         blocking_issues.append("Code acceptance did not pass the change set.")
+    blocking_issues.extend(_format_quality_issues(quality))
+    if not bool(quality.get("agent_contract_satisfaction")):
+        blocking_issues.append("Agent execution contract is not satisfied.")
+    if not bool(quality.get("gstack_parity_satisfaction")):
+        blocking_issues.append("gstack parity coverage is not satisfied.")
 
     report_lines = [
         "# Acceptance Gate Report",
@@ -67,6 +74,8 @@ def acceptance_gate_node(state: DevState) -> DevState:
         f"- Code style review passed: {'yes' if state.get('code_style_review_passed') else 'no'}",
         f"- Reviewer passed: {'yes' if state.get('review_passed') else 'no'}",
         f"- Code acceptance passed: {'yes' if state.get('code_acceptance_passed') else 'no'}",
+        f"- Agent contract satisfied: {'yes' if quality.get('agent_contract_satisfaction') else 'no'}",
+        f"- gstack parity satisfied: {'yes' if quality.get('gstack_parity_satisfaction') else 'no'}",
         "",
         "## Verdict",
         "- [x] Acceptance passed" if not blocking_issues else "- [ ] Acceptance failed",
@@ -163,9 +172,12 @@ def _collect_changed_files(state: DevState, repo_b_path: Path | None = None) -> 
     changed.extend(_normalize_changed_path(str(item), repo_b_path) for item in (state.get("staged_files") or []))
     unique: list[str] = []
     seen: set[str] = set()
+    snapshot_base = _snapshot_base_dir(repo_b_path)
     for item in changed:
         normalized = item.replace("\\", "/")
         if _is_ignored_changed_path(normalized):
+            continue
+        if repo_b_path is not None and not _path_has_material_change(repo_b_path, normalized, snapshot_base):
             continue
         if normalized not in seen:
             seen.add(normalized)
@@ -180,7 +192,7 @@ def _normalize_changed_path(path: str, repo_b_path: Path | None = None) -> str:
             return Path(normalized).resolve().relative_to(repo_b_path.resolve()).as_posix()
         except Exception:
             pass
-    scope_roots = (".agents/", "apps/", "docs/", "scripts/", "tasks/", "packages/", "config/", "agents/", "graphs/", "workflows/", "skills/", "tools/")
+    scope_roots = (".agents/", "apps/", "docs/", "scripts/", "tasks/", "packages/", "config/", "agents/", "graphs/", "workflows/", "skills/", "tools/", "workspace/")
     for root in scope_roots:
         marker = f"/{root}"
         if marker in normalized:
@@ -205,10 +217,37 @@ def _is_ignored_changed_path(path: str) -> bool:
     )
 
 
+def _snapshot_base_dir(repo_b_path: Path | None) -> Path | None:
+    if repo_b_path is None:
+        return None
+    candidate = repo_b_path.parent / ".meta" / repo_b_path.name / "snapshot_base"
+    return candidate if candidate.exists() else None
+
+
+def _path_has_material_change(repo_b_path: Path, relative_path: str, snapshot_base: Path | None) -> bool:
+    current_path = repo_b_path / relative_path
+    if snapshot_base is not None:
+        baseline_path = snapshot_base / relative_path
+        if current_path.exists() != baseline_path.exists():
+            return True
+        if current_path.exists() and baseline_path.exists() and current_path.is_file() and baseline_path.is_file():
+            try:
+                return current_path.read_bytes() != baseline_path.read_bytes()
+            except Exception:
+                return True
+    return True
+
+
 def _build_scope_allowlist(task_payload: dict[str, object], repo_b_path: Path) -> list[str]:
     allowed: list[str] = []
-    for key in ("primary_files", "secondary_files", "related_files"):
+    for key in ("primary_files", "secondary_files", "related_files", "contract_scope_paths"):
         for raw_path in task_payload.get(key, []) or []:
+            normalized = _normalize_changed_path(str(raw_path), repo_b_path)
+            if normalized not in allowed:
+                allowed.append(normalized)
+    implementation_contract = task_payload.get("implementation_contract")
+    if isinstance(implementation_contract, dict):
+        for raw_path in implementation_contract.get("contract_scope_paths", []) or []:
             normalized = _normalize_changed_path(str(raw_path), repo_b_path)
             if normalized not in allowed:
                 allowed.append(normalized)
@@ -241,6 +280,10 @@ def _evaluate_criterion(
     lowered = criterion.lower()
     story_id = str(task_payload.get("story_id", "")).strip()
     project_key = str(task_payload.get("project") or repo_b_path.name).strip().lower()
+
+    evidence = _evaluate_python_contract_surface_criterion(criterion, task_payload, related_files, repo_b_path)
+    if evidence is not None:
+        return evidence
 
     if project_key == "versefina" and story_id == "S0-003":
         evidence = _evaluate_s0_003_criterion(criterion, repo_b_path)
@@ -294,12 +337,22 @@ def _evaluate_criterion(
                     return True, f"Heading found in {raw_path}"
         return False, "Heading content not found"
     if "schema" in lowered:
+        python_schema_hits: list[str] = []
+        required_schema_tokens = re.findall(r"\b[A-Z][A-Z_]+\b", criterion)
         for raw_path in related_files:
-            if not raw_path.endswith(".json"):
-                continue
             candidate = repo_b_path / raw_path
-            if candidate.exists():
+            if not candidate.exists():
+                continue
+            normalized = raw_path.replace("\\", "/")
+            if raw_path.endswith(".json"):
                 return True, f"Schema artifact exists: {raw_path}"
+            if candidate.suffix == ".py" and "/schemas/" in normalized:
+                content = candidate.read_text(encoding="utf-8")
+                if required_schema_tokens and all(token in content for token in required_schema_tokens):
+                    return True, f"Python schema artifact satisfies tokens in {raw_path}"
+                python_schema_hits.append(raw_path)
+        if python_schema_hits:
+            return True, f"Python schema artifact exists: {', '.join(python_schema_hits)}"
         return False, "Schema artifact not found"
     if "prettier" in lowered or "格式化" in criterion:
         report = str(state.get("test_results") or "")
@@ -313,6 +366,129 @@ def _evaluate_criterion(
             return False, f"Unexpected files changed: {', '.join(unexpected)}"
         return True, "Changed files stayed within declared scope"
     return True, "No deterministic rule required for this criterion"
+
+
+def _evaluate_python_contract_surface_criterion(
+    criterion: str,
+    task_payload: dict[str, object],
+    related_files: list[str],
+    repo_b_path: Path,
+) -> tuple[bool, str] | None:
+    implementation_contract = task_payload.get("implementation_contract") or {}
+    story_track = str(implementation_contract.get("story_track") or task_payload.get("story_kind") or "").strip().lower()
+    required_artifact_types = {
+        str(item).strip().lower()
+        for item in (task_payload.get("required_artifact_types") or implementation_contract.get("required_artifact_types") or [])
+        if str(item).strip()
+    }
+    if "schema" not in required_artifact_types and story_track not in {"contract_schema", "api_domain"}:
+        return None
+
+    python_candidates = _collect_existing_python_scope_files(task_payload, related_files, repo_b_path)
+    if not python_candidates:
+        return None
+
+    lowered = criterion.lower()
+    if "eventrecord" in lowered:
+        return _verify_python_contract_tokens(
+            python_candidates,
+            anchor_symbol="EventRecord",
+            required_tokens=["event_id", "title", "body", "source", "event_time", "status"],
+            success_label="EventRecord contract fields are present",
+        )
+    if "eventstructure" in lowered:
+        return _verify_python_contract_tokens(
+            python_candidates,
+            anchor_symbol="EventStructure",
+            required_tokens=[
+                "event_type",
+                "entities",
+                "commodities",
+                "chain_links",
+                "sectors",
+                "affected_symbols",
+                "causal_chain",
+                "monitor_signals",
+                "invalidation_conditions",
+            ],
+            success_label="EventStructure contract fields are present",
+        )
+    if "raw" in lowered and "structured" in lowered and "prepared" in lowered and "simulated" in lowered and "reviewed" in lowered:
+        return _verify_python_contract_tokens(
+            python_candidates,
+            anchor_symbol="EVENT_LIFECYCLE_STATUSES",
+            required_tokens=["raw", "structured", "prepared", "simulated", "reviewed"],
+            success_label="Lifecycle statuses are present",
+        )
+    return None
+
+
+def _collect_existing_python_scope_files(
+    task_payload: dict[str, object],
+    related_files: list[str],
+    repo_b_path: Path,
+) -> list[tuple[str, Path]]:
+    seen: set[str] = set()
+    candidates: list[tuple[str, Path]] = []
+    scope_files = [*related_files, *(task_payload.get("contract_scope_paths") or [])]
+    for raw_path in scope_files:
+        normalized = str(raw_path).replace("\\", "/").strip()
+        if not normalized or normalized in seen or not normalized.endswith(".py"):
+            continue
+        candidate = repo_b_path / normalized
+        if candidate.exists():
+            seen.add(normalized)
+            candidates.append((normalized, candidate))
+    return candidates
+
+
+def _merge_acceptance_task_payload(state: DevState) -> dict[str, object]:
+    payload = dict(state.get("task_payload") or {})
+    for key in ("primary_files", "secondary_files"):
+        if not payload.get(key) and isinstance(state.get(key), list):
+            payload[key] = list(state.get(key) or [])
+    implementation_contract = payload.get("implementation_contract")
+    merged_contract_scope: list[str] = []
+    seen: set[str] = set()
+    for value in (
+        payload.get("contract_scope_paths"),
+        implementation_contract.get("contract_scope_paths") if isinstance(implementation_contract, dict) else [],
+    ):
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            marker = str(item).strip()
+            if not marker or marker in seen:
+                continue
+            seen.add(marker)
+            merged_contract_scope.append(marker)
+    if merged_contract_scope:
+        payload["contract_scope_paths"] = merged_contract_scope
+    return payload
+
+
+def _verify_python_contract_tokens(
+    python_candidates: list[tuple[str, Path]],
+    *,
+    anchor_symbol: str,
+    required_tokens: list[str],
+    success_label: str,
+) -> tuple[bool, str]:
+    scoped_candidates: list[tuple[str, str]] = []
+    for raw_path, candidate in python_candidates:
+        content = candidate.read_text(encoding="utf-8")
+        if anchor_symbol in content:
+            scoped_candidates.append((raw_path, content))
+    if not scoped_candidates:
+        return False, f"{anchor_symbol} definition not found"
+
+    for raw_path, content in scoped_candidates:
+        missing = [token for token in required_tokens if token not in content]
+        if not missing:
+            return True, f"{success_label}: {raw_path}"
+
+    missing = [token for token in required_tokens if not any(token in content for _, content in scoped_candidates)]
+    return False, f"Missing contract tokens: {', '.join(missing)}"
 
 
 def _evaluate_s0_003_criterion(criterion: str, repo_b_path: Path) -> tuple[bool, str] | None:
@@ -569,3 +745,12 @@ def _safe_print(message: str) -> None:
         print(message)
     except OSError:
         pass
+
+
+def _format_quality_issues(quality: dict[str, object]) -> list[str]:
+    issues = quality.get("issues") if isinstance(quality.get("issues"), list) else []
+    return [
+        f"{item.get('file') or 'story'}: {item.get('issue_type')}: {item.get('detail')}"
+        for item in issues
+        if isinstance(item, dict)
+    ]

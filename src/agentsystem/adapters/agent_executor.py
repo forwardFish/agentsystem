@@ -18,6 +18,7 @@ class AgentExecutor:
     def execute_builder(self, task_yaml: dict[str, Any], current_code: str, constitution: str) -> str:
         builder_skill = self.skill_manager.get_final_skill("builder", task_yaml)
         target_files = task_yaml.get("related_files") or task_yaml.get("target_files") or []
+        fenced_type = _fenced_type_for_path(Path(str(target_files[0]))) if target_files else "text"
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -25,7 +26,6 @@ class AgentExecutor:
                     "system",
                     """
 你是 Builder Agent，必须严格遵守以下全部规则。
-
 ## 执行规则
 {execution_rules}
 
@@ -45,21 +45,18 @@ class AgentExecutor:
                 (
                     "user",
                     """
-任务目标：
-{task_goal}
+任务目标：{task_goal}
 
-约束条件：
-{task_constraints}
+约束条件：{task_constraints}
 
-目标文件：
-{target_file}
+目标文件：{target_file}
 
 当前文件内容：
-```tsx
+```{fenced_type}
 {current_code}
 ```
 
-请只输出修改后的完整文件内容，并放在单个 ```tsx 代码块中。
+请只输出修改后的完整文件内容，并放在单个 ```{fenced_type} 代码块中。
 """.strip(),
                 ),
             ]
@@ -76,19 +73,21 @@ class AgentExecutor:
                 "task_constraints": "\n".join(f"- {item}" for item in task_yaml.get("constraints", [])),
                 "target_file": target_files[0] if target_files else "",
                 "current_code": current_code,
+                "fenced_type": fenced_type,
             }
         )
         return response.content if hasattr(response, "content") else str(response)
 
     def execute_reviewer(self, task_yaml: dict[str, Any], old_code: str, new_code: str) -> str:
         reviewer_skill = self.skill_manager.get_final_skill("reviewer", task_yaml)
+        target_files = task_yaml.get("related_files") or task_yaml.get("target_files") or []
+        fenced_type = _fenced_type_for_path(Path(str(target_files[0]))) if target_files else "text"
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
                     """
 你是 Reviewer Agent，只做审查，不做代码修改。
-
 ## 执行规则
 {execution_rules}
 
@@ -102,16 +101,15 @@ class AgentExecutor:
                 (
                     "user",
                     """
-任务目标：
-{task_goal}
+任务目标：{task_goal}
 
 原始代码：
-```tsx
+```{fenced_type}
 {old_code}
 ```
 
 修改后代码：
-```tsx
+```{fenced_type}
 {new_code}
 ```
 """.strip(),
@@ -126,6 +124,7 @@ class AgentExecutor:
                 "task_goal": task_yaml["goal"],
                 "old_code": old_code,
                 "new_code": new_code,
+                "fenced_type": fenced_type,
             }
         )
         return response.content if hasattr(response, "content") else str(response)
@@ -171,3 +170,20 @@ class AgentExecutor:
             "commands": results,
             "final_status": final_status,
         }
+
+
+def _fenced_type_for_path(target_file: Path) -> str:
+    suffix = target_file.suffix.lower()
+    mapping = {
+        ".py": "python",
+        ".ts": "ts",
+        ".tsx": "tsx",
+        ".js": "js",
+        ".jsx": "jsx",
+        ".json": "json",
+        ".md": "md",
+        ".sql": "sql",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+    }
+    return mapping.get(suffix, "text")

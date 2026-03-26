@@ -119,16 +119,17 @@ class ReviewerAgent:
         return result
 
     def _build_review_analysis(self, diff: str, changed_files: list[str], state: DevState) -> dict[str, object]:
-        task_goal = str(self.task.get("goal", "")).strip() or str(state.get("user_requirement", "")).strip()
+        task_payload = _merge_review_task_payload(self.task, state)
+        task_goal = str(task_payload.get("goal", "")).strip() or str(state.get("user_requirement", "")).strip()
         acceptance = (
-            self.task.get("acceptance_criteria", [])
-            if isinstance(self.task.get("acceptance_criteria"), list)
+            task_payload.get("acceptance_criteria", [])
+            if isinstance(task_payload.get("acceptance_criteria"), list)
             else list(state.get("acceptance_checklist") or [])
         )
         protected_paths = RepoBConfigReader(self.worktree_path).load_all_config().rules.get("protected_paths", [])
         validation = str(state.get("test_results") or "Validation pending").strip()
         story_kind = str(state.get("story_kind") or "").strip().lower() or "unknown"
-        repo_profile = _review_repo_profile(self.worktree_path)
+        repo_profile = _review_repo_profile(self.worktree_path, task_payload, state)
         release_sensitive = bool(state.get("release_scope")) or str(state.get("workflow_enforcement_policy") or "").strip() in {
             "release",
             "sprint_closeout",
@@ -138,7 +139,19 @@ class ReviewerAgent:
             [
                 *(str(item).strip() for item in (state.get("primary_files") or []) if str(item).strip()),
                 *(str(item).strip() for item in (state.get("secondary_files") or []) if str(item).strip()),
-                *(str(item).strip() for item in (self.task.get("related_files") or []) if str(item).strip()),
+                *(str(item).strip() for item in (task_payload.get("primary_files") or []) if str(item).strip()),
+                *(str(item).strip() for item in (task_payload.get("secondary_files") or []) if str(item).strip()),
+                *(str(item).strip() for item in (task_payload.get("related_files") or []) if str(item).strip()),
+                *(str(item).strip() for item in (task_payload.get("contract_scope_paths") or []) if str(item).strip()),
+                *(
+                    str(item).strip()
+                    for item in (
+                        (task_payload.get("implementation_contract") or {}).get("contract_scope_paths")
+                        if isinstance(task_payload.get("implementation_contract"), dict)
+                        else []
+                    )
+                    if str(item).strip()
+                ),
             ]
         )
         docs_changed = any(Path(path).suffix.lower() == ".md" for path in changed_files)
@@ -240,7 +253,7 @@ class ReviewerAgent:
                     evidence_refs=changed_outside_scope,
                 )
             )
-        if sensitive_surface_changed:
+        if sensitive_surface_changed and not _has_explicit_verification_evidence(validation, state, task_payload):
             findings.append(
                 _finding(
                     "important",
@@ -685,11 +698,73 @@ def _format_review_decision_block(analysis: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _review_repo_profile(worktree_path: Path) -> str:
+def _merge_review_task_payload(task: dict[str, object] | None, state: DevState) -> dict[str, object]:
+    payload = dict(state.get("task_payload") or {})
+    for key, value in (task or {}).items():
+        if value not in (None, "", [], {}):
+            payload[key] = value
+
+    for key in ("primary_files", "secondary_files"):
+        if not payload.get(key) and isinstance(state.get(key), list):
+            payload[key] = list(state.get(key) or [])
+
+    implementation_contract = payload.get("implementation_contract")
+    contract_scope = _coalesce_path_lists(
+        payload.get("contract_scope_paths"),
+        implementation_contract.get("contract_scope_paths") if isinstance(implementation_contract, dict) else [],
+    )
+    if contract_scope:
+        payload["contract_scope_paths"] = contract_scope
+    return payload
+
+
+def _review_repo_profile(worktree_path: Path, task_payload: dict[str, object], state: DevState) -> str:
+    project = str(task_payload.get("project") or state.get("project") or "").strip().lower()
+    if project in {"agentsystem", "finahunt", "versefina"}:
+        return project
+    repo_root = str(task_payload.get("project_repo_root") or "").strip()
+    if repo_root:
+        repo_name = Path(repo_root).name.lower()
+        if repo_name in {"agentsystem", "finahunt", "versefina"}:
+            return repo_name
     name = worktree_path.name.lower()
     if name in {"agentsystem", "finahunt", "versefina"}:
         return name
     return "generic"
+
+
+def _has_explicit_verification_evidence(
+    validation: str,
+    state: DevState,
+    task_payload: dict[str, object],
+) -> bool:
+    if "STORYVALIDATION: PASS" in validation.upper():
+        return True
+    evidence_values = [
+        state.get("runtime_qa_report"),
+        state.get("browser_qa_report"),
+        state.get("qa_design_review_report"),
+        state.get("test_results"),
+        task_payload.get("delivery_evidence"),
+        task_payload.get("runtime_qa_report"),
+        task_payload.get("browser_qa_report"),
+    ]
+    return any(str(item or "").strip() for item in evidence_values)
+
+
+def _coalesce_path_lists(*values: object) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            marker = str(item).strip()
+            if not marker or marker in seen:
+                continue
+            seen.add(marker)
+            merged.append(marker)
+    return merged
 
 
 def _repo_specific_checklist(

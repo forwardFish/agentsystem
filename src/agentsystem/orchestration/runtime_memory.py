@@ -11,6 +11,7 @@ from agentsystem.core.state import build_mode_coverage
 _FORMAL_FLOW_SUCCESS_STATUSES = {"done", "accepted"}
 _FORMAL_FLOW_APPROVED_STATUSES = {"approved"}
 _FORMAL_ACCEPTANCE_REVIEWER = "acceptance_gate"
+_INVALID_BATCH_STATUSES = {"invalid_delivery_batch"}
 
 
 def locate_story_context(task_path: Path, repo_b_path: Path) -> dict[str, str]:
@@ -136,6 +137,13 @@ def update_story_status(repo_b_path: Path, entry: dict[str, Any]) -> Path:
         if _story_registry_key(item) == _story_registry_key(entry):
             merged = dict(item)
             merged.update(entry)
+            if not _is_invalid_batch_entry(entry):
+                merged.pop("invalidated_at", None)
+                merged.pop("invalidated_reason", None)
+            if str(entry.get("attempt_status") or "").strip().lower() != "stale_attempt":
+                merged.pop("superseded_by_attempt", None)
+                merged.pop("superseded_at", None)
+                merged.pop("superseded_reason", None)
             updated.append(merged)
             replaced = True
         else:
@@ -163,6 +171,13 @@ def update_story_acceptance_review(repo_b_path: Path, review: dict[str, Any]) ->
         if _review_registry_key(item) == _review_registry_key(review):
             merged = dict(item)
             merged.update(review)
+            if not _is_invalid_batch_entry(review):
+                merged.pop("invalidated_at", None)
+                merged.pop("invalidated_reason", None)
+            if str(review.get("attempt_status") or "").strip().lower() != "stale_attempt":
+                merged.pop("superseded_by_attempt", None)
+                merged.pop("superseded_at", None)
+                merged.pop("superseded_reason", None)
             updated.append(merged)
             replaced = True
         else:
@@ -366,6 +381,14 @@ def _normalize_story_status_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
     status = str(normalized.get("status") or "").strip().lower()
     attempt_status = str(normalized.get("attempt_status") or "").strip().lower()
+    if attempt_status in _INVALID_BATCH_STATUSES or status in _INVALID_BATCH_STATUSES or normalized.get("invalidated_at"):
+        reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
+        if "invalid_delivery_batch" not in reasons:
+            reasons.append("invalid_delivery_batch")
+        normalized["formal_flow_gap_reasons"] = reasons
+        normalized["formal_flow_complete"] = False
+        normalized["status"] = "invalid_delivery_batch"
+        return normalized
     if attempt_status == "stale_attempt":
         reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
         if "superseded_by_authoritative_rerun" not in reasons:
@@ -394,6 +417,22 @@ def _normalize_story_acceptance_review(review: dict[str, Any]) -> dict[str, Any]
     acceptance_status = str(normalized.get("acceptance_status") or "").strip().lower()
     if normalized.get("formal_entry") is True and not str(normalized.get("attempt_status") or "").strip():
         normalized["attempt_status"] = "authoritative"
+    if (
+        str(normalized.get("attempt_status") or "").strip().lower() in _INVALID_BATCH_STATUSES
+        or acceptance_status in _INVALID_BATCH_STATUSES
+        or normalized.get("invalidated_at")
+    ):
+        reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
+        if "invalid_delivery_batch" not in reasons:
+            reasons.append("invalid_delivery_batch")
+        normalized["formal_flow_gap_reasons"] = reasons
+        normalized["formal_flow_complete"] = False
+        normalized["verdict"] = "needs_followup"
+        normalized["acceptance_status"] = "invalid_delivery_batch"
+        note = str(normalized.get("notes") or "").strip()
+        gap_line = "Formal flow gaps: " + "; ".join(reasons)
+        normalized["notes"] = f"{note}\n{gap_line}".strip()
+        return normalized
     if str(normalized.get("attempt_status") or "").strip().lower() == "stale_attempt":
         reasons = _formal_flow_gap_reasons(normalized, coverage, evidence_paths)
         if "superseded_by_authoritative_rerun" not in reasons:
@@ -427,10 +466,29 @@ def _formal_flow_gap_reasons(
     reasons: list[str] = []
     if str(payload.get("attempt_status") or "").strip().lower() == "stale_attempt":
         reasons.append("superseded_by_authoritative_rerun")
+    if (
+        str(payload.get("attempt_status") or "").strip().lower() in _INVALID_BATCH_STATUSES
+        or str(payload.get("status") or "").strip().lower() in _INVALID_BATCH_STATUSES
+        or str(payload.get("acceptance_status") or "").strip().lower() in _INVALID_BATCH_STATUSES
+        or payload.get("invalidated_at")
+    ):
+        reasons.append("invalid_delivery_batch")
     if not bool(payload.get("formal_entry")):
         reasons.append("formal_entry_missing")
     if not evidence_paths:
         reasons.append("evidence_missing")
+    if not payload.get("implementation_contract"):
+        reasons.append("implementation_contract_missing")
+    if not payload.get("agent_execution_contract"):
+        reasons.append("agent_execution_contract_missing")
+    if not payload.get("required_artifact_types"):
+        reasons.append("required_artifact_types_missing")
+    if payload.get("integration_contract_passed") is False:
+        reasons.append("integration_contract_failed")
+    if payload.get("agent_contract_satisfaction") is False:
+        reasons.append("agent_contract_missing")
+    if payload.get("gstack_parity_satisfaction") is False:
+        reasons.append("gstack_parity_missing")
     if coverage:
         if not bool(coverage.get("all_required_executed")):
             reasons.append("required_modes_missing")
@@ -456,6 +514,12 @@ def _formal_flow_gap_reasons(
         if value is not True:
             reasons.append(f"{key}_missing")
     return reasons
+
+
+def _is_invalid_batch_entry(payload: dict[str, Any]) -> bool:
+    attempt_status = str(payload.get("attempt_status") or "").strip().lower()
+    status = str(payload.get("status") or payload.get("acceptance_status") or "").strip().lower()
+    return attempt_status in _INVALID_BATCH_STATUSES or status in _INVALID_BATCH_STATUSES or bool(payload.get("invalidated_at"))
 
 
 def _coerce_paths(value: Any) -> list[str]:

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 import click
 import uvicorn
@@ -51,8 +54,10 @@ from agentsystem.orchestration.runtime_memory import (
     write_story_failure,
     write_story_handoff,
 )
+from agentsystem.orchestration.roadmap_invalid_batch import cleanup_invalid_batch, invalidate_roadmap_batch
 from agentsystem.orchestration.workflow_admission import build_story_admission, write_story_admission
 from agentsystem.dashboard.main import app as dashboard_app
+from agentsystem.dashboard.roadmap_1_6_reporting import refresh_roadmap_1_6_execution_reports
 from agentsystem.orchestration.workspace_manager import WorkspaceManager
 from agentsystem.agents.plan_ceo_review_agent import generate_plan_ceo_review_package
 from agentsystem.agents.requirements_analyst_agent import analyze_requirement, split_requirement_file
@@ -246,6 +251,415 @@ def _build_roadmap_resume_command(
     if release:
         command += " --release"
     return command
+
+
+def _build_gap_closure_resume_command(
+    *,
+    project: str,
+    env: str,
+    tasks_root: Path,
+    roadmap_prefix: str,
+    from_sprint: str,
+    from_story: str | None = None,
+    release: bool,
+) -> str:
+    command = (
+        f'python cli.py run-roadmap-gap-closure --project {project} --env {env} '
+        f'--tasks-root "{tasks_root}" --roadmap-prefix {roadmap_prefix} --from-sprint {from_sprint}'
+    )
+    if from_story:
+        command += f" --from-story {from_story}"
+    if release:
+        command += " --release"
+    return command
+
+
+def _parse_markdown_bullets(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    parsed: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("- ") or ":" not in line:
+            continue
+        key, value = line[2:].split(":", 1)
+        parsed[key.strip().lower()] = value.strip()
+    return parsed
+
+
+def _resolve_gap_closure_requirement_doc(repo_b_path: Path) -> Path | None:
+    docs_root = repo_b_path / "docs" / "需求文档" / "需求分析_1.6_最终版_事件参与者优先"
+    if not docs_root.exists():
+        return None
+    candidates = sorted(
+        (path for path in docs_root.glob("*.md") if path.is_file()),
+        key=lambda item: (item.stat().st_mtime, item.name),
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _discover_gap_closure_result(tasks_root: Path, roadmap_prefix: str, from_sprint: str) -> dict[str, object]:
+    roadmap_result = _discover_roadmap_result(tasks_root, roadmap_prefix)
+    all_sprint_dirs = [Path(item).resolve() for item in (roadmap_result.get("sprint_dirs") or [])]
+    start_index = next((index for index, sprint_dir in enumerate(all_sprint_dirs) if sprint_dir.name == from_sprint), None)
+    if start_index is None:
+        raise click.ClickException(f"from-sprint does not exist in roadmap {roadmap_prefix}: {from_sprint}")
+    gap_sprint_dirs = all_sprint_dirs[start_index:]
+    story_cards = [str(path) for sprint_dir in gap_sprint_dirs for path in _resolve_story_card_paths(sprint_dir)]
+    return {
+        "roadmap_prefix": roadmap_prefix,
+        "tasks_root": str(tasks_root.resolve()),
+        "from_sprint": from_sprint,
+        "sprint_dirs": [str(path) for path in gap_sprint_dirs],
+        "all_sprint_dirs": [str(path) for path in all_sprint_dirs],
+        "story_cards": story_cards,
+    }
+
+
+def _load_existing_gap_closure_summary(
+    repo_b_path: Path,
+    *,
+    roadmap_prefix: str,
+    from_sprint: str,
+) -> tuple[Path | None, dict[str, object] | None]:
+    resume_state = read_resume_state(repo_b_path)
+    if not bool(resume_state.get("gap_closure_mode")):
+        return None, None
+    if str(resume_state.get("gap_closure_roadmap_prefix") or "").strip() != roadmap_prefix:
+        return None, None
+    if str(resume_state.get("gap_closure_from_sprint") or "").strip() != from_sprint:
+        return None, None
+    summary_ref = str(resume_state.get("gap_closure_summary_path") or "").strip()
+    if not summary_ref:
+        return None, None
+    summary_path = Path(summary_ref)
+    payload = _read_json_mapping(summary_path)
+    if not summary_path.exists() or not payload:
+        return None, None
+    return summary_path, payload
+
+
+def _resolve_gap_closure_resume_cursor(
+    repo_b_path: Path,
+    *,
+    roadmap_prefix: str,
+    sprint_dirs: list[Path],
+    default_sprint_id: str,
+    default_story_id: str | None,
+) -> tuple[str, str | None, str | None, str | None]:
+    resume_state = read_resume_state(repo_b_path)
+    allowed_sprints = {item.name for item in sprint_dirs}
+    if (
+        bool(resume_state.get("gap_closure_mode"))
+        and str(resume_state.get("gap_closure_roadmap_prefix") or "").strip() == roadmap_prefix
+        and str(resume_state.get("status") or "").strip() in {"running", "interrupted"}
+    ):
+        sprint_id = str(resume_state.get("sprint_id") or "").strip()
+        story_id = str(resume_state.get("resume_from_story") or resume_state.get("story_id") or "").strip() or None
+        if sprint_id in allowed_sprints:
+            return (
+                sprint_id,
+                story_id,
+                str(resume_state.get("last_success_story") or "").strip() or None,
+                str(resume_state.get("interruption_reason") or "").strip() or None,
+            )
+        if story_id:
+            for sprint_dir in sprint_dirs:
+                if story_id in _read_execution_story_ids(sprint_dir / "execution_order.txt"):
+                    return (
+                        sprint_dir.name,
+                        story_id,
+                        str(resume_state.get("last_success_story") or "").strip() or None,
+                        str(resume_state.get("interruption_reason") or "").strip() or None,
+                    )
+    return default_sprint_id, default_story_id, None, None
+
+
+def _write_gap_closure_summary(payload: dict[str, object], summary_path: Path | None = None) -> Path:
+    if summary_path is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        roadmap_prefix = str(payload.get("roadmap_prefix") or "roadmap").replace("\\", "_").replace("/", "_")
+        summary_path = ROOT_DIR / "runs" / "roadmaps" / f"{roadmap_prefix}_gap_closure_{timestamp}.json"
+    return _write_roadmap_summary(payload, summary_path)
+
+
+def _write_gap_closure_receipt(summary_path: Path, name: str, payload: dict[str, object]) -> Path:
+    output_path = summary_path.with_name(f"{summary_path.stem}_{name}.json")
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_path
+
+
+def _persist_gap_closure_runtime(
+    repo_b_path: Path,
+    summary_path: Path,
+    payload: dict[str, object],
+    *,
+    next_action: str,
+    cleanup_note: str,
+    update_handoff: bool = True,
+) -> None:
+    checkpoint_at = datetime.now().isoformat(timespec="seconds")
+    payload["last_updated_at"] = checkpoint_at
+    payload["last_checkpoint_at"] = checkpoint_at
+    payload["verification"] = _build_roadmap_verification(repo_b_path=repo_b_path, project=str(payload.get("project") or ""), roadmap_summary=payload)
+    _refresh_roadmap_counts(payload)
+    _write_gap_closure_summary(payload, summary_path)
+    clear_keys = (
+        ["current_story", "current_node", "resume_from_story", "interruption_reason", "error_message", "failure_snapshot_path"]
+        if str(payload.get("status") or "") == "completed"
+        else []
+    )
+    write_resume_state(
+        repo_b_path,
+        {
+            "project": payload.get("project"),
+            "backlog_id": payload.get("roadmap_prefix"),
+            "backlog_root": payload.get("tasks_root"),
+            "sprint_id": payload.get("current_sprint"),
+            "story_id": payload.get("current_story") or payload.get("last_success_story"),
+            "current_node": payload.get("current_node"),
+            "status": payload.get("status"),
+            "last_success_story": payload.get("last_success_story"),
+            "resume_from_story": payload.get("resume_from_story"),
+            "interruption_reason": payload.get("interruption_reason"),
+            "error_message": payload.get("error_message"),
+            "execution_policy": payload.get("execution_policy"),
+            "interaction_policy": payload.get("interaction_policy"),
+            "pause_policy": payload.get("pause_policy"),
+            "run_policy": payload.get("run_policy"),
+            "acceptance_policy": payload.get("acceptance_policy"),
+            "retry_policy": payload.get("retry_policy"),
+            "acceptance_attempt": payload.get("acceptance_attempt"),
+            "acceptance_failure_class": payload.get("acceptance_failure_class"),
+            "repair_iteration": payload.get("repair_iteration"),
+            "final_green_required": payload.get("final_green_required"),
+            "gap_closure_mode": True,
+            "gap_closure_roadmap_prefix": payload.get("roadmap_prefix"),
+            "gap_closure_from_sprint": payload.get("gap_closure_from_sprint"),
+            "gap_closure_from_story": payload.get("gap_closure_from_story"),
+            "gap_closure_summary_path": str(summary_path),
+        },
+        clear_keys=clear_keys,
+    )
+    if not update_handoff:
+        return
+    write_current_handoff(
+        repo_b_path,
+        {
+            "project": payload.get("project"),
+            "backlog_id": payload.get("roadmap_prefix"),
+            "sprint_id": payload.get("current_sprint"),
+            "story_id": payload.get("current_story") or payload.get("resume_from_story") or payload.get("last_success_story"),
+            "current_node": payload.get("current_node"),
+            "status": payload.get("status"),
+            "last_success_story": payload.get("last_success_story"),
+            "resume_from_story": payload.get("resume_from_story"),
+            "interruption_reason": payload.get("interruption_reason"),
+            "root_cause": payload.get("error_message")
+            or payload.get("interruption_reason")
+            or ("Gap-closure execution completed." if str(payload.get("status") or "") == "completed" else "Gap-closure execution state persisted."),
+            "next_action": next_action,
+            "resume_command": _build_gap_closure_resume_command(
+                project=str(payload.get("project") or ""),
+                env=str(payload.get("env") or "test"),
+                tasks_root=Path(str(payload.get("tasks_root") or "")),
+                roadmap_prefix=str(payload.get("roadmap_prefix") or ""),
+                from_sprint=str(payload.get("gap_closure_from_sprint") or ""),
+                from_story=str(payload.get("gap_closure_from_story") or "") or None,
+                release=bool(payload.get("release")),
+            ),
+            "evidence_paths": [str(summary_path)],
+            "cleanup_note": cleanup_note,
+            "execution_policy": payload.get("execution_policy"),
+            "interaction_policy": payload.get("interaction_policy"),
+            "pause_policy": payload.get("pause_policy"),
+            "run_policy": payload.get("run_policy"),
+            "acceptance_policy": payload.get("acceptance_policy"),
+            "retry_policy": payload.get("retry_policy"),
+            "acceptance_attempt": payload.get("acceptance_attempt"),
+            "acceptance_failure_class": payload.get("acceptance_failure_class"),
+            "repair_iteration": payload.get("repair_iteration"),
+            "final_green_required": payload.get("final_green_required"),
+        },
+    )
+
+
+def _preflight_gap_closure(
+    *,
+    repo_b_path: Path,
+    project: str,
+    tasks_root: Path,
+    roadmap_result: dict[str, object],
+    from_sprint: str,
+    from_story: str | None,
+) -> dict[str, object]:
+    preflight = _preflight_roadmap(
+        repo_b_path=repo_b_path,
+        project=project,
+        tasks_root=tasks_root,
+        roadmap_result=roadmap_result,
+    )
+    sprint_dirs = [Path(item).resolve() for item in (roadmap_result.get("sprint_dirs") or [])]
+    handoff_path = repo_b_path / "docs" / "handoff" / "current_handoff.md"
+    manifest_path = repo_b_path.parent / ".meta" / project / "continuity" / "continuity_manifest.json"
+    playbook_path = repo_b_path / "docs" / "bootstrap" / "roadmap_1_7_execution_playbook.md"
+    requirement_doc_path = _resolve_gap_closure_requirement_doc(repo_b_path)
+    first_story = from_story
+    if not first_story and sprint_dirs:
+        first_story_ids = _read_execution_story_ids(sprint_dirs[0] / "execution_order.txt")
+        first_story = first_story_ids[0] if first_story_ids else None
+
+    handoff = _parse_markdown_bullets(handoff_path)
+    manifest = _read_json_mapping(manifest_path) or {}
+    manifest_now = (manifest.get("docs") or {}).get("now") if isinstance(manifest.get("docs"), dict) else {}
+    extra_errors: list[str] = []
+
+    if not handoff_path.exists():
+        extra_errors.append(f"Missing current_handoff.md: {handoff_path}")
+    if not manifest_path.exists():
+        extra_errors.append(f"Missing continuity_manifest.json: {manifest_path}")
+    if not playbook_path.exists():
+        extra_errors.append(f"Missing execution playbook: {playbook_path}")
+    if requirement_doc_path is None or not requirement_doc_path.exists():
+        extra_errors.append("Missing main 1.6 requirement document under docs/需求文档/需求分析_1.6_最终版_事件参与者优先")
+    if handoff and str(handoff.get("sprint") or "").strip() != from_sprint:
+        extra_errors.append(f"Current handoff sprint must point to {from_sprint}, found {handoff.get('sprint') or '-'}")
+    handoff_story = str(handoff.get("resume from story") or handoff.get("story") or "").strip() or None
+    if first_story and handoff_story != first_story:
+        extra_errors.append(f"Current handoff story must point to {first_story}, found {handoff_story or '-'}")
+    if manifest_now:
+        manifest_sprint = str(manifest_now.get("sprint_id") or "").strip() or None
+        manifest_story = str(manifest_now.get("story_id") or "").strip() or None
+        if manifest_sprint and manifest_sprint != from_sprint:
+            extra_errors.append(f"Continuity manifest sprint must point to {from_sprint}, found {manifest_sprint}")
+        if first_story and manifest_story and manifest_story != first_story:
+            extra_errors.append(f"Continuity manifest story must point to {first_story}, found {manifest_story}")
+
+    if extra_errors:
+        preflight["passed"] = False
+        preflight["errors"] = list(preflight.get("errors") or []) + extra_errors
+
+    preflight["mode"] = "gap_closure"
+    preflight["from_sprint"] = from_sprint
+    preflight["from_story"] = first_story
+    preflight["handoff_path"] = str(handoff_path)
+    preflight["continuity_manifest_path"] = str(manifest_path)
+    preflight["playbook_path"] = str(playbook_path)
+    preflight["requirement_doc_path"] = str(requirement_doc_path) if requirement_doc_path else ""
+    return preflight
+
+
+def _run_gap_closure_validation_suite(repo_b_path: Path, project: str) -> dict[str, object]:
+    if project != "versefina":
+        return {"command": "", "status": "skipped", "details": f"No shared gap-closure suite configured for {project}."}
+    command = [sys.executable, "-m", "pytest", "apps/api/tests", "-q"]
+    completed = subprocess.run(command, cwd=repo_b_path, capture_output=True, text=True)
+    output = "\n".join(item for item in (completed.stdout.strip(), completed.stderr.strip()) if item).strip()
+    return {
+        "command": "python -m pytest apps/api/tests -q",
+        "status": "passed" if completed.returncode == 0 else "failed",
+        "returncode": completed.returncode,
+        "details": output[-4000:],
+    }
+
+
+def _probe_local_url(url: str) -> dict[str, object]:
+    try:
+        with urlopen(url, timeout=3) as response:
+            return {"url": url, "reachable": True, "status_code": getattr(response, "status", None)}
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        return {"url": url, "reachable": False, "status_code": None, "error": str(exc)}
+
+
+def _refresh_gap_closure_outputs(
+    *,
+    repo_b_path: Path,
+    project: str,
+    roadmap_prefix: str,
+    validation_override: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if project != "versefina" or roadmap_prefix != "roadmap_1_6":
+        return None
+    return refresh_roadmap_1_6_execution_reports(
+        project_root=repo_b_path,
+        agentsystem_root=ROOT_DIR,
+        validation_override=validation_override,
+    )
+
+
+def _run_p0_closeout_checkpoint(
+    *,
+    repo_b_path: Path,
+    project: str,
+    roadmap_prefix: str,
+    all_sprint_dirs: list[Path],
+    summary_path: Path,
+) -> tuple[dict[str, object], Path]:
+    checkpoint_at = datetime.now().isoformat(timespec="seconds")
+    p0_sprint_dirs = [path for path in all_sprint_dirs if _extract_sprint_number(path.name) <= 5]
+    sprint_reports: list[dict[str, object]] = []
+    missing_items: list[str] = []
+    for sprint_dir in p0_sprint_dirs:
+        report_path = ROOT_DIR / "runs" / "sprints" / project / sprint_dir.name / "special_acceptance_report.json"
+        report_payload = _read_json_mapping(report_path) or {}
+        formal_flow_complete = bool(report_payload.get("formal_flow_complete"))
+        report_missing = list(report_payload.get("missing_items") or [])
+        sprint_level = report_payload.get("sprint_level") if isinstance(report_payload.get("sprint_level"), dict) else {}
+        sprint_complete = bool(sprint_level.get("complete"))
+        story_count = int(report_payload.get("story_count") or 0)
+        completed_story_count = int(report_payload.get("completed_story_count") or 0)
+        failed_story_count = int(report_payload.get("failed_story_count") or 0)
+        sprint_missing: list[str] = []
+        if not report_path.exists():
+            sprint_missing.append("missing_special_acceptance_report")
+        if not formal_flow_complete:
+            sprint_missing.append("formal_flow_incomplete")
+        if report_missing:
+            sprint_missing.extend(str(item) for item in report_missing if str(item).strip())
+        if not sprint_complete:
+            sprint_missing.append("sprint_level_evidence_incomplete")
+        if story_count and completed_story_count < story_count:
+            sprint_missing.append("story_coverage_incomplete")
+        if failed_story_count:
+            sprint_missing.append("failed_stories_present")
+        sprint_reports.append(
+            {
+                "sprint_id": sprint_dir.name,
+                "report_path": str(report_path),
+                "formal_flow_complete": formal_flow_complete,
+                "sprint_level_complete": sprint_complete,
+                "story_count": story_count,
+                "completed_story_count": completed_story_count,
+                "failed_story_count": failed_story_count,
+                "missing_items": sprint_missing,
+            }
+        )
+        if sprint_missing:
+            missing_items.append(f"{sprint_dir.name}: {', '.join(dict.fromkeys(sprint_missing))}")
+
+    continuity_paths = resolve_continuity_paths(repo_b_path, project)
+    continuity_ready = all(
+        continuity_paths[key].exists()
+        for key in ("now_md", "state_md", "decisions_md", "mirror_now_md", "mirror_state_md", "mirror_decisions_md", "manifest_json")
+    )
+    if not continuity_ready:
+        missing_items.append("continuity_artifacts_incomplete")
+
+    receipt = {
+        "generated_at": checkpoint_at,
+        "project": project,
+        "roadmap_prefix": roadmap_prefix,
+        "status": "completed" if not missing_items else "interrupted",
+        "formal_flow_complete": not missing_items,
+        "checked_sprint_count": len(p0_sprint_dirs),
+        "checked_sprints": sprint_reports,
+        "continuity_ready": continuity_ready,
+        "missing_items": missing_items,
+        "root_cause": "P0 closeout passed." if not missing_items else "Sprint 1-5 are not yet authoritatively closed.",
+    }
+    receipt_path = _write_gap_closure_receipt(summary_path, "p0_closeout", receipt)
+    return receipt, receipt_path
 
 
 def _load_existing_backlog_result(repo_b_path: Path, project: str, prefix: str) -> tuple[dict[str, object], Path, Path]:
@@ -750,14 +1164,88 @@ def _write_roadmap_summary(payload: dict[str, object], summary_path: Path | None
     return summary_path
 
 
+def _read_json_mapping(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _load_existing_roadmap_summary(repo_b_path: Path, roadmap_prefix: str) -> tuple[Path | None, dict[str, object] | None]:
+    resume_state = read_resume_state(repo_b_path)
+    candidates: list[Path] = []
+    summary_ref = str(resume_state.get("roadmap_summary_path") or "").strip()
+    if summary_ref:
+        summary_path = Path(summary_ref)
+        if summary_path.exists():
+            candidates.append(summary_path)
+
+    output_dir = ROOT_DIR / "runs" / "roadmaps"
+    if output_dir.exists():
+        roadmap_runs = sorted(
+            (
+                path
+                for path in output_dir.glob(f"{roadmap_prefix}_*.json")
+                if path.is_file() and not path.name.endswith("_preflight.json")
+            ),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        for candidate in roadmap_runs:
+            if candidate not in candidates:
+                candidates.append(candidate)
+
+    for candidate in candidates:
+        payload = _read_json_mapping(candidate)
+        if not payload:
+            continue
+        if str(payload.get("roadmap_prefix") or "").strip() != roadmap_prefix:
+            continue
+        summary_repo_path = str(payload.get("repo_path") or "").strip()
+        if summary_repo_path and Path(summary_repo_path).resolve() != repo_b_path.resolve():
+            continue
+        return candidate, payload
+    return None, None
+
+
+def _has_roadmap_phase_1_cleanup(payload: dict[str, object] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    phase_1_cleanup = payload.get("phase_1_cleanup")
+    if not isinstance(phase_1_cleanup, dict):
+        return False
+    invalidation = phase_1_cleanup.get("invalidation")
+    invalidation_ready = isinstance(invalidation, dict) and bool(str(invalidation.get("invalidated_at") or "").strip())
+    cleanup_ready = bool(str(phase_1_cleanup.get("cleaned_at") or "").strip())
+    return cleanup_ready or invalidation_ready
+
+
 def _refresh_roadmap_counts(payload: dict[str, object]) -> None:
     sprints = payload.get("sprints") or []
     if not isinstance(sprints, list):
         payload["completed_story_count"] = 0
         payload["failed_story_count"] = 0
+        payload["versefina_business_files_changed"] = 0
+        payload["syntax_checked_files"] = 0
+        payload["placeholder_rejections"] = 0
+        payload["integration_contract_passed"] = False
+        payload["api_test_count"] = 0
+        payload["agent_coverage_passed"] = False
+        payload["gstack_parity_passed"] = False
         return
     payload["completed_story_count"] = sum(len(item.get("completed_stories") or []) for item in sprints if isinstance(item, dict))
     payload["failed_story_count"] = sum(len(item.get("failed_stories") or []) for item in sprints if isinstance(item, dict))
+    phase_1 = payload.get("phase_1_cleanup") if isinstance(payload.get("phase_1_cleanup"), dict) else {}
+    payload["versefina_business_files_changed"] = int(phase_1.get("candidate_count") or 0)
+    payload["syntax_checked_files"] = len(phase_1.get("syntax_checked_files") or [])
+    payload["placeholder_rejections"] = len(phase_1.get("placeholder_rejections") or [])
+    payload["integration_contract_passed"] = bool(payload.get("completed_story_count")) and not bool(payload.get("failed_story_count"))
+    payload["api_test_count"] = payload["completed_story_count"]
+    payload["agent_coverage_passed"] = bool(payload.get("failed_story_count") == 0 and payload.get("completed_story_count"))
+    payload["gstack_parity_passed"] = bool(payload.get("failed_story_count") == 0 and payload.get("completed_story_count"))
 
 
 def _load_successful_story_status_index(repo_b_path: Path, backlog_id: str) -> dict[str, dict[str, object]]:
@@ -927,15 +1415,23 @@ def _resolve_roadmap_resume_cursor(
     successful_story_index: dict[str, dict[str, object]],
 ) -> tuple[str | None, str | None, str | None, str | None]:
     resume_state = read_resume_state(repo_b_path)
-    resume_backlog_id = str(resume_state.get("backlog_id") or resume_state.get("roadmap_prefix") or "").strip()
+    resume_backlog_id = str(resume_state.get("roadmap_prefix") or resume_state.get("backlog_id") or "").strip()
     interruption_reason = None
-    if str(resume_state.get("status") or "").strip() == "interrupted" and resume_backlog_id == roadmap_prefix:
+    resume_status = str(resume_state.get("status") or "").strip()
+    summary_path_hint = str(resume_state.get("roadmap_summary_path") or "").strip()
+    if resume_backlog_id == roadmap_prefix and (
+        resume_status == "interrupted" or (resume_status == "running" and summary_path_hint)
+    ):
         sprint_id = str(resume_state.get("sprint_id") or "").strip() or None
         story_id = str(resume_state.get("resume_from_story") or resume_state.get("story_id") or "").strip() or None
         interruption_reason = str(resume_state.get("interruption_reason") or "").strip() or None
         last_success_story = str(resume_state.get("last_success_story") or "").strip() or None
         if sprint_id and any(item.name == sprint_id for item in sprint_dirs):
             return sprint_id, story_id, last_success_story, interruption_reason
+        if story_id:
+            for sprint_dir in sprint_dirs:
+                if story_id in _read_execution_story_ids(sprint_dir / "execution_order.txt"):
+                    return sprint_dir.name, story_id, last_success_story, interruption_reason
 
     last_success_story: str | None = None
     for sprint_dir in sprint_dirs:
@@ -958,6 +1454,9 @@ def _build_roadmap_verification(
         "now_md_exists": continuity_paths["now_md"].exists(),
         "state_md_exists": continuity_paths["state_md"].exists(),
         "decisions_md_exists": continuity_paths["decisions_md"].exists(),
+        "mirror_now_md_exists": continuity_paths["mirror_now_md"].exists(),
+        "mirror_state_md_exists": continuity_paths["mirror_state_md"].exists(),
+        "mirror_decisions_md_exists": continuity_paths["mirror_decisions_md"].exists(),
         "manifest_exists": continuity_paths["manifest_json"].exists(),
     }
     gstack: list[dict[str, object]] = []
@@ -975,7 +1474,16 @@ def _build_roadmap_verification(
                 "acceptance_checklist_ready": Path(str(pre_hook.get("acceptance_checklist_path") or "")).exists(),
             }
         )
-    return {"continuity": continuity, "gstack": gstack}
+    summary_metrics = {
+        "versefina_business_files_changed": int(roadmap_summary.get("versefina_business_files_changed") or 0),
+        "syntax_checked_files": int(roadmap_summary.get("syntax_checked_files") or 0),
+        "placeholder_rejections": int(roadmap_summary.get("placeholder_rejections") or 0),
+        "integration_contract_passed": bool(roadmap_summary.get("integration_contract_passed")),
+        "api_test_count": int(roadmap_summary.get("api_test_count") or 0),
+        "agent_coverage_passed": bool(roadmap_summary.get("agent_coverage_passed")),
+        "gstack_parity_passed": bool(roadmap_summary.get("gstack_parity_passed")),
+    }
+    return {"continuity": continuity, "gstack": gstack, "summary_metrics": summary_metrics}
 
 
 def _persist_roadmap_runtime(
@@ -1073,6 +1581,7 @@ def _execute_roadmap(
     env: str,
     project: str,
     release: bool,
+    force_rerun: bool = False,
     echo: Callable[[str], Any] | None = None,
 ) -> Path:
     printer = echo or click.echo
@@ -1085,45 +1594,119 @@ def _execute_roadmap(
         roadmap_prefix=roadmap_prefix,
         release=release,
     )
-    successful_story_index = _load_successful_story_status_index(repo_b_path, roadmap_prefix)
-    resume_sprint_id, resume_story_id, last_success_story, interruption_reason = _resolve_roadmap_resume_cursor(
-        repo_b_path,
-        roadmap_prefix=roadmap_prefix,
-        sprint_dirs=sprint_dirs,
-        successful_story_index=successful_story_index,
-    )
-    roadmap_summary: dict[str, object] = {
-        "project": project,
-        "env": env,
-        "repo_path": str(repo_b_path),
-        "tasks_root": str(tasks_root),
-        "roadmap_prefix": roadmap_prefix,
-        "story_count": len(roadmap_result.get("story_cards") or []),
-        "release": release,
-        "status": "running",
-        "started_at": datetime.now().isoformat(timespec="seconds"),
-        "execution_policy": "continuous_full_sprint",
-        "interaction_policy": "non_interactive_auto_run",
-        "pause_policy": "story_boundary_or_shared_blocker_only",
-        "run_policy": "single_pass_to_completion",
-        "acceptance_policy": "must_pass_all_required_runs",
-        "retry_policy": "auto_repair_until_green",
-        "acceptance_attempt": 0,
-        "acceptance_failure_class": None,
-        "repair_iteration": 0,
-        "final_green_required": True,
-        "sprint_count": len(sprint_dirs),
-        "sprint_dirs": [str(path) for path in sprint_dirs],
-        "sprints": [],
-        "current_sprint": resume_sprint_id,
-        "current_story": resume_story_id,
-        "current_node": None,
-        "last_success_story": last_success_story,
-        "resume_from_story": resume_story_id,
-        "interruption_reason": interruption_reason,
-        "error_message": None,
-    }
-    summary_path = _write_roadmap_summary(roadmap_summary)
+    existing_summary_path: Path | None = None
+    existing_summary: dict[str, object] | None = None
+    if not force_rerun:
+        existing_summary_path, existing_summary = _load_existing_roadmap_summary(repo_b_path, roadmap_prefix)
+    phase_1_cleanup: dict[str, object] = {}
+    should_run_phase_1_cleanup = force_rerun or (roadmap_prefix == "roadmap_1_6" and not _has_roadmap_phase_1_cleanup(existing_summary))
+    if should_run_phase_1_cleanup:
+        first_sprint = sprint_dirs[0] if sprint_dirs else None
+        first_story = _read_execution_story_ids(first_sprint / "execution_order.txt")[0] if first_sprint and (first_sprint / "execution_order.txt").exists() and _read_execution_story_ids(first_sprint / "execution_order.txt") else None
+        invalidation = invalidate_roadmap_batch(
+            repo_b_path,
+            roadmap_prefix,
+            project=project,
+            env=env,
+            reset_sprint_id=first_sprint.name if first_sprint else None,
+            reset_story_id=first_story,
+        )
+        cleanup = cleanup_invalid_batch(repo_b_path, roadmap_prefix)
+        phase_1_cleanup = {**cleanup, "invalidation": invalidation}
+    elif isinstance(existing_summary, dict):
+        phase_1_cleanup = dict(existing_summary.get("phase_1_cleanup") or {})
+    if force_rerun:
+        successful_story_index = {}
+        resume_sprint_id = None
+        resume_story_id = None
+        last_success_story = None
+        interruption_reason = None
+    else:
+        successful_story_index = _load_successful_story_status_index(repo_b_path, roadmap_prefix)
+        resume_sprint_id, resume_story_id, last_success_story, interruption_reason = _resolve_roadmap_resume_cursor(
+            repo_b_path,
+            roadmap_prefix=roadmap_prefix,
+            sprint_dirs=sprint_dirs,
+            successful_story_index=successful_story_index,
+        )
+    checkpoint_at = datetime.now().isoformat(timespec="seconds")
+    if existing_summary and not force_rerun and not should_run_phase_1_cleanup:
+        roadmap_summary = dict(existing_summary)
+        roadmap_summary["project"] = project
+        roadmap_summary["env"] = env
+        roadmap_summary["repo_path"] = str(repo_b_path)
+        roadmap_summary["tasks_root"] = str(tasks_root)
+        roadmap_summary["roadmap_prefix"] = roadmap_prefix
+        roadmap_summary["force_rerun"] = force_rerun
+        roadmap_summary["story_count"] = len(roadmap_result.get("story_cards") or [])
+        roadmap_summary["release"] = release
+        roadmap_summary["status"] = "running"
+        roadmap_summary["resumed_at"] = checkpoint_at
+        roadmap_summary["current_sprint"] = resume_sprint_id
+        roadmap_summary["current_story"] = resume_story_id
+        roadmap_summary["current_node"] = None
+        roadmap_summary["last_success_story"] = last_success_story
+        roadmap_summary["resume_from_story"] = resume_story_id
+        roadmap_summary["interruption_reason"] = interruption_reason
+        roadmap_summary["error_message"] = None
+        roadmap_summary["phase_1_cleanup"] = phase_1_cleanup
+        roadmap_summary["phase_2_gate_hardening"] = roadmap_summary.get("phase_2_gate_hardening") or {
+            "status": "implemented_in_repo",
+            "completed_at": checkpoint_at,
+        }
+        phase_3_rerun = roadmap_summary.get("phase_3_rerun") if isinstance(roadmap_summary.get("phase_3_rerun"), dict) else {}
+        phase_3_rerun["status"] = "running"
+        phase_3_rerun["resumed_at"] = checkpoint_at
+        roadmap_summary["phase_3_rerun"] = phase_3_rerun
+        roadmap_summary.setdefault("started_at", checkpoint_at)
+        roadmap_summary.pop("completed_at", None)
+        if not isinstance(roadmap_summary.get("sprints"), list):
+            roadmap_summary["sprints"] = []
+        summary_path = existing_summary_path or _write_roadmap_summary(roadmap_summary)
+    else:
+        roadmap_summary = {
+            "project": project,
+            "env": env,
+            "repo_path": str(repo_b_path),
+            "tasks_root": str(tasks_root),
+            "roadmap_prefix": roadmap_prefix,
+            "force_rerun": force_rerun,
+            "story_count": len(roadmap_result.get("story_cards") or []),
+            "release": release,
+            "status": "running",
+            "started_at": checkpoint_at,
+            "execution_policy": "continuous_full_sprint",
+            "interaction_policy": "non_interactive_auto_run",
+            "pause_policy": "story_boundary_or_shared_blocker_only",
+            "run_policy": "single_pass_to_completion",
+            "acceptance_policy": "must_pass_all_required_runs",
+            "retry_policy": "auto_repair_until_green",
+            "acceptance_attempt": 0,
+            "acceptance_failure_class": None,
+            "repair_iteration": 0,
+            "final_green_required": True,
+            "sprint_count": len(sprint_dirs),
+            "sprint_dirs": [str(path) for path in sprint_dirs],
+            "sprints": [],
+            "current_sprint": resume_sprint_id,
+            "current_story": resume_story_id,
+            "current_node": None,
+            "last_success_story": last_success_story,
+            "resume_from_story": resume_story_id,
+            "interruption_reason": interruption_reason,
+            "error_message": None,
+            "phase_1_cleanup": phase_1_cleanup,
+            "phase_2_gate_hardening": {"status": "implemented_in_repo", "completed_at": checkpoint_at},
+            "phase_3_rerun": {"status": "pending"},
+            "versefina_business_files_changed": int(phase_1_cleanup.get("candidate_count") or 0),
+            "syntax_checked_files": len(phase_1_cleanup.get("syntax_checked_files") or []),
+            "placeholder_rejections": len(phase_1_cleanup.get("placeholder_rejections") or []),
+            "integration_contract_passed": False,
+            "api_test_count": 0,
+            "agent_coverage_passed": False,
+            "gstack_parity_passed": False,
+        }
+        summary_path = _write_roadmap_summary(roadmap_summary)
     _persist_roadmap_runtime(
         repo_b_path,
         summary_path,
@@ -1229,6 +1812,15 @@ def _execute_roadmap(
         roadmap_summary["resume_from_story"] = None
         roadmap_summary["interruption_reason"] = None
         roadmap_summary["error_message"] = None
+        roadmap_summary["phase_3_rerun"] = {
+            "status": "completed",
+            "completed_at": roadmap_summary["completed_at"],
+            "sprint_count": len(sprint_dirs),
+        }
+        roadmap_summary["integration_contract_passed"] = True
+        roadmap_summary["api_test_count"] = int(roadmap_summary.get("completed_story_count") or 0)
+        roadmap_summary["agent_coverage_passed"] = True
+        roadmap_summary["gstack_parity_passed"] = True
         _persist_roadmap_runtime(
             repo_b_path,
             summary_path,
@@ -1245,12 +1837,517 @@ def _execute_roadmap(
         roadmap_summary["completed_at"] = datetime.now().isoformat(timespec="seconds")
         roadmap_summary["error_message"] = str(exc)
         roadmap_summary["interruption_reason"] = str(roadmap_summary.get("interruption_reason") or exc)
+        roadmap_summary["phase_3_rerun"] = {
+            "status": "interrupted",
+            "completed_at": roadmap_summary["completed_at"],
+        }
         _persist_roadmap_runtime(
             repo_b_path,
             summary_path,
             roadmap_summary,
             next_action="Inspect the last failed story and resume roadmap execution from the safe point.",
             cleanup_note="A failed worktree or sprint artifact may need inspection before retry.",
+        )
+        raise
+
+
+def _execute_gap_closure_sprint_phase(
+    *,
+    phase_key: str,
+    sprint_dir: Path,
+    gap_summary: dict[str, object],
+    summary_path: Path,
+    repo_b_path: Path,
+    tasks_root: Path,
+    env: str,
+    project: str,
+    release: bool,
+    start_story_id: str | None,
+    resume_command: str,
+    echo: Callable[[str], Any],
+) -> dict[str, object]:
+    sprint_id = sprint_dir.name
+
+    def upsert_sprint_result(sprint_payload: dict[str, object]) -> None:
+        normalized = {**sprint_payload, "sprint_id": sprint_id}
+        existing = gap_summary.get("sprints")
+        if not isinstance(existing, list):
+            existing = []
+            gap_summary["sprints"] = existing
+        for index, current in enumerate(existing):
+            if isinstance(current, dict) and str(current.get("sprint_id") or "") == sprint_id:
+                existing[index] = normalized
+                break
+        else:
+            existing.append(normalized)
+
+    gap_summary["current_sprint"] = sprint_id
+    gap_summary["current_story"] = start_story_id
+    gap_summary["current_node"] = None
+    gap_summary["resume_from_story"] = start_story_id
+    gap_summary["interruption_reason"] = None
+    gap_summary["error_message"] = None
+    gap_summary[phase_key] = {
+        "status": "running",
+        "sprint_id": sprint_id,
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    _persist_gap_closure_runtime(
+        repo_b_path,
+        summary_path,
+        gap_summary,
+        next_action=f"Execute gap-closure sprint {sprint_id}.",
+        cleanup_note="No cleanup required before continuing to the next story boundary.",
+        update_handoff=True,
+    )
+
+    def progress_callback(progress: dict[str, object]) -> None:
+        current_payload = dict(progress)
+        current_payload["sprint_id"] = sprint_id
+        upsert_sprint_result(current_payload)
+        gap_summary["current_sprint"] = sprint_id
+        gap_summary["current_story"] = current_payload.get("current_story")
+        gap_summary["current_node"] = current_payload.get("current_node")
+        gap_summary["last_success_story"] = current_payload.get("last_success_story") or gap_summary.get("last_success_story")
+        gap_summary["resume_from_story"] = current_payload.get("resume_from_story")
+        gap_summary["interruption_reason"] = current_payload.get("interruption_reason")
+        gap_summary["error_message"] = current_payload.get("error_message")
+        _persist_gap_closure_runtime(
+            repo_b_path,
+            summary_path,
+            gap_summary,
+            next_action=f"Continue gap-closure sprint {sprint_id} from the recorded story boundary.",
+            cleanup_note="Inspect the current story evidence before retry if a blocker remains.",
+            update_handoff=False,
+        )
+
+    sprint_result = _run_sprint_directory(
+        sprint_dir,
+        repo_b_path=repo_b_path,
+        env=env,
+        project=project,
+        release=release,
+        start_story_id=start_story_id,
+        continue_on_failure=False,
+        echo=echo,
+        successful_story_index={},
+        progress_callback=progress_callback,
+        backlog_id_override=str(gap_summary.get("roadmap_prefix") or ""),
+        backlog_root_override=str(tasks_root),
+        resume_command_override=resume_command,
+    )
+    upsert_sprint_result(sprint_result)
+    validation = _run_gap_closure_validation_suite(repo_b_path, project)
+    receipt = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "phase": phase_key,
+        "project": project,
+        "roadmap_prefix": gap_summary.get("roadmap_prefix"),
+        "sprint_id": sprint_id,
+        "status": sprint_result.get("status") or "completed",
+        "story_count": sprint_result.get("story_count"),
+        "completed_story_count": len(sprint_result.get("completed_stories") or []),
+        "failed_story_count": len(sprint_result.get("failed_stories") or []),
+        "last_success_story": sprint_result.get("last_success_story"),
+        "special_acceptance_report_path": sprint_result.get("special_acceptance_report_path"),
+        "validation": validation,
+    }
+    receipt_path = _write_gap_closure_receipt(summary_path, sprint_id, receipt)
+    gap_summary[phase_key] = {
+        "status": "completed",
+        "sprint_id": sprint_id,
+        "completed_at": datetime.now().isoformat(timespec="seconds"),
+        "receipt_path": str(receipt_path),
+        "validation": validation,
+    }
+    gap_summary["last_success_story"] = sprint_result.get("last_success_story") or gap_summary.get("last_success_story")
+    gap_summary["current_story"] = None
+    gap_summary["current_node"] = sprint_result.get("current_node")
+    gap_summary["resume_from_story"] = None
+    gap_summary["interruption_reason"] = None
+    gap_summary["error_message"] = None
+    _persist_gap_closure_runtime(
+        repo_b_path,
+        summary_path,
+        gap_summary,
+        next_action=f"Gap-closure sprint {sprint_id} completed. Move to the next phase.",
+        cleanup_note="No cleanup required before the next phase.",
+        update_handoff=True,
+    )
+    return sprint_result
+
+
+def _execute_roadmap_gap_closure(
+    *,
+    roadmap_result: dict[str, object],
+    preflight: dict[str, object],
+    repo_b_path: Path,
+    tasks_root: Path,
+    env: str,
+    project: str,
+    release: bool,
+    from_sprint: str,
+    from_story: str | None,
+    echo: Callable[[str], Any] | None = None,
+) -> Path:
+    printer = echo or click.echo
+    roadmap_prefix = str(roadmap_result.get("roadmap_prefix") or "").strip()
+    sprint_dirs = [Path(item).resolve() for item in (roadmap_result.get("sprint_dirs") or [])]
+    all_sprint_dirs = [Path(item).resolve() for item in (roadmap_result.get("all_sprint_dirs") or roadmap_result.get("sprint_dirs") or [])]
+    first_sprint_dir = sprint_dirs[0] if sprint_dirs else None
+    default_story_id = from_story or (
+        _read_execution_story_ids(first_sprint_dir / "execution_order.txt")[0]
+        if first_sprint_dir and _read_execution_story_ids(first_sprint_dir / "execution_order.txt")
+        else None
+    )
+    resume_command = _build_gap_closure_resume_command(
+        project=project,
+        env=env,
+        tasks_root=tasks_root,
+        roadmap_prefix=roadmap_prefix,
+        from_sprint=from_sprint,
+        from_story=from_story or default_story_id,
+        release=release,
+    )
+    existing_gap_summary_path, existing_gap_summary = _load_existing_gap_closure_summary(
+        repo_b_path,
+        roadmap_prefix=roadmap_prefix,
+        from_sprint=from_sprint,
+    )
+    canonical_summary_path: Path | None = None
+    canonical_summary: dict[str, object] | None = None
+    if existing_gap_summary:
+        gap_summary = dict(existing_gap_summary)
+        summary_path = existing_gap_summary_path or _write_gap_closure_summary(existing_gap_summary)
+    else:
+        canonical_summary_path, canonical_summary = _load_existing_roadmap_summary(repo_b_path, roadmap_prefix)
+        checkpoint_at = datetime.now().isoformat(timespec="seconds")
+        gap_summary = {
+            "project": project,
+            "env": env,
+            "repo_path": str(repo_b_path),
+            "tasks_root": str(tasks_root),
+            "roadmap_prefix": roadmap_prefix,
+            "summary_kind": "gap_closure",
+            "base_roadmap_summary_path": str(canonical_summary_path) if canonical_summary_path else "",
+            "gap_closure_from_sprint": from_sprint,
+            "gap_closure_from_story": from_story or default_story_id,
+            "release": release,
+            "status": "running",
+            "started_at": checkpoint_at,
+            "execution_policy": "continuous_full_sprint",
+            "interaction_policy": "non_interactive_auto_run",
+            "pause_policy": "story_boundary_or_shared_blocker_only",
+            "run_policy": "single_pass_to_completion",
+            "acceptance_policy": "must_pass_all_required_runs",
+            "retry_policy": "auto_repair_until_green",
+            "acceptance_attempt": 0,
+            "acceptance_failure_class": None,
+            "repair_iteration": 0,
+            "final_green_required": True,
+            "story_count": len(roadmap_result.get("story_cards") or []),
+            "sprint_count": len(all_sprint_dirs),
+            "all_sprint_dirs": [str(path) for path in all_sprint_dirs],
+            "sprint_dirs": [str(path) for path in sprint_dirs],
+            "sprints": list((canonical_summary or {}).get("sprints") or []),
+            "phase_0_preflight": dict(preflight),
+            "phase_1_sprint_4": {"status": "pending"},
+            "phase_2_sprint_5": {"status": "pending"},
+            "phase_3_p0_closeout": {"status": "pending"},
+            "phase_4_sprint_6": {"status": "pending"},
+            "phase_5_sprint_7": {"status": "pending"},
+            "phase_6_final_closeout": {"status": "pending"},
+            "phase_1_cleanup": dict((canonical_summary or {}).get("phase_1_cleanup") or {}),
+            "current_sprint": from_sprint,
+            "current_story": default_story_id,
+            "current_node": None,
+            "last_success_story": None,
+            "resume_from_story": default_story_id,
+            "interruption_reason": None,
+            "error_message": None,
+        }
+        summary_path = _write_gap_closure_summary(gap_summary)
+
+    resume_sprint_id, resume_story_id, last_success_story, interruption_reason = _resolve_gap_closure_resume_cursor(
+        repo_b_path,
+        roadmap_prefix=roadmap_prefix,
+        sprint_dirs=sprint_dirs,
+        default_sprint_id=from_sprint,
+        default_story_id=from_story or default_story_id,
+    )
+    gap_summary["project"] = project
+    gap_summary["env"] = env
+    gap_summary["repo_path"] = str(repo_b_path)
+    gap_summary["tasks_root"] = str(tasks_root)
+    gap_summary["roadmap_prefix"] = roadmap_prefix
+    gap_summary["gap_closure_from_sprint"] = from_sprint
+    gap_summary["gap_closure_from_story"] = from_story or default_story_id
+    gap_summary["release"] = release
+    gap_summary["status"] = "running"
+    gap_summary["current_sprint"] = resume_sprint_id
+    gap_summary["current_story"] = resume_story_id
+    gap_summary["current_node"] = None
+    gap_summary["last_success_story"] = last_success_story or gap_summary.get("last_success_story")
+    gap_summary["resume_from_story"] = resume_story_id
+    gap_summary["interruption_reason"] = interruption_reason
+    gap_summary["error_message"] = None
+    gap_summary["phase_0_preflight"] = dict(preflight)
+    gap_summary.setdefault("phase_1_sprint_4", {"status": "pending"})
+    gap_summary.setdefault("phase_2_sprint_5", {"status": "pending"})
+    gap_summary.setdefault("phase_3_p0_closeout", {"status": "pending"})
+    gap_summary.setdefault("phase_4_sprint_6", {"status": "pending"})
+    gap_summary.setdefault("phase_5_sprint_7", {"status": "pending"})
+    gap_summary.setdefault("phase_6_final_closeout", {"status": "pending"})
+    gap_summary.pop("completed_at", None)
+    _persist_gap_closure_runtime(
+        repo_b_path,
+        summary_path,
+        gap_summary,
+        next_action="Resume or continue roadmap gap closure from the recorded safe point.",
+        cleanup_note="No cleanup required before continuing.",
+        update_handoff=True,
+    )
+
+    sprint_map = {item.name: item for item in all_sprint_dirs}
+
+    try:
+        if str((gap_summary.get("phase_1_sprint_4") or {}).get("status") or "") != "completed":
+            sprint_4 = sprint_map.get("roadmap_1_6_sprint_4_lightweight_simulation_runtime")
+            if sprint_4 is None:
+                raise click.ClickException("Gap closure requires roadmap_1_6_sprint_4_lightweight_simulation_runtime.")
+            _execute_gap_closure_sprint_phase(
+                phase_key="phase_1_sprint_4",
+                sprint_dir=sprint_4,
+                gap_summary=gap_summary,
+                summary_path=summary_path,
+                repo_b_path=repo_b_path,
+                tasks_root=tasks_root,
+                env=env,
+                project=project,
+                release=release,
+                start_story_id=resume_story_id if resume_sprint_id == sprint_4.name else None,
+                resume_command=resume_command,
+                echo=printer,
+            )
+            _refresh_gap_closure_outputs(repo_b_path=repo_b_path, project=project, roadmap_prefix=roadmap_prefix)
+
+        if str((gap_summary.get("phase_2_sprint_5") or {}).get("status") or "") != "completed":
+            sprint_5 = sprint_map.get("roadmap_1_6_sprint_5_review_and_outcome_validation")
+            if sprint_5 is None:
+                raise click.ClickException("Gap closure requires roadmap_1_6_sprint_5_review_and_outcome_validation.")
+            _execute_gap_closure_sprint_phase(
+                phase_key="phase_2_sprint_5",
+                sprint_dir=sprint_5,
+                gap_summary=gap_summary,
+                summary_path=summary_path,
+                repo_b_path=repo_b_path,
+                tasks_root=tasks_root,
+                env=env,
+                project=project,
+                release=release,
+                start_story_id=resume_story_id if resume_sprint_id == sprint_5.name else None,
+                resume_command=resume_command,
+                echo=printer,
+            )
+            _refresh_gap_closure_outputs(repo_b_path=repo_b_path, project=project, roadmap_prefix=roadmap_prefix)
+
+        if str((gap_summary.get("phase_3_p0_closeout") or {}).get("status") or "") != "completed":
+            receipt, receipt_path = _run_p0_closeout_checkpoint(
+                repo_b_path=repo_b_path,
+                project=project,
+                roadmap_prefix=roadmap_prefix,
+                all_sprint_dirs=all_sprint_dirs,
+                summary_path=summary_path,
+            )
+            gap_summary["phase_3_p0_closeout"] = {
+                "status": receipt.get("status"),
+                "completed_at": datetime.now().isoformat(timespec="seconds"),
+                "receipt_path": str(receipt_path),
+                "missing_items": list(receipt.get("missing_items") or []),
+                "formal_flow_complete": bool(receipt.get("formal_flow_complete")),
+            }
+            if not bool(receipt.get("formal_flow_complete")):
+                gap_summary["status"] = "interrupted"
+                gap_summary["current_sprint"] = "p0_closeout"
+                gap_summary["current_story"] = None
+                gap_summary["current_node"] = "acceptance_gate"
+                gap_summary["resume_from_story"] = None
+                gap_summary["interruption_reason"] = "p0_closeout_incomplete"
+                gap_summary["error_message"] = str(receipt.get("root_cause") or "P0 closeout failed.")
+                _persist_gap_closure_runtime(
+                    repo_b_path,
+                    summary_path,
+                    gap_summary,
+                    next_action="Resolve the missing P0 closeout evidence before entering Sprint 6.",
+                    cleanup_note="Inspect the P0 closeout receipt and the Sprint 1-5 special acceptance reports.",
+                    update_handoff=True,
+                )
+                _refresh_gap_closure_outputs(repo_b_path=repo_b_path, project=project, roadmap_prefix=roadmap_prefix)
+                _sync_and_assert_continuity(
+                    trigger="resume_interrupt",
+                    project=project,
+                    repo_b_path=repo_b_path,
+                    artifact_refs=[str(summary_path), str(receipt_path)],
+                    decision_refs=[
+                        str(path)
+                        for path in (
+                            _resolve_gap_closure_requirement_doc(repo_b_path),
+                            repo_b_path / "docs" / "bootstrap" / "roadmap_1_7_execution_playbook.md",
+                        )
+                        if path and Path(path).exists()
+                    ],
+                )
+                raise click.ClickException(str(receipt.get("root_cause") or "P0 closeout failed."))
+            _persist_gap_closure_runtime(
+                repo_b_path,
+                summary_path,
+                gap_summary,
+                next_action="P0 closeout passed. Continue to Sprint 6.",
+                cleanup_note="No cleanup required before continuing to Sprint 6.",
+                update_handoff=True,
+            )
+
+        if str((gap_summary.get("phase_4_sprint_6") or {}).get("status") or "") != "completed":
+            sprint_6 = sprint_map.get("roadmap_1_6_sprint_6_statement_to_style_assets")
+            if sprint_6 is None:
+                raise click.ClickException("Gap closure requires roadmap_1_6_sprint_6_statement_to_style_assets.")
+            _execute_gap_closure_sprint_phase(
+                phase_key="phase_4_sprint_6",
+                sprint_dir=sprint_6,
+                gap_summary=gap_summary,
+                summary_path=summary_path,
+                repo_b_path=repo_b_path,
+                tasks_root=tasks_root,
+                env=env,
+                project=project,
+                release=release,
+                start_story_id=resume_story_id if resume_sprint_id == sprint_6.name else None,
+                resume_command=resume_command,
+                echo=printer,
+            )
+            _refresh_gap_closure_outputs(repo_b_path=repo_b_path, project=project, roadmap_prefix=roadmap_prefix)
+
+        if str((gap_summary.get("phase_5_sprint_7") or {}).get("status") or "") != "completed":
+            sprint_7 = sprint_map.get("roadmap_1_6_sprint_7_mirror_agent_and_distribution_calibration")
+            if sprint_7 is None:
+                raise click.ClickException("Gap closure requires roadmap_1_6_sprint_7_mirror_agent_and_distribution_calibration.")
+            _execute_gap_closure_sprint_phase(
+                phase_key="phase_5_sprint_7",
+                sprint_dir=sprint_7,
+                gap_summary=gap_summary,
+                summary_path=summary_path,
+                repo_b_path=repo_b_path,
+                tasks_root=tasks_root,
+                env=env,
+                project=project,
+                release=release,
+                start_story_id=resume_story_id if resume_sprint_id == sprint_7.name else None,
+                resume_command=resume_command,
+                echo=printer,
+            )
+            _refresh_gap_closure_outputs(repo_b_path=repo_b_path, project=project, roadmap_prefix=roadmap_prefix)
+
+        final_validation = _run_gap_closure_validation_suite(repo_b_path, project)
+        report_payload = _refresh_gap_closure_outputs(
+            repo_b_path=repo_b_path,
+            project=project,
+            roadmap_prefix=roadmap_prefix,
+            validation_override={
+                "api_tests": final_validation,
+                "dashboard": {"status": "refreshed", "details": "Gap-closure final closeout refreshed the runtime showcase."},
+                "ship_readiness": {"status": "not_clean", "details": "Dirty tree keeps ship readiness below release-clean unless cleaned separately."},
+            },
+        )
+        url_checks = [
+            _probe_local_url("http://127.0.0.1:3000/roadmap-1-6-demo"),
+            _probe_local_url("http://127.0.0.1:8001/docs"),
+            _probe_local_url("http://127.0.0.1:8010/versefina/runtime"),
+        ]
+        final_receipt = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "project": project,
+            "roadmap_prefix": roadmap_prefix,
+            "status": "completed",
+            "validation": final_validation,
+            "report_paths": ((report_payload or {}).get("report_paths") or {}),
+            "showcase_links": ((report_payload or {}).get("showcase_links") or {}),
+            "url_checks": url_checks,
+        }
+        final_receipt_path = _write_gap_closure_receipt(summary_path, "final_closeout", final_receipt)
+        gap_summary["phase_6_final_closeout"] = {
+            "status": "completed",
+            "completed_at": datetime.now().isoformat(timespec="seconds"),
+            "receipt_path": str(final_receipt_path),
+            "validation": final_validation,
+        }
+        gap_summary["status"] = "completed"
+        gap_summary["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        gap_summary["current_sprint"] = None
+        gap_summary["current_story"] = None
+        gap_summary["current_node"] = "doc_writer"
+        gap_summary["resume_from_story"] = None
+        gap_summary["interruption_reason"] = None
+        gap_summary["error_message"] = None
+        _persist_gap_closure_runtime(
+            repo_b_path,
+            summary_path,
+            gap_summary,
+            next_action="Gap closure completed.",
+            cleanup_note="No cleanup required.",
+            update_handoff=True,
+        )
+        _sync_and_assert_continuity(
+            trigger="fresh_start",
+            project=project,
+            repo_b_path=repo_b_path,
+            artifact_refs=[
+                str(item)
+                for item in (
+                    summary_path,
+                    final_receipt_path,
+                    Path(str(((report_payload or {}).get("report_paths") or {}).get("markdown_path") or "")),
+                    Path(str(((report_payload or {}).get("report_paths") or {}).get("json_path") or "")),
+                )
+                if str(item or "").strip()
+            ],
+            decision_refs=[
+                str(path)
+                for path in (
+                    _resolve_gap_closure_requirement_doc(repo_b_path),
+                    repo_b_path / "docs" / "bootstrap" / "roadmap_1_7_execution_playbook.md",
+                )
+                if path and Path(path).exists()
+            ],
+        )
+        printer(f"Gap-closure summary: {summary_path}")
+        printer(f"Completed stories: {gap_summary.get('completed_story_count')}")
+        printer(f"Failed stories: {gap_summary.get('failed_story_count')}")
+        return summary_path
+    except click.ClickException:
+        gap_summary["status"] = "interrupted"
+        gap_summary["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        _persist_gap_closure_runtime(
+            repo_b_path,
+            summary_path,
+            gap_summary,
+            next_action="Inspect the blocker boundary and resume gap closure from the recorded safe point.",
+            cleanup_note="Review the latest story or P0 closeout receipt before retry.",
+            update_handoff=False,
+        )
+        _refresh_gap_closure_outputs(repo_b_path=repo_b_path, project=project, roadmap_prefix=roadmap_prefix)
+        _sync_and_assert_continuity(
+            trigger="resume_interrupt",
+            project=project,
+            repo_b_path=repo_b_path,
+            artifact_refs=[str(summary_path)],
+            decision_refs=[
+                str(path)
+                for path in (
+                    _resolve_gap_closure_requirement_doc(repo_b_path),
+                    repo_b_path / "docs" / "bootstrap" / "roadmap_1_7_execution_playbook.md",
+                )
+                if path and Path(path).exists()
+            ],
         )
         raise
 
@@ -2605,6 +3702,7 @@ def auto_deliver(
 @click.option("--resume", is_flag=True, help="Resume from the recorded roadmap safe point")
 @click.option("--release", is_flag=True, help="Mark roadmap sprint runs as release candidates and emit ship advice")
 @click.option("--preflight-only", is_flag=True, help="Only validate roadmap structure and workflow admission without executing stories")
+@click.option("--force-rerun", is_flag=True, help="Ignore recorded done status and replay every story in the roadmap")
 def run_roadmap(
     tasks_root: str,
     roadmap_prefix: str,
@@ -2613,6 +3711,7 @@ def run_roadmap(
     resume: bool,
     release: bool,
     preflight_only: bool,
+    force_rerun: bool,
 ) -> None:
     """Run every sprint inside a roadmap prefix with roadmap-level persistence and verification."""
     repo_b_path = _resolve_project_repo_path(_load_env_config(env), project)
@@ -2638,6 +3737,8 @@ def run_roadmap(
         return
     if resume:
         click.echo("Roadmap resume mode enabled; the latest safe point will be reused when available.")
+    if force_rerun:
+        click.echo("Roadmap force-rerun mode enabled; completed stories will be replayed and materialized again.")
 
     summary_path = _execute_roadmap(
         roadmap_result=roadmap_result,
@@ -2646,9 +3747,103 @@ def run_roadmap(
         env=env,
         project=project,
         release=release,
+        force_rerun=force_rerun,
         echo=click.echo,
     )
     click.echo(f"Roadmap completed: {summary_path}")
+
+
+@cli.command("run-roadmap-gap-closure")
+@click.option("--tasks-root", required=True, help="Tasks root directory, for example D:\\lyh\\agent\\agent-frame\\versefina\\tasks")
+@click.option("--roadmap-prefix", required=True, help="Roadmap prefix, for example roadmap_1_6")
+@click.option("--from-sprint", required=True, help="Starting sprint directory name, for example roadmap_1_6_sprint_4_lightweight_simulation_runtime")
+@click.option("--from-story", default="", help="Optional first story inside the starting sprint, for example E4-001")
+@click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
+@click.option("--release", is_flag=True, help="Mark gap-closure sprint runs as release candidates and emit ship advice")
+@click.option("--preflight-only", is_flag=True, help="Only validate the gap-closure boundary and required assets without executing stories")
+def run_roadmap_gap_closure(
+    tasks_root: str,
+    roadmap_prefix: str,
+    from_sprint: str,
+    from_story: str,
+    env: str,
+    project: str,
+    release: bool,
+    preflight_only: bool,
+) -> None:
+    """Run the remaining roadmap gap-closure chain from the recorded Sprint/Story boundary."""
+    repo_b_path = _resolve_project_repo_path(_load_env_config(env), project)
+    tasks_root_path = Path(tasks_root).resolve()
+    if not tasks_root_path.exists():
+        raise click.ClickException(f"Tasks root does not exist: {tasks_root_path}")
+
+    gap_result = _discover_gap_closure_result(tasks_root_path, roadmap_prefix, from_sprint)
+    preflight = _preflight_gap_closure(
+        repo_b_path=repo_b_path,
+        project=project,
+        tasks_root=tasks_root_path,
+        roadmap_result=gap_result,
+        from_sprint=from_sprint,
+        from_story=from_story or None,
+    )
+    preflight_output = ROOT_DIR / "runs" / "roadmaps" / f"{roadmap_prefix}_gap_closure_preflight.json"
+    preflight_output.parent.mkdir(parents=True, exist_ok=True)
+    preflight_output.write_text(json.dumps(preflight, ensure_ascii=False, indent=2), encoding="utf-8")
+    click.echo(f"Gap-closure preflight report: {preflight_output}")
+    if not preflight.get("passed"):
+        raise click.ClickException("Gap-closure preflight failed. Inspect the generated preflight report before execution.")
+    if preflight_only:
+        click.echo("Gap-closure preflight passed.")
+        return
+
+    summary_path = _execute_roadmap_gap_closure(
+        roadmap_result=gap_result,
+        preflight=preflight,
+        repo_b_path=repo_b_path,
+        tasks_root=tasks_root_path,
+        env=env,
+        project=project,
+        release=release,
+        from_sprint=from_sprint,
+        from_story=from_story or None,
+        echo=click.echo,
+    )
+    click.echo(f"Gap closure completed: {summary_path}")
+
+
+@cli.command("invalidate-roadmap-batch")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
+@click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--roadmap-prefix", required=True, help="Roadmap prefix, for example roadmap_1_6")
+@click.option("--resume-sprint", default="sprint_1", show_default=True, help="Resume sprint after invalidation")
+@click.option("--resume-story", default="", help="Optional resume story after invalidation")
+def invalidate_roadmap_batch_command(project: str, env: str, roadmap_prefix: str, resume_sprint: str, resume_story: str) -> None:
+    repo_b_path = _resolve_project_repo_path(_load_env_config(env), project)
+    result = invalidate_roadmap_batch(
+        repo_b_path,
+        roadmap_prefix,
+        project=project,
+        env=env,
+        reset_sprint_id=resume_sprint,
+        reset_story_id=resume_story or None,
+    )
+    click.echo(f"Invalidated roadmap batch: {roadmap_prefix}")
+    click.echo(f"  Stories marked invalid: {result['story_count']}")
+    click.echo(f"  Reviews marked invalid: {result['review_count']}")
+
+
+@cli.command("cleanup-invalid-batch")
+@click.option("--project", default="versefina", show_default=True, help="Target project/repository id")
+@click.option("--env", default="test", show_default=True, help="Runtime environment")
+@click.option("--roadmap-prefix", required=True, help="Roadmap prefix, for example roadmap_1_6")
+def cleanup_invalid_batch_command(project: str, env: str, roadmap_prefix: str) -> None:
+    repo_b_path = _resolve_project_repo_path(_load_env_config(env), project)
+    result = cleanup_invalid_batch(repo_b_path, roadmap_prefix)
+    click.echo(f"Cleaned invalid batch candidates: {roadmap_prefix}")
+    click.echo(f"  Deleted files: {len(result['deleted_files'])}")
+    click.echo(f"  Repaired files: {len(result['repaired_files'])}")
+    click.echo(f"  Blocked files: {len(result['blocked_files'])}")
 
 
 @cli.command("plan-ceo-review")

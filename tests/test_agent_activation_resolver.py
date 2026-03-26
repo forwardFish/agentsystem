@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from agentsystem.orchestration.agent_activation_resolver import apply_agent_activation_policy, build_agent_activation_plan
+from agentsystem.orchestration.workflow_admission import build_story_admission
 
 
 class AgentActivationResolverTestCase(unittest.TestCase):
@@ -27,6 +29,9 @@ class AgentActivationResolverTestCase(unittest.TestCase):
         self.assertIn("plan-design-review", plan.required_modes)
         self.assertIn("design-review", plan.required_modes)
         self.assertIn("design-consultation", plan.required_modes)
+        self.assertIn("browse", plan.mode_to_agent_map)
+        self.assertIn("browser_qa", plan.expanded_required_agents)
+        self.assertEqual(plan.mode_to_agent_map["plan-eng-review"], ["requirement_analysis", "architecture_review"])
 
     def test_runtime_story_defaults_to_runtime_qa_baseline(self) -> None:
         plan = build_agent_activation_plan(
@@ -59,6 +64,8 @@ class AgentActivationResolverTestCase(unittest.TestCase):
         self.assertEqual(runtime_task["story_kind"], "ui")
         self.assertEqual(runtime_task["qa_strategy"], "browser")
         self.assertNotIn("fixer_allowed", runtime_task)
+        self.assertIn("implementation_contract", runtime_task)
+        self.assertIn("agent_execution_contract", runtime_task)
 
     def test_authenticated_bugfix_injects_cookie_setup_and_parity_context(self) -> None:
         runtime_task = apply_agent_activation_policy(
@@ -76,10 +83,94 @@ class AgentActivationResolverTestCase(unittest.TestCase):
         self.assertEqual(runtime_task["session_policy"], "authenticated_browser_session")
         self.assertIn("setup-browser-cookies", runtime_task["required_modes"])
         self.assertIn("investigate", runtime_task["required_modes"])
+        self.assertIn("setup_browser_cookies", runtime_task["expanded_required_agents"])
         self.assertEqual(
             runtime_task["upstream_agent_parity"]["tracked_modes"]["setup-browser-cookies"]["parity_status"],
             "workflow_wired",
         )
+
+    def test_docs_only_contract_story_only_requires_docs_artifact(self) -> None:
+        runtime_task = apply_agent_activation_policy(
+            {
+                "blast_radius": "L1",
+                "story_id": "E1-001",
+                "primary_files": ["docs/需求文档/事件分类白名单_v0.1.md"],
+                "related_files": ["docs/需求文档/事件分类白名单_v0.1.md"],
+            }
+        )
+
+        self.assertEqual(runtime_task["story_kind"], "contract_schema")
+        self.assertEqual(runtime_task["implementation_contract"]["story_track"], "contract_schema")
+        self.assertEqual(runtime_task["required_artifact_types"], ["docs"])
+        self.assertEqual(runtime_task["contract_scope_paths"], [])
+
+    def test_api_story_infers_contract_supporting_scope_paths(self) -> None:
+        runtime_task = apply_agent_activation_policy(
+            {
+                "blast_radius": "L2",
+                "story_id": "E1-003",
+                "primary_files": ["apps/api/src/domain/event_ingestion/service.py"],
+                "related_files": [
+                    "apps/api/src/domain/event_ingestion/service.py",
+                    "apps/api/src/domain/event_structuring/service.py",
+                    "apps/api/src/api/command/routes.py",
+                ],
+            }
+        )
+
+        self.assertEqual(runtime_task["implementation_contract"]["story_track"], "api_domain")
+        self.assertIn("apps/api/src/schemas/event.py", runtime_task["contract_scope_paths"])
+        self.assertIn("apps/api/src/schemas/command.py", runtime_task["contract_scope_paths"])
+        self.assertIn("apps/api/src/settings/base.py", runtime_task["contract_scope_paths"])
+        self.assertIn("apps/api/src/services/container.py", runtime_task["contract_scope_paths"])
+        self.assertIn("apps/api/src/domain/theme_mapping/service.py", runtime_task["contract_scope_paths"])
+        self.assertIn("apps/api/src/domain/event_casebook/service.py", runtime_task["contract_scope_paths"])
+        self.assertIn("apps/api/tests/test_event_ingestion.py", runtime_task["contract_scope_paths"])
+        self.assertIn("docs/requirements/e1_003_delivery.md", runtime_task["contract_scope_paths"])
+
+    def test_schema_contract_story_does_not_force_database_dev_for_python_schema_module(self) -> None:
+        runtime_task = apply_agent_activation_policy(
+            {
+                "blast_radius": "L2",
+                "story_id": "E1-002",
+                "primary_files": [
+                    "docs/需求文档/Event_Structuring_字段字典.md",
+                    "apps/api/src/schemas/event.py",
+                ],
+                "related_files": [
+                    "docs/需求文档/Event_Structuring_字段字典.md",
+                    "apps/api/src/schemas/event.py",
+                ],
+            }
+        )
+
+        self.assertEqual(runtime_task["implementation_contract"]["story_track"], "contract_schema")
+        self.assertFalse(runtime_task["implementation_contract"]["requires_database_dev"])
+        self.assertNotIn("database_dev", runtime_task["expanded_required_agents"])
+
+    def test_story_admission_is_idempotent_for_pre_enriched_api_story_scope(self) -> None:
+        runtime_task = apply_agent_activation_policy(
+            {
+                "project": "versefina",
+                "blast_radius": "L2",
+                "story_id": "E1-003",
+                "goal": "Implement event ingestion and structuring",
+                "acceptance_criteria": ["POST /api/v1/events exists"],
+                "primary_files": ["apps/api/src/domain/event_ingestion/service.py"],
+                "related_files": [
+                    "apps/api/src/domain/event_ingestion/service.py",
+                    "apps/api/src/domain/event_structuring/service.py",
+                    "apps/api/src/api/command/routes.py",
+                ],
+            }
+        )
+
+        admission = build_story_admission(runtime_task, Path("d:/lyh/agent/agent-frame/versefina"))
+        contract_scope_paths = admission["task_payload"].get("contract_scope_paths") or []
+
+        self.assertIn("apps/api/src/schemas/command.py", contract_scope_paths)
+        self.assertIn("apps/api/src/settings/base.py", contract_scope_paths)
+        self.assertNotIn("apps/api/src/api/query/routes.py", contract_scope_paths)
 
 
 if __name__ == "__main__":

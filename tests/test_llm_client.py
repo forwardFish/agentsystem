@@ -8,22 +8,22 @@ from pathlib import Path
 from langchain_core.prompts import ChatPromptTemplate
 
 from agentsystem.agents.llm_editing import llm_rewrite_file
-from agentsystem.llm.client import TITLE_TEXT, get_llm
+from agentsystem.llm.client import get_llm
 
 
 class LlmClientTestCase(unittest.TestCase):
-    def test_fallback_client_adds_requested_heading(self) -> None:
+    def test_fallback_client_preserves_requested_fence_without_injecting_heading(self) -> None:
         original_api_key = os.environ.pop("OPENAI_API_KEY", None)
         try:
             llm = get_llm()
             prompt = ChatPromptTemplate.from_messages(
                 [
-                    ("system", "Return updated TSX only."),
+                    ("system", "Return updated Python only."),
                     (
                         "user",
                         """
 Current file:
-```tsx
+```python
 {current_code}
 ```
 """.strip(),
@@ -34,18 +34,15 @@ Current file:
             response = (prompt | llm).invoke(
                 {
                     "current_code": """
-export default function Page() {{
-  return (
-    <div>
-      <h1 className="mb-4 text-2xl font-bold">Agent: demo</h1>
-    </div>
-  );
-}}
+def demo() -> str:
+    return "ok"
 """.strip()
                 }
             )
 
-            self.assertIn(TITLE_TEXT, response.content)
+            self.assertIn("```python", response.content)
+            self.assertIn('return "ok"', response.content)
+            self.assertNotIn("Agent 实时观测面板", response.content)
         finally:
             if original_api_key is not None:
                 os.environ["OPENAI_API_KEY"] = original_api_key

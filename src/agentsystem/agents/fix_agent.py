@@ -30,7 +30,8 @@ from agentsystem.core.state import (
 )
 from agentsystem.llm.client import get_llm
 
-FIXER_COMMENT = "{/* Fixed by Fix Agent after validation failure */}"
+
+FIXER_COMMENT = "/* fixed by fix agent */"
 
 
 def fix_node(state: DevState) -> DevState:
@@ -222,7 +223,7 @@ Failure:
 {failure_info}
 
 Current file:
-```tsx
+```{fenced_type}
 {current_code}
 ```
                 """.strip(),
@@ -230,7 +231,13 @@ Current file:
         ]
     )
     try:
-        response = (prompt | llm).invoke({"failure_info": failure_info, "current_code": current_code})
+        response = (prompt | llm).invoke(
+            {
+                "failure_info": failure_info,
+                "current_code": current_code,
+                "fenced_type": _fenced_type_for_path(target_file),
+            }
+        )
         candidate = _extract_code_block(getattr(response, "content", str(response)))
         if candidate and candidate != current_code:
             return _deterministic_fix(candidate, failure_info, target_file)
@@ -248,31 +255,14 @@ def _extract_code_block(content: str) -> str:
 
 def _deterministic_fix(current_code: str, failure_info: str, target_file: Path | None = None) -> str:
     lowered_failure = failure_info.lower()
-    stripped = current_code.lstrip()
     if target_file and target_file.suffix.lower() == ".json":
-        return current_code
-    if stripped.startswith("{") or stripped.startswith("["):
         return current_code
 
     style_fixed = _apply_style_hygiene_fix(current_code, lowered_failure)
     if style_fixed != current_code:
         return style_fixed
 
-    result = current_code
-    if FIXER_COMMENT not in result:
-        if "    <div>" in result:
-            result = result.replace("    <div>", f"    <div>\n      {FIXER_COMMENT}", 1)
-        else:
-            result = f"{FIXER_COMMENT}\n{result}"
-
-    subtitle = _extract_quoted_text(failure_info)
-    if subtitle and subtitle not in result and "text-slate-500" in result:
-        result = result.replace("text-slate-500", "text-slate-500 font-medium", 1)
-
-    if "subtitle" in lowered_failure and "text-slate-500" in result and "font-medium" not in result:
-        result = result.replace("text-slate-500", "text-slate-500 font-medium", 1)
-
-    return result
+    return current_code
 
 
 def _apply_style_hygiene_fix(current_code: str, lowered_failure: str) -> str:
@@ -305,6 +295,25 @@ def _extract_quoted_text(text: str) -> str | None:
     if match:
         return match.group(1).strip()
     return None
+
+
+def _fenced_type_for_path(target_file: Path | None) -> str:
+    if target_file is None:
+        return "text"
+    suffix = target_file.suffix.lower()
+    mapping = {
+        ".py": "python",
+        ".ts": "ts",
+        ".tsx": "tsx",
+        ".js": "js",
+        ".jsx": "jsx",
+        ".json": "json",
+        ".md": "md",
+        ".sql": "sql",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+    }
+    return mapping.get(suffix, "text")
 
 
 def _regenerate_contract_story_artifacts(repo_b_path: Path, task_payload: dict[str, object]) -> list[str]:

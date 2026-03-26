@@ -33,9 +33,12 @@ def resolve_continuity_paths(repo_root: str | Path, project: str | None = None) 
         "workspace_root": workspace_root,
         "continuity_root": continuity_root,
         "agents_md": workspace_root / "AGENTS.md",
-        "now_md": continuity_root / "NOW.md",
-        "state_md": continuity_root / "STATE.md",
-        "decisions_md": continuity_root / "DECISIONS.md",
+        "now_md": repo_path / "NOW.md",
+        "state_md": repo_path / "STATE.md",
+        "decisions_md": repo_path / "DECISIONS.md",
+        "mirror_now_md": continuity_root / "NOW.md",
+        "mirror_state_md": continuity_root / "STATE.md",
+        "mirror_decisions_md": continuity_root / "DECISIONS.md",
         "manifest_json": continuity_root / "continuity_manifest.json",
         "resume_json": repo_path / "tasks" / "runtime" / "auto_resume_state.json",
         "status_registry": repo_path / "tasks" / "story_status_registry.json",
@@ -99,15 +102,26 @@ def sync_continuity(
         previous=((old_manifest.get("docs") or {}).get("decisions") or {}),
     )
 
-    paths["now_md"].write_text(_render_now_markdown(now_doc), encoding="utf-8")
-    paths["state_md"].write_text(_render_state_markdown(state_doc), encoding="utf-8")
-    paths["decisions_md"].write_text(_render_decisions_markdown(decisions_doc), encoding="utf-8")
+    now_text = _render_now_markdown(now_doc)
+    state_text = _render_state_markdown(state_doc)
+    decisions_text = _render_decisions_markdown(decisions_doc)
+
+    paths["now_md"].write_text(now_text, encoding="utf-8")
+    paths["state_md"].write_text(state_text, encoding="utf-8")
+    paths["decisions_md"].write_text(decisions_text, encoding="utf-8")
+    paths["mirror_now_md"].write_text(now_text, encoding="utf-8")
+    paths["mirror_state_md"].write_text(state_text, encoding="utf-8")
+    paths["mirror_decisions_md"].write_text(decisions_text, encoding="utf-8")
 
     manifest = {
         "project": project,
         "trigger": trigger_name,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "paths": {key: str(value) for key, value in paths.items() if key in {"agents_md", "now_md", "state_md", "decisions_md"}},
+        "paths": {
+            key: str(value)
+            for key, value in paths.items()
+            if key in {"agents_md", "now_md", "state_md", "decisions_md", "mirror_now_md", "mirror_state_md", "mirror_decisions_md"}
+        },
         "docs": {
             "now": _finalize_doc_manifest(now_doc),
             "state": _finalize_doc_manifest(state_doc),

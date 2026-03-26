@@ -39,9 +39,11 @@ def runtime_qa_node(state: DevState) -> DevState:
     qa_dir.mkdir(parents=True, exist_ok=True)
 
     report_only = bool(state.get("runtime_qa_report_only", state.get("browser_qa_report_only", True)))
+    task_payload = _merge_runtime_task_payload(state)
     verification_basis = [str(item).strip() for item in (state.get("verification_basis") or []) if str(item).strip()]
     test_context = load_qa_test_context(state, repo_b_path)
-    commands = _runtime_qa_commands(repo_b_path)
+    configured_commands = _runtime_qa_commands(repo_b_path)
+    commands, command_scope_reason = _filter_runtime_commands(configured_commands, task_payload)
     command_results: list[str] = []
     blocking_findings: list[str] = []
     warnings: list[str] = []
@@ -49,7 +51,12 @@ def runtime_qa_node(state: DevState) -> DevState:
     command_log_lines: list[str] = []
 
     if not commands:
-        warnings.append("No dedicated runtime QA commands were configured; using verification basis and repository heuristics only.")
+        if command_scope_reason:
+            warnings.append(
+                "Configured runtime QA commands were out of scope for this story; using verification basis and repository heuristics only."
+            )
+        else:
+            warnings.append("No dedicated runtime QA commands were configured; using verification basis and repository heuristics only.")
     for command in commands:
         try:
             completed = subprocess.run(
@@ -209,7 +216,7 @@ def runtime_qa_node(state: DevState) -> DevState:
 
     issues: list[Issue] = []
     if blocking_findings and not report_only:
-        target_file = _primary_target_file(state.get("task_payload") or {})
+        target_file = _primary_target_file(task_payload)
         for finding in blocking_findings:
             issue = Issue(
                 issue_id=str(uuid.uuid4()),
@@ -341,11 +348,104 @@ def _runtime_qa_commands(repo_b_path: Path) -> list[str]:
     return runtime_commands
 
 
+def _merge_runtime_task_payload(state: DevState) -> dict[str, Any]:
+    task_payload = dict(state.get("task_payload") or {})
+    for key in (
+        "primary_files",
+        "secondary_files",
+        "related_files",
+        "project",
+        "story_kind",
+        "story_id",
+        "implementation_contract",
+    ):
+        value = state.get(key)
+        if key not in task_payload and value is not None:
+            task_payload[key] = value
+    return task_payload
+
+
+def _filter_runtime_commands(commands: list[str], task_payload: dict[str, Any]) -> tuple[list[str], str | None]:
+    normalized_commands = [str(command).strip() for command in commands if str(command).strip()]
+    if not normalized_commands:
+        return [], None
+
+    scoped_files = _collect_scoped_files(task_payload)
+    if not scoped_files:
+        return normalized_commands, None
+
+    filtered = [command for command in normalized_commands if _command_matches_scope(command, scoped_files)]
+    if filtered:
+        return filtered, None
+    return [], "out of scope"
+
+
+def _collect_scoped_files(task_payload: dict[str, Any]) -> list[str]:
+    scoped: list[str] = []
+    for key in ("primary_files", "related_files", "secondary_files"):
+        raw = task_payload.get(key)
+        if isinstance(raw, list):
+            scoped.extend(str(item).strip() for item in raw if str(item).strip())
+
+    implementation_contract = task_payload.get("implementation_contract")
+    if isinstance(implementation_contract, dict):
+        contract_scope = implementation_contract.get("contract_scope_paths")
+        if isinstance(contract_scope, list):
+            scoped.extend(str(item).strip() for item in contract_scope if str(item).strip())
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in scoped:
+        normalized = item.replace("\\", "/")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _command_matches_scope(command: str, scoped_files: list[str]) -> bool:
+    normalized_command = command.lower().replace("\\", "/")
+    if _is_frontend_command(normalized_command):
+        return any(_is_frontend_path(path) for path in scoped_files)
+    if _is_backend_command(normalized_command):
+        return any(_is_backend_path(path) for path in scoped_files)
+    return True
+
+
+def _is_frontend_command(command: str) -> bool:
+    frontend_tokens = ("apps/web", "next ", "nextjs", "vite", "vitest", "eslint", "prettier")
+    return any(token in command for token in frontend_tokens)
+
+
+def _is_backend_command(command: str) -> bool:
+    backend_tokens = ("apps/api", "pytest", "uvicorn", "python -m pytest", "alembic")
+    return any(token in command for token in backend_tokens)
+
+
+def _is_frontend_path(path: str) -> bool:
+    normalized = path.lower().replace("\\", "/")
+    return normalized.startswith("apps/web/") or normalized.endswith((".tsx", ".jsx", ".ts", ".js", ".css", ".scss", ".html"))
+
+
+def _is_backend_path(path: str) -> bool:
+    normalized = path.lower().replace("\\", "/")
+    return normalized.startswith("apps/api/") or normalized.endswith((".py", ".sql"))
+
+
 def _primary_target_file(task_payload: dict[str, Any]) -> str | None:
-    for key in ("primary_files", "related_files"):
+    for key in ("primary_files", "related_files", "secondary_files"):
         value = task_payload.get(key)
         if isinstance(value, list):
             for item in value:
+                candidate = str(item).strip()
+                if candidate:
+                    return candidate
+    implementation_contract = task_payload.get("implementation_contract")
+    if isinstance(implementation_contract, dict):
+        contract_scope = implementation_contract.get("contract_scope_paths")
+        if isinstance(contract_scope, list):
+            for item in contract_scope:
                 candidate = str(item).strip()
                 if candidate:
                     return candidate

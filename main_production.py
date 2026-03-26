@@ -43,7 +43,7 @@ from agentsystem.orchestration.runtime_memory import (
     write_story_handoff,
 )
 from agentsystem.orchestration.workflow_admission import build_story_admission, write_story_admission
-from agentsystem.orchestration.workspace_manager import WorkspaceLockError, WorkspaceManager
+from agentsystem.orchestration.workspace_manager import SnapshotSyncConflictError, WorkspaceLockError, WorkspaceManager
 from agentsystem.utils.logger import get_logger
 
 
@@ -658,13 +658,38 @@ def run_prod_task(
             if not format_success:
                 raise RuntimeError(f"Format failed: {format_output}")
 
+        sync_report: dict[str, Any] | None = None
+        if git_worktree.is_dirty():
+            changed_files = git_worktree.get_working_tree_files()
+            if getattr(git_worktree, "snapshot_mode", False):
+                sync_report = workspace_manager.materialize_snapshot_changes(
+                    task_id,
+                    target_repo_path=repo_b_path,
+                    changed_files=changed_files,
+                )
+            else:
+                sync_report = workspace_manager.materialize_worktree_changes(
+                    task_id,
+                    target_repo_path=repo_b_path,
+                    changed_files=changed_files,
+                )
+            result["state"]["snapshot_sync_report"] = sync_report
+            result["state"]["snapshot_sync_report_path"] = sync_report.get("report_path")
+            result["state"]["materialized_changed_files"] = list(sync_report.get("applied_files") or [])
+            result["state"]["materialized_deleted_files"] = list(sync_report.get("deleted_files") or [])
+
         commit_hash = git_worktree.get_current_commit()
         if git_worktree.is_dirty():
             git_worktree.add_all()
             commit_message = str(result["state"].get("commit_msg") or f"feat(auto-dev): {str(task.get('goal', 'task'))[:50]}")
             git_worktree.commit(commit_message)
             commit_hash = git_worktree.get_current_commit()
+        if sync_report:
+            workspace_context["materialized_to_repo"] = True
+            workspace_context["materialized_report_path"] = sync_report.get("report_path")
     except Exception as exc:
+        if isinstance(exc, SnapshotSyncConflictError):
+            result["state"]["snapshot_sync_conflicts"] = list(exc.conflicts)
         logger.error(
             "Post-workflow task finalization failed",
             extra={"task_id": task_id, "agent_type": "system"},

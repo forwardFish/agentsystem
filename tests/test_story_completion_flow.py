@@ -13,7 +13,7 @@ from agentsystem.agents.code_acceptance_agent import code_acceptance_node
 from agentsystem.agents.code_style_reviewer_agent import code_style_review_node, route_after_code_style_review
 from agentsystem.agents.doc_agent import doc_node
 from agentsystem.agents.fix_agent import FIXER_COMMENT, fix_node, route_after_fix
-from agentsystem.agents.review_agent import review_node, route_after_review
+from agentsystem.agents.review_agent import ReviewerAgent, review_node, route_after_review
 from agentsystem.agents.router_agent import route_after_test
 from agentsystem.agents.test_agent import _run_story_specific_validation
 
@@ -306,6 +306,70 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             self.assertTrue(updated["review_passed"])
             self.assertEqual(route_after_review(updated), "code_acceptance")
             self.assertEqual(updated["issues_to_fix"], [])
+
+    def test_reviewer_uses_implementation_contract_scope_and_runtime_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            route_path = repo_path / "apps" / "api" / "src" / "api" / "command" / "routes.py"
+            service_path = repo_path / "apps" / "api" / "src" / "domain" / "event_ingestion" / "service.py"
+            schema_path = repo_path / "apps" / "api" / "src" / "schemas" / "command.py"
+            settings_path = repo_path / "apps" / "api" / "src" / "settings" / "base.py"
+            test_path = repo_path / "apps" / "api" / "tests" / "test_event_ingestion.py"
+            docs_path = repo_path / "docs" / "requirements" / "e1_003_delivery.md"
+            for path, content in (
+                (route_path, '@router.post("/api/v1/events")\n'),
+                (service_path, "from __future__ import annotations\n\nclass Service:\n    pass\n"),
+                (schema_path, "from __future__ import annotations\n\nclass EventCommand:\n    pass\n"),
+                (settings_path, "from __future__ import annotations\n\nclass Settings:\n    pass\n"),
+                (test_path, "def test_ok():\n    assert True\n"),
+                (docs_path, "# delivery\n"),
+            ):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+
+            Repo.init(repo_path)
+            task_payload = {
+                "project": "versefina",
+                "project_repo_root": str(repo_path),
+                "goal": "Implement event ingestion and structure extraction",
+                "acceptance_criteria": ["POST /api/v1/events exists"],
+                "related_files": [
+                    "apps/api/src/api/command/routes.py",
+                    "apps/api/src/domain/event_ingestion/service.py",
+                ],
+                "implementation_contract": {
+                    "story_track": "api_domain",
+                    "contract_scope_paths": [
+                        "apps/api/src/schemas/command.py",
+                        "apps/api/src/settings/base.py",
+                        "apps/api/tests/test_event_ingestion.py",
+                        "docs/requirements/e1_003_delivery.md",
+                    ],
+                },
+            }
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": task_payload,
+                "story_kind": "api",
+                "test_results": "StoryValidation: PASS",
+                "runtime_qa_report": "runtime ok",
+                "resolved_issues": [],
+            }
+            changed_files = [
+                "apps/api/src/api/command/routes.py",
+                "apps/api/src/domain/event_ingestion/service.py",
+                "apps/api/src/schemas/command.py",
+                "apps/api/src/settings/base.py",
+                "apps/api/tests/test_event_ingestion.py",
+                "docs/requirements/e1_003_delivery.md",
+            ]
+
+            analysis = ReviewerAgent(repo_path, task_payload)._build_review_analysis("", changed_files, state)
+
+            finding_summaries = [str(item.get("summary") or "") for item in analysis["findings"]]
+            self.assertEqual(analysis["repo_profile"], "versefina")
+            self.assertNotIn("The diff expands beyond the declared story scope.", finding_summaries)
+            self.assertNotIn("The change touches production-sensitive runtime or contract surfaces.", finding_summaries)
 
     def test_route_after_test_sends_successful_run_to_browser_qa(self) -> None:
         state = {

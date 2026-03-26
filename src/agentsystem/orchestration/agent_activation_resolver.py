@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from agentsystem.orchestration.story_contracts import enrich_task_with_story_contracts
+
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 POLICY_PATH = BASE_DIR / "config" / "automation" / "agent_activation_policy.yaml"
@@ -38,6 +40,9 @@ class AgentActivationPlan:
     next_recommended_actions: list[str]
     effective_qa_mode: str
     auto_upgrade_to_qa: bool
+    expanded_required_agents: list[str]
+    mode_to_agent_map: dict[str, list[str]]
+    parity_evidence_contract: dict[str, list[str]]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +64,9 @@ class AgentActivationPlan:
             "next_recommended_actions": list(self.next_recommended_actions),
             "effective_qa_mode": self.effective_qa_mode,
             "auto_upgrade_to_qa": self.auto_upgrade_to_qa,
+            "expanded_required_agents": list(self.expanded_required_agents),
+            "mode_to_agent_map": dict(self.mode_to_agent_map),
+            "parity_evidence_contract": dict(self.parity_evidence_contract),
         }
 
 
@@ -81,6 +89,9 @@ def apply_agent_activation_policy(task: dict[str, Any], repo_b_path: str | Path 
     runtime_task["next_recommended_actions"] = list(plan.next_recommended_actions)
     runtime_task["effective_qa_mode"] = plan.effective_qa_mode
     runtime_task["auto_upgrade_to_qa"] = plan.auto_upgrade_to_qa
+    runtime_task["expanded_required_agents"] = list(plan.expanded_required_agents)
+    runtime_task["mode_to_agent_map"] = dict(plan.mode_to_agent_map)
+    runtime_task["parity_evidence_contract"] = dict(plan.parity_evidence_contract)
     runtime_task["upstream_agent_parity"] = _build_upstream_agent_parity(plan.required_modes, plan.advisory_modes)
 
     if plan.is_bugfix and not str(runtime_task.get("bug_scope") or "").strip():
@@ -90,16 +101,16 @@ def apply_agent_activation_policy(task: dict[str, Any], repo_b_path: str | Path 
 
     agent_policy = str(runtime_task.get("agent_policy") or "auto").strip().lower() or "auto"
     if agent_policy == "manual":
-        return runtime_task
+        return enrich_task_with_story_contracts(runtime_task)
     if str(runtime_task.get("skill_mode") or "").strip():
-        return runtime_task
+        return enrich_task_with_story_contracts(runtime_task)
 
     runtime_task["fixer_allowed"] = plan.effective_qa_mode == "qa"
     runtime_task["browser_qa_report_only"] = plan.qa_strategy == "browser" and plan.effective_qa_mode != "qa"
     runtime_task["runtime_qa_report_only"] = plan.qa_strategy == "runtime" and plan.effective_qa_mode != "qa"
     if plan.qa_strategy == "browser" and not runtime_task.get("browser_qa_mode"):
         runtime_task["browser_qa_mode"] = "quick" if plan.effective_qa_mode == "qa" else "qa_only"
-    return runtime_task
+    return enrich_task_with_story_contracts(runtime_task)
 
 
 def build_agent_activation_plan(task: dict[str, Any]) -> AgentActivationPlan:
@@ -152,8 +163,19 @@ def build_agent_activation_plan(task: dict[str, Any]) -> AgentActivationPlan:
     required_modes = _dedupe_preserve_order(required_modes)
     advisory_modes = [mode for mode in _dedupe_preserve_order(advisory_modes) if mode not in required_modes]
     next_actions = [_next_action_for_mode(mode) for mode in advisory_modes]
+    contracted_task = enrich_task_with_story_contracts(
+        {
+            **task,
+            "story_kind": story_kind,
+            "required_modes": required_modes,
+            "advisory_modes": advisory_modes,
+            "qa_strategy": qa_strategy,
+            "requires_auth": requires_auth,
+        }
+    )
+    resolved_story_kind = str(contracted_task.get("story_kind") or story_kind).strip() or story_kind
     return AgentActivationPlan(
-        story_kind=story_kind,
+        story_kind=resolved_story_kind,
         risk_level=risk_level,
         workflow_enforcement_policy=workflow_enforcement_policy,
         is_bugfix=is_bugfix,
@@ -171,6 +193,9 @@ def build_agent_activation_plan(task: dict[str, Any]) -> AgentActivationPlan:
         next_recommended_actions=next_actions,
         effective_qa_mode=effective_qa_mode,
         auto_upgrade_to_qa=auto_upgrade_to_qa,
+        expanded_required_agents=list(contracted_task.get("expanded_required_agents") or []),
+        mode_to_agent_map=dict(contracted_task.get("mode_to_agent_map") or {}),
+        parity_evidence_contract=dict(contracted_task.get("parity_evidence_contract") or {}),
     )
 
 

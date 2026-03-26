@@ -931,10 +931,126 @@ class DashboardApiTestCase(unittest.TestCase):
     def test_load_versefina_runtime_showcase_reads_runtime_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
+            agentsystem_root = base / "agentsystem"
             tasks_dir = base / "tasks"
             runtime_dir = base / "versefina_runtime"
             registry_path = tasks_dir / "story_status_registry.json"
             review_path = tasks_dir / "story_acceptance_reviews.json"
+            roadmaps_dir = agentsystem_root / "runs" / "roadmaps"
+            roadmaps_dir.mkdir(parents=True)
+            (base / ".meta" / "versefina" / "continuity").mkdir(parents=True)
+            (base / ".meta" / "versefina" / "ship").mkdir(parents=True)
+            (base / "docs" / "handoff").mkdir(parents=True)
+            (base / "docs" / "reports").mkdir(parents=True)
+
+            (base / "NOW.md").write_text(
+                "- Status: completed\n- Current task: roadmap_1_6 completed\n",
+                encoding="utf-8",
+            )
+            (base / "STATE.md").write_text(
+                "- Phase: completed\n- Goal: roadmap_1_6 real-business rerun completed\n",
+                encoding="utf-8",
+            )
+            (base / "DECISIONS.md").write_text("# Decisions\n", encoding="utf-8")
+            (base / "docs" / "handoff" / "current_handoff.md").write_text(
+                "- Status: completed\n- Last success story: E7-005\n",
+                encoding="utf-8",
+            )
+            (base / ".meta" / "versefina" / "continuity" / "continuity_manifest.json").write_text(
+                json.dumps({"status": "present"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (base / ".meta" / "versefina" / "ship" / "ship_readiness_report.md").write_text(
+                "\n".join(
+                    [
+                        "# Ship Readiness Report",
+                        "",
+                        "- Generated At: 2026-03-25T17:01:52",
+                        "- Branch: main",
+                        "- Commit: demo",
+                        "- Dirty tree: yes",
+                        "- Ship ready: no",
+                        "",
+                        "## Blockers",
+                        "- The working tree is still dirty.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (roadmaps_dir / "roadmap_1_6_20260325_140840.json").write_text(
+                json.dumps(
+                    {
+                        "status": "completed",
+                        "completed_at": "2026-03-25T17:01:53",
+                        "versefina_business_files_changed": 41,
+                        "syntax_checked_files": 18,
+                        "placeholder_rejections": 0,
+                        "integration_contract_passed": True,
+                        "api_test_count": 23,
+                        "agent_coverage_passed": True,
+                        "gstack_parity_passed": True,
+                        "sprints": [
+                            {
+                                "sprint_id": "roadmap_1_6_sprint_1_event_lane_and_mapping_base",
+                                "status": "completed",
+                                "story_count": 5,
+                                "completed_stories": [{"story_id": "E1-005"}],
+                                "last_success_story": "E1-005",
+                                "pre_hook": {
+                                    "office_hours_path": "office.md",
+                                    "plan_ceo_review_path": "ceo.md",
+                                    "sprint_framing_path": "framing.json",
+                                    "parity_manifest_path": "parity.json",
+                                },
+                                "post_hook": {
+                                    "document_release_path": "doc.md",
+                                    "retro_path": "retro.md",
+                                    "ship_report_path": str(base / ".meta" / "versefina" / "ship" / "ship_readiness_report.md"),
+                                },
+                                "special_acceptance_report_path": str(base / "special_acceptance_report.json"),
+                            },
+                            {
+                                "sprint_id": "roadmap_1_6_sprint_7_mirror_agent_and_distribution_calibration",
+                                "status": "completed",
+                                "story_count": 1,
+                                "completed_stories": [{"story_id": "E7-005"}],
+                                "last_success_story": "E7-005",
+                                "pre_hook": {
+                                    "office_hours_path": "office.md",
+                                    "plan_ceo_review_path": "ceo.md",
+                                    "sprint_framing_path": "framing.json",
+                                    "parity_manifest_path": "parity.json",
+                                },
+                                "post_hook": {
+                                    "document_release_path": str(base / "document_release_report.md"),
+                                    "retro_path": str(base / "retro_report.md"),
+                                    "ship_report_path": str(base / ".meta" / "versefina" / "ship" / "ship_readiness_report.md"),
+                                },
+                                "special_acceptance_report_path": str(base / "special_acceptance_report.json"),
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (base / "document_release_report.md").write_text(
+                "# Document Release Report\n\n## Applied Changes\n- None.\n",
+                encoding="utf-8",
+            )
+            (base / "retro_report.md").write_text("# Retro\n", encoding="utf-8")
+            (base / "special_acceptance_report.json").write_text(
+                json.dumps(
+                    {
+                        "formal_flow_complete": False,
+                        "completed_story_count": 1,
+                        "story_count": 5,
+                        "missing_items": ["E7-001"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
             sprint_1_dir = tasks_dir / "backlog_v1" / "sprint_1_statement_to_agent" / "epic_demo"
             sprint_2_dir = tasks_dir / "backlog_v1" / "sprint_2_world_ledger_loop" / "epic_demo"
@@ -1060,6 +1176,7 @@ class DashboardApiTestCase(unittest.TestCase):
             )
 
             with (
+                patch.object(dashboard_main, "BASE_DIR", agentsystem_root),
                 patch.object(dashboard_main, "TASKS_DIR", tasks_dir),
                 patch.object(dashboard_main, "STORY_STATUS_REGISTRY", registry_path),
                 patch.object(dashboard_main, "STORY_ACCEPTANCE_REVIEW_REGISTRY", review_path),
@@ -1070,6 +1187,15 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(showcase["stats"]["statement_count"], 1)
             self.assertEqual(showcase["stats"]["trade_record_count"], 1)
             self.assertEqual(len(showcase["story_groups"]), 2)
+            self.assertEqual(showcase["roadmap_showcase"]["status"], "completed")
+            self.assertFalse(showcase["roadmap_showcase"]["release_clean"])
+            self.assertIn("next_execution_priority", showcase["roadmap_showcase"])
+            self.assertIn("mid_process_validation", showcase["roadmap_showcase"])
+            self.assertIn("final_effect_checklist", showcase["roadmap_showcase"])
+            self.assertEqual(showcase["roadmap_showcase"]["showcase_links"]["product_demo"], "http://127.0.0.1:3000/roadmap-1-6-demo")
+            self.assertIn("actual_outputs", showcase)
+            self.assertTrue((base / "docs" / "reports" / "roadmap_1_6_execution_report.md").exists())
+            self.assertTrue((base / "docs" / "reports" / "roadmap_1_6_execution_report.json").exists())
             sprint_1_story = next(item for item in showcase["story_groups"][0]["stories"] if item["story_id"] == "S1-010")
             sprint_2_story = next(item for item in showcase["story_groups"][1]["stories"] if item["story_id"] == "S2-005")
             self.assertEqual(sprint_1_story["evidence_status"], "real")
@@ -1079,6 +1205,7 @@ class DashboardApiTestCase(unittest.TestCase):
     def test_load_versefina_runtime_showcase_handles_empty_runtime_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
+            agentsystem_root = base / "agentsystem"
             tasks_dir = base / "tasks"
             runtime_dir = base / "versefina_runtime"
             registry_path = tasks_dir / "story_status_registry.json"
@@ -1093,6 +1220,7 @@ class DashboardApiTestCase(unittest.TestCase):
             review_path.write_text(json.dumps({"reviews": []}, ensure_ascii=False), encoding="utf-8")
 
             with (
+                patch.object(dashboard_main, "BASE_DIR", agentsystem_root),
                 patch.object(dashboard_main, "TASKS_DIR", tasks_dir),
                 patch.object(dashboard_main, "STORY_STATUS_REGISTRY", registry_path),
                 patch.object(dashboard_main, "STORY_ACCEPTANCE_REVIEW_REGISTRY", review_path),
@@ -1103,6 +1231,7 @@ class DashboardApiTestCase(unittest.TestCase):
             self.assertEqual(showcase["stats"]["statement_count"], 0)
             self.assertEqual(showcase["stats"]["real_evidence_story_count"], 0)
             self.assertEqual(showcase["story_groups"][0]["stories"][0]["evidence_status"], "missing")
+            self.assertIn("roadmap_showcase", showcase)
 
 
 if __name__ == "__main__":

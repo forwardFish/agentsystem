@@ -38,10 +38,22 @@
         </div>
         <div class="flex flex-wrap items-center gap-3">
           <a href="/?project=versefina" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10">返回项目总览</a>
+          <a href="http://127.0.0.1:3000/event-sandbox" target="_blank" rel="noreferrer" class="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-50 transition hover:border-emerald-200/40 hover:bg-emerald-300/15">Event Sandbox</a>
           <button id="refresh-button" class="rounded-full border border-cyan-300/25 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-50 transition hover:border-cyan-200/40 hover:bg-cyan-300/15">刷新验收数据</button>
         </div>
       </div>
     </header>
+
+    <section class="panel mb-6 rounded-[28px] p-5 lg:p-6">
+      <div class="mb-4">
+        <div class="section-label">Actual Outputs</div>
+        <h2 class="mt-1 text-xl font-semibold text-white">真实跑出来的业务效果</h2>
+        <p class="mt-2 max-w-4xl text-sm leading-7 text-slate-300">
+          这里不是统计口径，而是已经落到 `.runtime` 里的真实业务产物样例：一条事件链、一条 statement style / mirror 链，以及最终 acceptance pack。
+        </p>
+      </div>
+      <div id="actual-output-galleries" class="grid gap-4 xl:grid-cols-3"></div>
+    </section>
 
     <section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
       <div class="panel rounded-[24px] p-5"><div class="section-label">交割单</div><div id="metric-statements" class="mt-3 text-3xl font-bold text-white">0</div></div>
@@ -49,6 +61,85 @@
       <div class="panel rounded-[24px] p-5"><div class="section-label">TradeRecord</div><div id="metric-trades" class="mt-3 text-3xl font-bold text-emerald-300">0</div></div>
       <div class="panel rounded-[24px] p-5"><div class="section-label">Agent</div><div id="metric-agents" class="mt-3 text-3xl font-bold text-amber-300">0</div></div>
       <div class="panel rounded-[24px] p-5"><div class="section-label">真实证据 Story</div><div id="metric-real-stories" class="mt-3 text-3xl font-bold text-rose-300">0</div></div>
+    </section>
+
+    <section class="panel mb-6 rounded-[28px] p-5 lg:p-6">
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div class="section-label">Roadmap 1.6 Showcase</div>
+          <h2 class="mt-1 text-xl font-semibold text-white">真实交付结果与验收汇总</h2>
+          <p class="mt-2 max-w-4xl text-sm leading-7 text-slate-300">
+            这里直接消费 authoritative roadmap summary、continuity 文件、ship readiness 与 Sprint 7 residual evidence，展示这次 `roadmap_1_6` 到底交付了什么、还能怎么验、还剩什么治理项。
+          </p>
+        </div>
+        <div id="roadmap-links" class="flex flex-wrap items-center gap-3"></div>
+      </div>
+      <div id="roadmap-headline" class="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]"></div>
+      <div id="roadmap-summary-metrics" class="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
+      <div class="mb-5 grid gap-4 xl:grid-cols-3">
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="section-label">Next Priority</div>
+            <div class="mt-1 text-lg font-semibold text-white">后续应该跑什么</div>
+          </div>
+          <div id="roadmap-next-priority" class="space-y-3 text-sm text-slate-200"></div>
+        </div>
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="section-label">Mid Validation</div>
+            <div class="mt-1 text-lg font-semibold text-white">中间过程怎么检验</div>
+          </div>
+          <div id="roadmap-mid-validation" class="space-y-3 text-sm text-slate-200"></div>
+        </div>
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="section-label">Final Effect</div>
+            <div class="mt-1 text-lg font-semibold text-white">全部做完后要看到什么</div>
+          </div>
+          <div id="roadmap-final-effect" class="space-y-3 text-sm text-slate-200"></div>
+        </div>
+      </div>
+      <div class="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="section-label">Sprint Status</div>
+            <div class="mt-1 text-lg font-semibold text-white">7 个 Sprint 完成情况</div>
+          </div>
+          <div id="roadmap-sprints" class="space-y-3"></div>
+        </div>
+        <div class="space-y-4">
+          <div class="data-card rounded-[22px] p-4">
+            <div class="mb-3">
+              <div class="section-label">Continuity</div>
+              <div class="mt-1 text-lg font-semibold text-white">当前续跑边界</div>
+            </div>
+            <div id="roadmap-continuity" class="space-y-3 text-sm text-slate-200"></div>
+          </div>
+          <div class="data-card rounded-[22px] p-4">
+            <div class="mb-3">
+              <div class="section-label">Validation</div>
+              <div class="mt-1 text-lg font-semibold text-white">最近验证结果</div>
+            </div>
+            <div id="roadmap-validation" class="space-y-3 text-sm text-slate-200"></div>
+          </div>
+        </div>
+      </div>
+      <div class="grid gap-4 xl:grid-cols-2">
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="section-label">API Demo</div>
+            <div class="mt-1 text-lg font-semibold text-white">Swagger 重点演示链路</div>
+          </div>
+          <div id="roadmap-api-demo" class="space-y-3"></div>
+        </div>
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="section-label">Residual Issues</div>
+            <div class="mt-1 text-lg font-semibold text-white">残留治理项</div>
+          </div>
+          <div id="roadmap-residuals" class="space-y-3"></div>
+        </div>
+      </div>
     </section>
 
     <section class="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
@@ -268,6 +359,209 @@
       document.getElementById("evidence-notes").innerHTML = items.map((item) => `<div class="data-card rounded-[18px] p-4">${item}</div>`).join("");
     }
 
+    function renderActualOutputs(actualOutputs) {
+      const eventDemo = actualOutputs?.event_demo || {};
+      const statementDemo = actualOutputs?.statement_demo || {};
+      const acceptanceDemo = actualOutputs?.acceptance_pack_demo || {};
+      const cards = [
+        {
+          title: eventDemo.headline || "事件链样例",
+          summary: eventDemo.summary || {},
+          blocks: [
+            { label: "Event Summary", value: eventDemo.summary },
+            { label: "Structure", value: eventDemo.structure },
+            { label: "Mapping", value: eventDemo.mapping },
+            { label: "Top Participants", value: eventDemo.top_participants },
+            { label: "Outcome", value: eventDemo.outcome },
+            { label: "Action Log Preview", value: eventDemo.action_log_preview },
+          ],
+        },
+        {
+          title: statementDemo.headline || "Statement Style / Mirror 样例",
+          summary: statementDemo.summary || {},
+          blocks: [
+            { label: "Statement Summary", value: statementDemo.summary },
+            { label: "Parse Report", value: statementDemo.parse_report },
+            { label: "Trade Sample", value: statementDemo.trade_record_sample },
+            { label: "Style Features", value: statementDemo.style_features },
+            { label: "Mirror Agent", value: statementDemo.mirror_agent },
+            { label: "Mirror Validation", value: statementDemo.mirror_validation },
+            { label: "Distribution Calibration", value: statementDemo.distribution_calibration },
+          ],
+        },
+        {
+          title: acceptanceDemo.headline || "Acceptance Pack 样例",
+          summary: acceptanceDemo.summary || {},
+          blocks: [
+            { label: "Pack Summary", value: acceptanceDemo.summary },
+            { label: "Current Handoff", value: acceptanceDemo.pack?.current_handoff },
+            { label: "P0 Boundaries", value: acceptanceDemo.pack?.p0_boundaries },
+            { label: "P1 Boundaries", value: acceptanceDemo.pack?.p1_boundaries },
+            { label: "Delivery Artifacts", value: (acceptanceDemo.pack?.delivery_artifacts || []).slice(0, 6) },
+          ],
+        },
+      ];
+      document.getElementById("actual-output-galleries").innerHTML = cards.map((card) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3">
+            <div class="text-sm font-semibold text-white">${card.title}</div>
+          </div>
+          <div class="space-y-4">
+            ${card.blocks.map((block) => `
+              <div>
+                <div class="mb-2 flex items-center gap-2"><span class="pill real">${block.label}</span></div>
+                ${jsonBlock(block.value, "当前没有该类真实样例。")}
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderRoadmapShowcase(roadmap) {
+      if (!roadmap || !roadmap.roadmap_id) {
+        document.getElementById("roadmap-headline").innerHTML = `<div class="data-card rounded-[22px] p-4 text-sm text-slate-400">No roadmap showcase data.</div>`;
+        document.getElementById("roadmap-summary-metrics").innerHTML = "";
+        document.getElementById("roadmap-sprints").innerHTML = "";
+        document.getElementById("roadmap-continuity").innerHTML = "";
+        document.getElementById("roadmap-validation").innerHTML = "";
+        document.getElementById("roadmap-next-priority").innerHTML = "";
+        document.getElementById("roadmap-mid-validation").innerHTML = "";
+        document.getElementById("roadmap-final-effect").innerHTML = "";
+        document.getElementById("roadmap-api-demo").innerHTML = "";
+        document.getElementById("roadmap-residuals").innerHTML = "";
+        document.getElementById("roadmap-links").innerHTML = "";
+        return;
+      }
+
+      const links = roadmap.showcase_links || {};
+      const reportPaths = roadmap.report_paths || {};
+      document.getElementById("roadmap-links").innerHTML = `
+        <a href="${links.dashboard || '/'}" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/50 hover:bg-white/10">Dashboard</a>
+        <a href="http://127.0.0.1:3000/roadmap-1-6-demo" target="_blank" rel="noreferrer" class="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-300/15">Product Demo</a>
+        <a href="${links.swagger || '#'}" target="_blank" rel="noreferrer" class="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-300/15">Swagger</a>
+        <a href="${reportPaths.markdown_url || links.report_markdown || '#'}" target="_blank" rel="noreferrer" class="rounded-full border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-300/15">Markdown Report</a>
+        <a href="${reportPaths.json_url || links.report_json || '#'}" target="_blank" rel="noreferrer" class="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-300/15">JSON Report</a>
+      `;
+
+      document.getElementById("roadmap-headline").innerHTML = `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="mb-3 flex flex-wrap items-center gap-2">
+            <span class="pill ${roadmap.status === 'completed' ? 'done' : 'pending'}">${roadmap.status || 'unknown'}</span>
+            <span class="pill ${roadmap.delivery_complete ? 'success' : 'pending'}">${roadmap.delivery_status_label || 'delivery status'}</span>
+            <span class="pill ${roadmap.release_clean ? 'success' : 'needs_attention'}">${roadmap.release_status_label || 'release status'}</span>
+          </div>
+          <div class="text-lg font-semibold text-white">${roadmap.roadmap_id} authoritative result</div>
+          <div class="mt-2 text-sm leading-7 text-slate-300">completed_at: ${roadmap.completed_at || '-'}</div>
+          <div class="mt-2 text-sm leading-7 text-slate-300 break-all">authoritative source: ${roadmap.authoritative_source || '-'}</div>
+        </div>
+        <div class="data-card rounded-[22px] p-4">
+          <div class="section-label">Report Files</div>
+          <div class="mt-3 text-sm leading-7 text-slate-200">
+            <div>Markdown: <span class="break-all">${reportPaths.markdown_path || '-'}</span></div>
+            <div>JSON: <span class="break-all">${reportPaths.json_path || '-'}</span></div>
+          </div>
+        </div>
+      `;
+
+      const metrics = roadmap.summary_metrics || {};
+      document.getElementById("roadmap-summary-metrics").innerHTML = Object.entries(metrics).map(([key, value]) => `
+        <div class="data-card rounded-[22px] p-4">
+          <div class="section-label">${key}</div>
+          <div class="mt-3 text-2xl font-bold text-white">${String(value)}</div>
+        </div>
+      `).join("");
+
+      document.getElementById("roadmap-next-priority").innerHTML = (roadmap.next_execution_priority || []).map((item) => `
+        <div class="rounded-[16px] border border-white/8 bg-white/5 p-3">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${item.order}. ${item.title}</div>
+            <span class="pill registry_only">${item.sprint_id || '-'}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-300">${item.focus || '-'}</div>
+          <div class="mt-2 text-xs leading-6 text-slate-400">stories: ${(item.story_ids || []).join(', ') || '-'}</div>
+          <div class="mt-2 text-xs leading-6 text-slate-400">${item.why_now || ''}</div>
+        </div>
+      `).join("");
+
+      document.getElementById("roadmap-mid-validation").innerHTML = (roadmap.mid_process_validation || []).map((item) => `
+        <div class="rounded-[16px] border border-white/8 bg-white/5 p-3">
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${item.stage || '-'}</div>
+            <span class="pill real">check</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-300">${item.check || '-'}</div>
+          <div class="mt-2 text-xs leading-6 text-slate-400 break-all">${item.entrypoint || '-'}</div>
+        </div>
+      `).join("");
+
+      document.getElementById("roadmap-final-effect").innerHTML = (roadmap.final_effect_checklist || []).map((item) => `
+        <div class="rounded-[16px] border border-white/8 bg-white/5 p-3 text-sm leading-7 text-slate-300">${item}</div>
+      `).join("");
+
+      document.getElementById("roadmap-sprints").innerHTML = (roadmap.sprint_results || []).map((item) => `
+        <div class="rounded-[18px] border border-white/8 bg-white/5 p-4">
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${item.title} · ${item.focus || item.sprint_id}</div>
+            <div class="flex flex-wrap gap-2">
+              <span class="pill ${badgeClass(item.status)}">${statusText(item.status)}</span>
+              <span class="pill ${item.pre_hook_ready ? 'real' : 'missing'}">pre-hook</span>
+              <span class="pill ${item.post_hook_ready ? 'real' : 'missing'}">post-hook</span>
+            </div>
+          </div>
+          <div class="text-sm leading-7 text-slate-300">Story ${item.completed_story_count || 0}/${item.story_count || 0} · last success: ${item.last_success_story || '-'}</div>
+        </div>
+      `).join("");
+
+      const continuity = roadmap.continuity || {};
+      document.getElementById("roadmap-continuity").innerHTML = `
+        <div><span class="section-label">NOW</span><div class="mt-1">${continuity.now_status || '-'} · ${continuity.now_task || '-'}</div></div>
+        <div><span class="section-label">STATE</span><div class="mt-1">${continuity.state_phase || '-'} · ${continuity.state_goal || '-'}</div></div>
+        <div><span class="section-label">Handoff</span><div class="mt-1">${continuity.handoff_status || '-'} · last=${continuity.handoff_last_success_story || '-'}</div></div>
+        <div><span class="section-label">Completed Boundary</span><div class="mt-1">${continuity.completed_boundary ? 'yes' : 'no'}</div></div>
+      `;
+
+      const validation = roadmap.validation || {};
+      document.getElementById("roadmap-validation").innerHTML = Object.entries(validation).map(([key, value]) => {
+        if (!value || typeof value !== 'object') {
+          return `<div class="rounded-[16px] border border-white/8 bg-white/5 p-3"><div class="text-sm font-semibold text-white">${key}</div><div class="mt-1 text-sm text-slate-300">${String(value ?? '-')}</div></div>`;
+        }
+        return `
+          <div class="rounded-[16px] border border-white/8 bg-white/5 p-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="text-sm font-semibold text-white">${key}</div>
+              <span class="pill ${badgeClass(value.status || 'pending')}">${statusText(value.status || 'pending')}</span>
+            </div>
+            <div class="mt-2 text-sm leading-7 text-slate-300">${value.details || '-'}</div>
+            <div class="mt-2 text-xs text-slate-500">${value.command || ''} ${value.recorded_at ? `| ${value.recorded_at}` : ''}</div>
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("roadmap-api-demo").innerHTML = (roadmap.api_demo_endpoints || []).map((item) => `
+        <div class="rounded-[18px] border border-white/8 bg-white/5 p-4">
+          <div class="mb-2 flex flex-wrap items-center gap-2">
+            <span class="pill registry_only">${item.capability || '-'}</span>
+            <span class="pill real">${item.method || '-'}</span>
+          </div>
+          <div class="text-sm font-semibold text-white">${item.path || '-'}</div>
+          <div class="mt-2 text-sm leading-7 text-slate-300">${item.note || ''}</div>
+        </div>
+      `).join("");
+
+      const residuals = roadmap.residual_issues || [];
+      document.getElementById("roadmap-residuals").innerHTML = residuals.length ? residuals.map((item) => `
+        <div class="rounded-[18px] border border-rose-300/15 bg-rose-400/5 p-4">
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-white">${item.title || '-'}</div>
+            <span class="pill ${item.severity === 'low' ? 'placeholder' : 'failed'}">${item.severity || 'issue'}</span>
+          </div>
+          <div class="text-sm leading-7 text-slate-300">${item.detail || ''}</div>
+          ${(item.evidence || []).length ? `<div class="mt-3 text-xs leading-6 text-slate-400">${(item.evidence || []).map((line) => `<div>${line}</div>`).join("")}</div>` : ""}
+        </div>
+      `).join("") : `<div class="text-sm text-slate-400">No residual issues.</div>`;
+    }
+
     async function loadShowcase() {
       const payload = await fetchJson("/api/versefina/runtime/showcase");
       document.getElementById("metric-statements").textContent = payload.stats?.statement_count ?? 0;
@@ -287,6 +581,8 @@
       renderArtifactSamples(payload.artifact_samples || []);
       renderValidationPacks(payload.validation_packs || []);
       renderNotes(payload.evidence_notes || []);
+      renderActualOutputs(payload.actual_outputs || {});
+      renderRoadmapShowcase(payload.roadmap_showcase || {});
     }
 
     document.getElementById("refresh-button").addEventListener("click", () => loadShowcase().catch(console.error));

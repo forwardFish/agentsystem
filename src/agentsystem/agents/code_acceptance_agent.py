@@ -16,6 +16,7 @@ from agentsystem.core.state import (
     add_handoff_packet,
     add_issue,
 )
+from agentsystem.orchestration.quality_sentry import evaluate_quality_sentry_for_state
 
 
 class CodeAcceptanceAgent:
@@ -28,6 +29,8 @@ class CodeAcceptanceAgent:
         changed_files = _collect_changed_files(state)
         blocking_issues: list[str] = []
         notes: list[str] = []
+        quality = evaluate_quality_sentry_for_state(state, self.worktree_path, changed_files=changed_files)
+        blocking_issues.extend(_format_quality_issues(quality))
 
         for relative_path in changed_files:
             file_path = self.worktree_path / relative_path
@@ -218,3 +221,12 @@ def _build_report(changed_files: list[str], blocking_issues: list[str], notes: l
         ]
     )
     return "\n".join(lines)
+
+
+def _format_quality_issues(quality: dict[str, object]) -> list[str]:
+    issues = quality.get("issues") if isinstance(quality.get("issues"), list) else []
+    return [
+        f"{item.get('file') or 'story'}: {item.get('issue_type')}: {item.get('detail')}"
+        for item in issues
+        if isinstance(item, dict)
+    ]

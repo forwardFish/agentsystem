@@ -10,21 +10,12 @@ from langchain_openai import ChatOpenAI
 TITLE_TEXT = "Agent \u5b9e\u65f6\u89c2\u6d4b\u9762\u677f"
 
 
-def _extract_code(prompt_text: str) -> str:
-    matches = re.findall(r"```tsx\s*(.*?)```", prompt_text, re.DOTALL)
+def _extract_code(prompt_text: str) -> tuple[str, str]:
+    matches = re.findall(r"```([a-zA-Z0-9_+-]*)\s*(.*?)```", prompt_text, re.DOTALL)
     if matches:
-        return matches[-1].strip()
-    return prompt_text.strip()
-
-
-def _apply_fallback_edit(code: str) -> str:
-    marker = f'      <h1 className="mb-6 text-3xl font-bold">{TITLE_TEXT}</h1>'
-    if TITLE_TEXT in code:
-        return code
-
-    if "    <div>" in code:
-        return code.replace("    <div>", f"    <div>\n{marker}", 1)
-    return f"{marker}\n{code}"
+        fence, code = matches[-1]
+        return fence or "text", code.strip()
+    return "text", prompt_text.strip()
 
 
 def _fallback_invoke(prompt_value) -> AIMessage:
@@ -32,9 +23,8 @@ def _fallback_invoke(prompt_value) -> AIMessage:
         prompt_text = prompt_value.messages[-1].content
     else:
         prompt_text = prompt_value.to_string() if hasattr(prompt_value, "to_string") else str(prompt_value)
-    current_code = _extract_code(prompt_text)
-    updated_code = _apply_fallback_edit(current_code)
-    return AIMessage(content=f"```tsx\n{updated_code}\n```")
+    fence, current_code = _extract_code(prompt_text)
+    return AIMessage(content=f"```{fence}\n{current_code}\n```")
 
 
 def get_llm():

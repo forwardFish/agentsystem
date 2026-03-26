@@ -25,6 +25,9 @@ def requirement_analysis_node(state: DevState) -> DevState:
     story_outputs = [str(item).strip() for item in task_payload.get("story_outputs", []) if str(item).strip()]
     verification_basis = [str(item).strip() for item in task_payload.get("verification_basis", []) if str(item).strip()]
     constraints = [str(item).strip() for item in task_payload.get("constraints", []) if str(item).strip()]
+    contract_scope_paths = [
+        str(item).strip() for item in task_payload.get("contract_scope_paths", []) if str(item).strip()
+    ]
     not_do = [
         str(item).strip()
         for item in (task_payload.get("explicitly_not_doing") or task_payload.get("not_do") or [])
@@ -32,7 +35,9 @@ def requirement_analysis_node(state: DevState) -> DevState:
     ]
     subtasks: list[SubTask] = []
 
-    execution_files = primary_files or related_files
+    execution_files = _dedupe_paths(primary_files or related_files)
+    if contract_scope_paths:
+        execution_files = _dedupe_paths([*execution_files, *contract_scope_paths])
     if execution_files:
         for index, file_path in enumerate(execution_files, start=1):
             normalized = PurePosixPath(file_path.replace("\\", "/")).as_posix()
@@ -156,7 +161,7 @@ def requirement_analysis_node(state: DevState) -> DevState:
     state["story_outputs"] = story_outputs
     state["verification_basis"] = verification_basis
     state["primary_files"] = primary_files or related_files
-    state["secondary_files"] = secondary_files
+    state["secondary_files"] = _dedupe_paths([*secondary_files, *contract_scope_paths])
     state["parsed_constraints"] = constraints
     state["parsed_not_do"] = not_do
     state["error_message"] = None
@@ -290,3 +295,15 @@ def _contains_signal_word(text: str, *signals: str) -> bool:
         if re.search(rf"\b{re.escape(signal)}\b", text):
             return True
     return False
+
+
+def _dedupe_paths(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        marker = str(value).strip().replace("\\", "/")
+        if not marker or marker in seen:
+            continue
+        seen.add(marker)
+        result.append(marker)
+    return result

@@ -40,6 +40,10 @@ class ContinuityTestCase(unittest.TestCase):
                 task_payload={"project": "versefina", "story_id": "S1-001", "goal": "demo"},
                 current_story_path=story_file,
             )
+            self.assertTrue((repo_root / "STATE.md").exists())
+            self.assertTrue((repo_root / "NOW.md").exists())
+            self.assertTrue((workspace / ".meta" / "versefina" / "continuity" / "STATE.md").exists())
+            self.assertTrue((workspace / ".meta" / "versefina" / "continuity" / "NOW.md").exists())
             bundle = load_continuity_bundle(
                 "fresh_start",
                 "versefina",
@@ -51,6 +55,8 @@ class ContinuityTestCase(unittest.TestCase):
             self.assertEqual(bundle["trigger"], "fresh_start")
             self.assertEqual(bundle["continuity_now"]["data"]["story_id"], "S1-001")
             self.assertIn("safe_point", bundle["continuity_summary"])
+            self.assertEqual(Path(bundle["required_paths"][1]).resolve(), (repo_root / "STATE.md").resolve())
+            self.assertEqual(Path(bundle["required_paths"][2]).resolve(), (repo_root / "NOW.md").resolve())
             assert_continuity_ready(bundle, strict=True)
 
     def test_resume_interrupt_requires_existing_artifact_refs(self) -> None:

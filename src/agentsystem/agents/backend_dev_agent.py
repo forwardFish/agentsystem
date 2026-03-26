@@ -13,6 +13,7 @@ from agentsystem.agents.contract_artifacts import (
     materialize_world_state_schema_artifacts,
 )
 from agentsystem.agents.llm_editing import llm_rewrite_file
+from agentsystem.agents.roadmap_1_6_artifacts import materialize_roadmap_1_6_story_artifacts
 from agentsystem.core.state import AgentRole, Deliverable, DevState, HandoffPacket, HandoffStatus, add_handoff_packet
 
 RUNTIME_TOUCH_MARKER = "Backend Dev Agent touched runtime story scope."
@@ -126,6 +127,9 @@ def _apply_backend_changes(repo_b_path: Path, task_payload: dict[str, object] | 
             return materialize_audit_idempotency_artifacts(repo_b_path, related_files)
         if story_id == "S1-001":
             return materialize_statement_upload_api_artifacts(repo_b_path, related_files)
+        roadmap_artifacts = materialize_roadmap_1_6_story_artifacts(repo_b_path, task_payload, related_files)
+        if roadmap_artifacts:
+            return roadmap_artifacts
     if project_key == "agenthire" and story_id in {"S0-001", "S0-002", "S0-003", "S0-004"}:
         existing = [str(path) for path in candidate_files if path.exists()]
         if existing:

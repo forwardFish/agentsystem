@@ -19,6 +19,7 @@ from agentsystem.core.state import (
     add_handoff_packet,
     add_issue,
 )
+from agentsystem.orchestration.quality_sentry import evaluate_quality_sentry_for_state
 
 
 def test_node(state: DevState) -> DevState:
@@ -37,9 +38,16 @@ def test_node(state: DevState) -> DevState:
     state["test_passed"] = True
     state["test_failure_info"] = None
     state["error_message"] = None
+    quality = evaluate_quality_sentry_for_state(state, repo_b_path)
+    quality_issues = _format_quality_issues(quality)
+    if quality_issues:
+        results.append("QualitySentry: FAIL")
+        results.extend(f"- {item}" for item in quality_issues)
+        state["error_message"] = "; ".join(quality_issues[:3])
+        state["test_passed"] = False
 
     print("[Test Agent] Preparing environment")
-    if install_commands:
+    if install_commands and state.get("test_passed"):
         install_success, install_output = shell.run_commands(install_commands)
         results.append(f"Install: {'PASS' if install_success else 'FAIL'}")
         if not install_success:
@@ -50,7 +58,7 @@ def test_node(state: DevState) -> DevState:
         results.append("Install: SKIP (not configured)")
 
     print("[Test Agent] Running lint")
-    if lint_commands:
+    if lint_commands and state.get("test_passed"):
         lint_success, lint_output = shell.run_commands(lint_commands[:1])
         results.append(f"Lint: {'PASS' if lint_success else 'FAIL'}")
         if not lint_success:
@@ -63,7 +71,7 @@ def test_node(state: DevState) -> DevState:
         results.append("Lint: SKIP (not configured)")
 
     print("[Test Agent] Evaluating typecheck")
-    if typecheck_commands:
+    if typecheck_commands and state.get("test_passed"):
         typecheck_success, typecheck_output = shell.run_commands(typecheck_commands)
         results.append(f"Typecheck: {'PASS' if typecheck_success else 'FAIL'}")
         if not typecheck_success:
@@ -76,7 +84,7 @@ def test_node(state: DevState) -> DevState:
         results.append("Typecheck: SKIP (not configured)")
 
     print("[Test Agent] Evaluating tests")
-    if test_commands:
+    if test_commands and state.get("test_passed"):
         test_success, test_output = shell.run_commands(test_commands)
         results.append(f"Test: {'PASS' if test_success else 'FAIL'}")
         if not test_success:
@@ -116,6 +124,15 @@ def test_node(state: DevState) -> DevState:
 
     print("[Test Agent] Validation completed")
     return state
+
+
+def _format_quality_issues(quality: dict[str, object]) -> list[str]:
+    issues = quality.get("issues") if isinstance(quality.get("issues"), list) else []
+    return [
+        f"{item.get('file') or 'story'}: {item.get('issue_type')}: {item.get('detail')}"
+        for item in issues
+        if isinstance(item, dict)
+    ]
 
 
 def _filter_validation_commands(commands: list[str], task_payload: dict[str, object]) -> tuple[list[str], str | None]:
