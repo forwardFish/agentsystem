@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 from datetime import datetime, timedelta
@@ -77,6 +78,16 @@ class WorkspaceManager:
 
     def _snapshot_sync_report_path(self, task_id: str) -> Path:
         return self._task_meta_dir(task_id) / "snapshot_sync_report.json"
+
+    def _workspace_mode(self, task_id: str) -> str:
+        snapshot_state_path = self._snapshot_state_path(task_id)
+        if not snapshot_state_path.exists():
+            return "git"
+        try:
+            payload = json.loads(snapshot_state_path.read_text(encoding="utf-8"))
+        except Exception:
+            return "snapshot"
+        return str(payload.get("mode") or "snapshot")
 
     def generate_task_id(self, task_seed: str) -> str:
         digest = hashlib.sha1(task_seed.encode("utf-8")).hexdigest()[:8]
@@ -511,13 +522,24 @@ class WorkspaceManager:
         index: dict[str, str] = {}
         if not root.exists():
             return index
-        for path in root.rglob("*"):
-            if not path.is_file():
-                continue
-            rel = self._normalize_snapshot_relpath(path.relative_to(root).as_posix())
-            if not rel:
-                continue
-            index[rel] = hashlib.sha1(path.read_bytes()).hexdigest()
+        for current_root, dirs, files in os.walk(root, topdown=True):
+            current_path = Path(current_root)
+            rel_root = current_path.relative_to(root)
+            normalized_root = "" if rel_root == Path(".") else rel_root.as_posix()
+            dirs[:] = [
+                name
+                for name in dirs
+                if not self._is_ignored_snapshot_path(
+                    f"{normalized_root}/{name}" if normalized_root else name
+                )
+            ]
+            for filename in files:
+                rel = self._normalize_snapshot_relpath(
+                    f"{normalized_root}/{filename}" if normalized_root else filename
+                )
+                if not rel:
+                    continue
+                index[rel] = hashlib.sha1((current_path / filename).read_bytes()).hexdigest()
         return index
 
     def _normalize_snapshot_relpath(self, rel: str | Path) -> str:
@@ -589,15 +611,16 @@ class WorkspaceManager:
             return
         task_config = yaml.safe_load(self._task_yaml_path(task_id).read_text(encoding="utf-8"))
         branch = task_config["branch"]
+        workspace_mode = self._workspace_mode(task_id)
         if archive:
             archive_path = self.repo_root / "archive" / task_id
             archive_path.parent.mkdir(parents=True, exist_ok=True)
             archive_path.mkdir(parents=True, exist_ok=True)
             shutil.copytree(self._task_meta_dir(task_id), archive_path / "meta", dirs_exist_ok=True)
-        if self._is_git_repo():
+        if self._is_git_repo() and workspace_mode != "snapshot":
             self._remove_git_worktree(worktree_path)
         else:
-            shutil.rmtree(worktree_path, ignore_errors=True)
+            self._fast_remove_tree(worktree_path)
         shutil.rmtree(self._task_meta_dir(task_id), ignore_errors=True)
         self._release_lock(self._branch_lock_path(branch))
         self._release_lock(self._task_lock_path(task_id))
@@ -622,7 +645,48 @@ class WorkspaceManager:
                 encoding="utf-8",
                 errors="replace",
             )
-            shutil.rmtree(worktree_path, ignore_errors=True)
+            self._fast_remove_tree(worktree_path)
+
+    def _fast_remove_tree(self, path: Path) -> None:
+        if not path.exists():
+            return
+        try:
+            subprocess.run(
+                ["cmd", "/c", "rd", "/s", "/q", str(path)],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except Exception:
+            pass
+        if path.exists():
+            shutil.rmtree(path, ignore_errors=True)
+
+    def _stop_task_browser_hosts(self, task_id: str) -> None:
+        script = (
+            "$ErrorActionPreference='SilentlyContinue'; "
+            f"$taskId='{task_id}'; "
+            "$pids = @(Get-CimInstance Win32_Process | "
+            "Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -like '*browser_host_server.py*' "
+            "and $_.CommandLine -like ('*--task-id ' + $taskId + '*') } | "
+            "Select-Object -ExpandProperty ProcessId); "
+            "foreach ($pid in $pids) { "
+            "Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID', [string]$pid, '/T', '/F') "
+            "-NoNewWindow -Wait | Out-Null }"
+        )
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except Exception:
+            return
 
     def cleanup_task_worktree(self, task_id: str) -> None:
         self.clean_worktree(task_id, archive=False)
@@ -636,6 +700,7 @@ class WorkspaceManager:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
     def cleanup_task_resources(self, task_id: str) -> None:
+        self._stop_task_browser_hosts(task_id)
         worktree_path = self.worktree_root / task_id
         if worktree_path.exists():
             self.cleanup_task_worktree(task_id)

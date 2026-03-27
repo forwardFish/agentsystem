@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import json
 
 from git import Repo
 
@@ -24,6 +25,89 @@ from agentsystem.agents.test_agent import _run_story_specific_validation
 
 
 class StoryCompletionFlowTestCase(unittest.TestCase):
+    def test_reviewer_uses_lightweight_diff_for_snapshot_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            parent_repo = base / "parent"
+            parent_repo.mkdir()
+            Repo.init(parent_repo)
+            snapshot_repo = parent_repo / "repo-worktree" / "task-demo"
+            snapshot_repo.mkdir(parents=True)
+            (snapshot_repo / "apps" / "web" / "src").mkdir(parents=True)
+            changed_file = snapshot_repo / "apps" / "web" / "src" / "page.tsx"
+            changed_file.write_text("export default function Page() { return <main />; }\n", encoding="utf-8")
+
+            snapshot_meta = parent_repo / "repo-worktree" / ".meta" / "task-demo"
+            (snapshot_meta / "snapshot_base" / "apps" / "web" / "src").mkdir(parents=True)
+            (snapshot_meta / "snapshot_base" / "apps" / "web" / "src" / "page.tsx").write_text(
+                "export default function Page() { return null; }\n",
+                encoding="utf-8",
+            )
+            (snapshot_meta / "snapshot_state.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "snapshot",
+                        "branch": "agent/l1-task-demo",
+                        "base_branch": "main",
+                        "base_commit": "abc123",
+                        "current_commit": "abc123",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            reviewer = ReviewerAgent(snapshot_repo, {"goal": "Review event sandbox UI story."})
+
+            diff = reviewer._build_review_diff(["apps/web/src/page.tsx"])
+
+            self.assertEqual(diff, "- apps/web/src/page.tsx")
+
+    def test_reviewer_uses_declared_story_scope_in_snapshot_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            parent_repo = base / "parent"
+            parent_repo.mkdir()
+            Repo.init(parent_repo)
+            snapshot_repo = parent_repo / "repo-worktree" / "task-demo"
+            snapshot_repo.mkdir(parents=True)
+
+            snapshot_meta = parent_repo / "repo-worktree" / ".meta" / "task-demo"
+            (snapshot_meta / "snapshot_base").mkdir(parents=True)
+            (snapshot_meta / "snapshot_state.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "snapshot",
+                        "branch": "agent/l1-task-demo",
+                        "base_branch": "main",
+                        "base_commit": "abc123",
+                        "current_commit": "abc123",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            reviewer = ReviewerAgent(
+                snapshot_repo,
+                {
+                    "primary_files": ["apps/web/src/app/event-sandbox/page.tsx"],
+                    "secondary_files": ["apps/web/src/features/event-sandbox/EventSandboxInputPage.tsx"],
+                },
+            )
+
+            changed_files = reviewer._collect_review_scope_paths({"staged_files": []})
+
+            self.assertEqual(
+                changed_files,
+                [
+                    "apps/web/src/app/event-sandbox/page.tsx",
+                    "apps/web/src/features/event-sandbox/EventSandboxInputPage.tsx",
+                ],
+            )
+
     def test_review_node_synthesizes_blocker_when_reviewer_rejects_without_findings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_path = Path(tmp) / "repo"
@@ -533,7 +617,7 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
 
             self.assertEqual(updated["failure_type"], "workflow_bug")
             self.assertEqual(updated["interruption_reason"], "reviewer_missing_findings")
-            self.assertEqual(route_after_review(updated), "__end__")
+            self.assertEqual(route_after_review(updated), "fixer")
 
     def test_review_pass_with_important_findings_keeps_fixer_queue_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

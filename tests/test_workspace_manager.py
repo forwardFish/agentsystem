@@ -203,6 +203,83 @@ class WorkspaceManagerTestCase(unittest.TestCase):
                 with self.assertRaises(SnapshotSyncConflictError):
                     manager.materialize_worktree_changes(task_id, changed_files=["apps/api/src/demo.py"])
 
+    def test_snapshot_file_hashes_prunes_dependency_and_build_trees(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            worktree_root = base / "worktrees"
+            manager = WorkspaceManager(repo_root, worktree_root)
+
+            sample_root = base / "sample"
+            (sample_root / "apps" / "web" / "src").mkdir(parents=True)
+            (sample_root / "apps" / "web" / "src" / "page.tsx").write_text("export default function Page() {}\n", encoding="utf-8")
+            (sample_root / "apps" / "web" / "node_modules" / "pkg").mkdir(parents=True)
+            (sample_root / "apps" / "web" / "node_modules" / "pkg" / "index.js").write_text("x\n", encoding="utf-8")
+            (sample_root / "apps" / "web" / ".next" / "server").mkdir(parents=True)
+            (sample_root / "apps" / "web" / ".next" / "server" / "page.js").write_text("compiled\n", encoding="utf-8")
+
+            hashes = manager._snapshot_file_hashes(sample_root)
+
+            self.assertEqual(list(hashes), ["apps/web/src/page.tsx"])
+
+    def test_clean_worktree_uses_fast_remove_for_snapshot_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            (repo_root / ".git").mkdir()
+            worktree_root = base / "worktrees"
+            manager = WorkspaceManager(repo_root, worktree_root)
+
+            task_id = "task-snapshot-clean"
+            worktree_path = worktree_root / task_id
+            worktree_path.mkdir(parents=True)
+
+            meta_dir = worktree_root / ".meta" / task_id
+            meta_dir.mkdir(parents=True)
+            (meta_dir / "task.yaml").write_text(
+                "task_id: task-snapshot-clean\nbranch: agent/l1-task-snapshot-clean\n",
+                encoding="utf-8",
+            )
+            (meta_dir / "snapshot_state.json").write_text(
+                json.dumps({"mode": "snapshot"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with patch.object(WorkspaceManager, "_fast_remove_tree") as fast_remove_mock, patch.object(
+                WorkspaceManager, "_remove_git_worktree"
+            ) as remove_git_worktree_mock:
+                manager.clean_worktree(task_id, archive=False)
+
+            fast_remove_mock.assert_called_once()
+            self.assertEqual(Path(fast_remove_mock.call_args.args[0]).resolve(), worktree_path.resolve())
+            remove_git_worktree_mock.assert_not_called()
+
+    def test_cleanup_task_resources_stops_task_browser_hosts_before_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            worktree_root = base / "worktrees"
+            manager = WorkspaceManager(repo_root, worktree_root)
+
+            task_id = "task-browser-clean"
+            worktree_path = worktree_root / task_id
+            worktree_path.mkdir(parents=True)
+
+            with patch.object(WorkspaceManager, "_stop_task_browser_hosts") as stop_hosts_mock, patch.object(
+                WorkspaceManager, "cleanup_task_worktree"
+            ) as cleanup_worktree_mock, patch.object(WorkspaceManager, "cleanup_task_meta") as cleanup_meta_mock, patch.object(
+                WorkspaceManager, "cleanup_task_temp_files"
+            ) as cleanup_temp_mock:
+                manager.cleanup_task_resources(task_id)
+
+            stop_hosts_mock.assert_called_once_with(task_id)
+            cleanup_worktree_mock.assert_called_once_with(task_id)
+            cleanup_meta_mock.assert_not_called()
+            cleanup_temp_mock.assert_called_once_with(task_id)
+
     def _git(self, repo_root: Path, *args: str) -> None:
         subprocess.run(
             ["git", "-C", str(repo_root), *args],

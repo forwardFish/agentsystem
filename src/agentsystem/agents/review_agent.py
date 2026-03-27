@@ -53,16 +53,9 @@ class ReviewerAgent:
         }
 
         try:
-            staged_files = _filter_review_paths(self.git.get_staged_files())
-            working_tree_files = _filter_review_paths(self.git.get_working_tree_files())
-            changed_files = list(dict.fromkeys([*staged_files, *working_tree_files]))
-            if not changed_files:
-                changed_files = _filter_review_paths([str(path) for path in (state.get("staged_files") or [])])
+            changed_files = self._collect_review_scope_paths(state)
 
-            diff_parts = [self.git.get_diff(), self.git.get_working_tree_diff()]
-            diff = "\n".join(part for part in diff_parts if str(part).strip()).strip()
-            if not diff and self.git.get_current_commit():
-                diff = self.git.repo.git.show("--stat", "--format=", "HEAD")
+            diff = self._build_review_diff(changed_files)
 
             analysis = self._build_review_analysis(diff, changed_files, state)
             report = self._render_review_report(analysis)
@@ -117,6 +110,36 @@ class ReviewerAgent:
             result["error_message"] = f"Review failed: {exc}"
 
         return result
+
+    def _collect_review_scope_paths(self, state: DevState) -> list[str]:
+        if getattr(self.git, "snapshot_mode", False):
+            scoped = _review_scope_paths(self.task, state)
+            if scoped:
+                return scoped
+        staged_files = _filter_review_paths(self.git.get_staged_files())
+        working_tree_files = _filter_review_paths(self.git.get_working_tree_files())
+        changed_files = list(dict.fromkeys([*staged_files, *working_tree_files]))
+        if changed_files:
+            return changed_files
+        return _filter_review_paths([str(path) for path in (state.get("staged_files") or [])])
+
+    def _build_review_diff(self, changed_files: list[str]) -> str:
+        if not changed_files:
+            return ""
+        if getattr(self.git, "snapshot_mode", False):
+            return "\n".join(f"- {path}" for path in changed_files[:50])
+
+        diff_parts = [self.git.get_diff(), self.git.get_working_tree_diff()]
+        diff = "\n".join(part for part in diff_parts if str(part).strip()).strip()
+        if diff:
+            return diff
+        current_commit = self.git.get_current_commit()
+        if current_commit:
+            try:
+                return self.git.repo.git.show("--stat", "--format=", "HEAD")
+            except Exception:
+                return ""
+        return ""
 
     def _build_review_analysis(self, diff: str, changed_files: list[str], state: DevState) -> dict[str, object]:
         task_payload = _merge_review_task_payload(self.task, state)
@@ -732,6 +755,35 @@ def _merge_review_task_payload(task: dict[str, object] | None, state: DevState) 
     if contract_scope:
         payload["contract_scope_paths"] = contract_scope
     return payload
+
+
+def _review_scope_paths(task: dict[str, object] | None, state: DevState) -> list[str]:
+    payload = _merge_review_task_payload(task, state)
+    implementation_contract = payload.get("implementation_contract")
+    return _filter_review_paths(
+        _coalesce_path_lists(
+            payload.get("primary_files"),
+            payload.get("secondary_files"),
+            payload.get("related_files"),
+            payload.get("contract_scope_paths"),
+            implementation_contract.get("contract_scope_paths") if isinstance(implementation_contract, dict) else [],
+            (
+                implementation_contract.get("artifact_inventory", {}).get("supporting_code")
+                if isinstance(implementation_contract, dict)
+                and isinstance(implementation_contract.get("artifact_inventory"), dict)
+                else []
+            ),
+            (
+                implementation_contract.get("artifact_inventory", {}).get("docs")
+                if isinstance(implementation_contract, dict)
+                and isinstance(implementation_contract.get("artifact_inventory"), dict)
+                else []
+            ),
+            state.get("primary_files"),
+            state.get("secondary_files"),
+            state.get("staged_files"),
+        )
+    )
 
 
 def _review_repo_profile(worktree_path: Path, task_payload: dict[str, object], state: DevState) -> str:

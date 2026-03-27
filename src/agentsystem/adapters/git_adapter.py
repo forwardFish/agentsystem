@@ -174,7 +174,20 @@ class GitAdapter:
             self.repo_path,
             self.snapshot_base_dir,
             dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "pytest-cache-files-*"),
+            ignore=shutil.ignore_patterns(
+                ".git",
+                "__pycache__",
+                ".pytest_cache",
+                "pytest-cache-files-*",
+                ".meta",
+                ".gstack",
+                ".next",
+                "node_modules",
+                ".pnpm-store",
+                ".turbo",
+                ".cache",
+                ".ruff_cache",
+            ),
         )
 
     def _snapshot_changed_files(self) -> list[str]:
@@ -232,13 +245,27 @@ class GitAdapter:
 
     def _is_ignored_snapshot_path(self, rel: str) -> bool:
         normalized = rel.replace("\\", "/")
+        ignored_roots = (
+            ".git/",
+            ".meta/",
+            ".gstack/",
+            ".next/",
+            "node_modules/",
+            ".pnpm-store/",
+            ".turbo/",
+            ".cache/",
+            ".ruff_cache/",
+            ".pytest_cache/",
+        )
+        if any(
+            normalized.startswith(root) or f"/{root}" in normalized
+            for root in ignored_roots
+        ):
+            return True
         return (
-            normalized.startswith(".git/")
-            or normalized.startswith("__pycache__/")
+            normalized.startswith("__pycache__/")
             or "/__pycache__/" in normalized
             or normalized.endswith(".pyc")
-            or normalized.startswith(".pytest_cache/")
-            or "/.pytest_cache/" in normalized
             or "/pytest-cache-files-" in normalized
             or normalized.startswith("pytest-cache-files-")
         )
