@@ -468,9 +468,25 @@ def review_node(state: DevState) -> DevState:
     else:
         state["review_issue_signature"] = None
     if state.get("review_passed") is False and not review_items_present:
+        fallback_message = str(
+            state.get("error_message") or "Reviewer rejected the story without structured findings."
+        ).strip()
         state["failure_type"] = "workflow_bug"
         state["interruption_reason"] = "reviewer_missing_findings"
-        state["error_message"] = state.get("error_message") or "Reviewer rejected the story without structured findings."
+        state["error_message"] = fallback_message
+        state["blocking_issues"] = [fallback_message]
+        fallback_issue = Issue(
+            issue_id=str(uuid.uuid4()),
+            severity=IssueSeverity.BLOCKING,
+            source_agent=AgentRole.REVIEWER,
+            target_agent=AgentRole.FIXER,
+            title="Review workflow fallback issue",
+            description=fallback_message,
+            suggestion="Treat the missing review finding output as a fix-loop blocker and continue the validation repair cycle.",
+        )
+        add_issue(state, fallback_issue)
+        issues.append(fallback_issue)
+        review_items_present = True
     if state.get("review_success"):
         add_handoff_packet(
             state,
@@ -532,7 +548,7 @@ def review_node(state: DevState) -> DevState:
 
 def route_after_review(state: DevState) -> str:
     if state.get("failure_type") == "workflow_bug":
-        return "__end__"
+        return "fixer"
     if (
         state.get("awaiting_user_input")
         and str(state.get("resume_from_mode") or "").strip() == "review"

@@ -292,7 +292,19 @@ def build_artifact_inventory(paths: list[str]) -> dict[str, list[str]]:
 
 def classify_artifact_type(path: str) -> str:
     marker = PurePosixPath(str(path).replace("\\", "/")).as_posix().lower()
-    if "/tests/" in marker or marker.startswith("tests/") or marker.startswith("apps/api/tests/") or marker.endswith("_test.py"):
+    if (
+        "/tests/" in marker
+        or marker.startswith("tests/")
+        or marker.startswith("apps/api/tests/")
+        or marker.endswith("_test.py")
+        or marker.endswith(".test.py")
+        or marker.endswith(".test.ts")
+        or marker.endswith(".test.tsx")
+        or marker.endswith(".spec.ts")
+        or marker.endswith(".spec.tsx")
+        or marker.endswith(".spec.js")
+        or marker.endswith(".spec.jsx")
+    ):
         return "tests"
     if marker.startswith("docs/") or marker.endswith(".md"):
         return "docs"

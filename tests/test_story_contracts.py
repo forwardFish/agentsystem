@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import unittest
 
-from agentsystem.orchestration.story_contracts import infer_contract_scope_paths
+from agentsystem.orchestration.story_contracts import classify_artifact_type, infer_contract_scope_paths
 
 
 class StoryContractsTestCase(unittest.TestCase):
+    def test_classify_artifact_type_treats_frontend_test_suffixes_as_tests(self) -> None:
+        self.assertEqual(
+            classify_artifact_type("apps/web/src/features/event-sandbox/EventSandboxInputPage.test.tsx"),
+            "tests",
+        )
+        self.assertEqual(
+            classify_artifact_type("apps/web/src/features/event-sandbox/OverviewScreen.spec.tsx"),
+            "tests",
+        )
+
     def test_acceptance_pack_story_infers_domain_service_scope(self) -> None:
         task = {
             "story_id": "E7-005",

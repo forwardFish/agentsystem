@@ -10,7 +10,12 @@ from git import Repo
 from agentsystem.agents.architecture_review_agent import architecture_review_node
 from agentsystem.agents.requirement_agent import requirement_analysis_node
 from agentsystem.agents.code_acceptance_agent import code_acceptance_node
-from agentsystem.agents.code_style_reviewer_agent import code_style_review_node, route_after_code_style_review
+from agentsystem.agents.code_style_reviewer_agent import (
+    _collect_changed_files,
+    _collect_style_review_files,
+    code_style_review_node,
+    route_after_code_style_review,
+)
 from agentsystem.agents.doc_agent import doc_node
 from agentsystem.agents.fix_agent import FIXER_COMMENT, fix_node, route_after_fix
 from agentsystem.agents.review_agent import ReviewerAgent, review_node, route_after_review
@@ -19,6 +24,52 @@ from agentsystem.agents.test_agent import _run_story_specific_validation
 
 
 class StoryCompletionFlowTestCase(unittest.TestCase):
+    def test_review_node_synthesizes_blocker_when_reviewer_rejects_without_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            repo_path.mkdir(parents=True)
+            Repo.init(repo_path)
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {"story_id": "V17-021"},
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-review",
+            }
+
+            with patch.object(
+                ReviewerAgent,
+                "run",
+                return_value={
+                    "review_success": False,
+                    "review_passed": False,
+                    "review_dir": str(repo_path / ".meta" / "review"),
+                    "review_report": "",
+                    "review_findings": [],
+                    "review_checklist": [],
+                    "blocking_issues": [],
+                    "important_issues": [],
+                    "nice_to_haves": [],
+                    "awaiting_user_input": False,
+                    "dialogue_state": None,
+                    "next_question": None,
+                    "approval_required": False,
+                    "handoff_target": None,
+                    "resume_from_mode": None,
+                    "decision_state": None,
+                    "interaction_round": 0,
+                    "error_message": "Review failed: ",
+                },
+            ):
+                updated = review_node(state)
+
+            self.assertEqual(updated["failure_type"], "workflow_bug")
+            self.assertIn("Review failed:", updated["blocking_issues"][0])
+            self.assertEqual(route_after_review(updated), "fixer")
+
     def test_architecture_review_writes_plan_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_path = Path(tmp) / "repo"
@@ -112,6 +163,23 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
 
             state = {
                 "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-001",
+                    "required_artifact_types": [],
+                    "implementation_contract": {
+                        "story_id": "S0-001",
+                        "story_kind": "contract",
+                        "story_track": "contract",
+                        "required_artifact_types": [],
+                    },
+                    "expanded_required_agents": ["code_style_reviewer"],
+                    "agent_execution_contract": [
+                        {
+                            "agent": "code_style_reviewer",
+                            "expected_outputs": ["code_style_review_report"],
+                        }
+                    ],
+                },
                 "dev_results": {
                     "backend": {
                         "updated_files": [str(schema_path)],
@@ -139,6 +207,23 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
 
             state = {
                 "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "S0-001",
+                    "required_artifact_types": [],
+                    "implementation_contract": {
+                        "story_id": "S0-001",
+                        "story_kind": "contract",
+                        "story_track": "contract",
+                        "required_artifact_types": [],
+                    },
+                    "expanded_required_agents": ["code_style_reviewer"],
+                    "agent_execution_contract": [
+                        {
+                            "agent": "code_style_reviewer",
+                            "expected_outputs": ["code_style_review_report"],
+                        }
+                    ],
+                },
                 "dev_results": {
                     "backend": {
                         "updated_files": [str(schema_path)],
@@ -155,6 +240,191 @@ class StoryCompletionFlowTestCase(unittest.TestCase):
             self.assertTrue(updated["code_style_review_passed"])
             self.assertEqual(route_after_code_style_review(updated), "tester")
             self.assertTrue(Path(updated["code_style_review_dir"]).joinpath("code_style_review_report.md").exists())
+
+    def test_code_style_review_ignores_generated_and_dependency_paths(self) -> None:
+        state = {
+            "dev_results": {
+                "frontend": {
+                    "updated_files": [
+                        "apps/web/src/app/event-sandbox/page.tsx",
+                        "apps/web/node_modules/.bin/next",
+                        ".gstack/browse.json",
+                        ".meta/task-123/state.json",
+                        "apps/web/.next/server/app.js",
+                    ],
+                }
+            },
+            "staged_files": [
+                "apps/web/src/features/event-sandbox/api.ts",
+                "node_modules/react/index.js",
+            ],
+        }
+
+        changed_files = _collect_changed_files(state)
+
+        self.assertEqual(
+            changed_files,
+            [
+                "apps/web/src/app/event-sandbox/page.tsx",
+                "apps/web/src/features/event-sandbox/api.ts",
+            ],
+        )
+
+    def test_code_style_review_limits_scope_to_declared_story_files(self) -> None:
+        state = {
+            "task_payload": {
+                "primary_files": ["apps/web/src/app/event-sandbox/page.tsx"],
+                "secondary_files": [
+                    "apps/web/src/features/event-sandbox/EventSandboxInputPage.tsx",
+                    "apps/web/src/features/event-sandbox/EventSandboxInputPage.test.tsx",
+                ],
+                "related_files": [
+                    "apps/web/src/app/event-sandbox/page.tsx",
+                    "apps/web/src/features/event-sandbox/EventSandboxInputPage.tsx",
+                    "apps/web/src/features/event-sandbox/EventSandboxInputPage.test.tsx",
+                    "docs/requirements/v17_021_delivery.md",
+                ],
+                "implementation_contract": {
+                    "artifact_inventory": {
+                        "supporting_code": [
+                            "apps/web/src/app/event-sandbox/page.tsx",
+                            "apps/web/src/features/event-sandbox/EventSandboxInputPage.tsx",
+                            "apps/web/src/features/event-sandbox/EventSandboxInputPage.test.tsx",
+                        ],
+                        "docs": ["docs/requirements/v17_021_delivery.md"],
+                    }
+                },
+            },
+            "dev_results": {
+                "frontend": {
+                    "updated_files": [
+                        "docs/demo/basic.md",
+                        "scripts/build.js",
+                        "apps/web/src/app/event-sandbox/page.tsx",
+                    ],
+                }
+            },
+        }
+
+        changed_files = _collect_style_review_files(state)
+
+        self.assertEqual(
+            changed_files,
+            [
+                "apps/web/src/app/event-sandbox/page.tsx",
+                "apps/web/src/features/event-sandbox/EventSandboxInputPage.tsx",
+                "apps/web/src/features/event-sandbox/EventSandboxInputPage.test.tsx",
+                "docs/requirements/v17_021_delivery.md",
+            ],
+        )
+
+    def test_code_style_review_treats_integration_gaps_as_non_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            page_path = repo_path / "apps" / "web" / "src" / "app" / "event-sandbox" / "page.tsx"
+            page_path.parent.mkdir(parents=True, exist_ok=True)
+            page_path.write_text("export default function Page() {\n  return <main>demo</main>;\n}\n", encoding="utf-8")
+            (repo_path / ".agents").mkdir(parents=True, exist_ok=True)
+            (repo_path / ".agents" / "project.yaml").write_text("code_style:\n  line_length: 120\n", encoding="utf-8")
+            (repo_path / ".agents" / "rules.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "commands.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "review_policy.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "contracts.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "style_guide.md").write_text("# Style Guide\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "V17-021",
+                    "required_artifact_types": ["page", "tests", "docs"],
+                    "primary_files": ["apps/web/src/app/event-sandbox/page.tsx"],
+                    "secondary_files": [
+                        "apps/web/src/features/event-sandbox/EventSandboxInputPage.test.tsx",
+                        "docs/requirements/v17_021_delivery.md",
+                    ],
+                    "implementation_contract": {
+                        "story_id": "V17-021",
+                        "story_kind": "ui",
+                        "story_track": "ui",
+                        "required_artifact_types": ["page", "tests", "docs"],
+                    },
+                    "expanded_required_agents": ["code_style_reviewer"],
+                    "agent_execution_contract": [
+                        {"agent": "code_style_reviewer", "expected_outputs": ["code_style_review_report"]}
+                    ],
+                },
+                "dev_results": {
+                    "frontend": {
+                        "updated_files": [str(page_path)],
+                    }
+                },
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = code_style_review_node(state)
+
+            self.assertTrue(updated["code_style_review_success"])
+            self.assertTrue(updated["code_style_review_passed"])
+            self.assertEqual(route_after_code_style_review(updated), "tester")
+            self.assertTrue(
+                any("integration_missing" in issue for issue in (updated["code_style_review_issues"] or []))
+            )
+
+    def test_code_style_review_missing_declared_file_is_non_blocking_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp) / "repo"
+            page_path = repo_path / "apps" / "web" / "src" / "app" / "event-sandbox" / "page.tsx"
+            page_path.parent.mkdir(parents=True, exist_ok=True)
+            page_path.write_text("export default function Page() {\n  return <main>demo</main>;\n}\n", encoding="utf-8")
+            (repo_path / ".agents").mkdir(parents=True, exist_ok=True)
+            (repo_path / ".agents" / "project.yaml").write_text("code_style:\n  line_length: 120\n", encoding="utf-8")
+            (repo_path / ".agents" / "rules.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "commands.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "review_policy.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "contracts.yaml").write_text("{}\n", encoding="utf-8")
+            (repo_path / ".agents" / "style_guide.md").write_text("# Style Guide\n", encoding="utf-8")
+
+            state = {
+                "repo_b_path": str(repo_path),
+                "task_payload": {
+                    "story_id": "V17-021",
+                    "required_artifact_types": [],
+                    "primary_files": ["apps/web/src/app/event-sandbox/page.tsx"],
+                    "secondary_files": ["apps/web/src/features/event-sandbox/EventSandboxInputPage.tsx"],
+                    "implementation_contract": {
+                        "story_id": "V17-021",
+                        "story_kind": "ui",
+                        "story_track": "ui",
+                        "required_artifact_types": [],
+                    },
+                    "expanded_required_agents": ["code_style_reviewer"],
+                    "agent_execution_contract": [
+                        {"agent": "code_style_reviewer", "expected_outputs": ["code_style_review_report"]}
+                    ],
+                },
+                "dev_results": {
+                    "frontend": {
+                        "updated_files": [str(page_path)],
+                    }
+                },
+                "issues_to_fix": [],
+                "resolved_issues": [],
+                "handoff_packets": [],
+                "all_deliverables": [],
+                "collaboration_trace_id": "trace-demo",
+            }
+
+            updated = code_style_review_node(state)
+
+            self.assertTrue(updated["code_style_review_success"])
+            self.assertTrue(updated["code_style_review_passed"])
+            self.assertTrue(
+                any("missing from worktree" in issue for issue in (updated["code_style_review_issues"] or []))
+            )
 
     def test_doc_agent_writes_delivery_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -16,6 +16,7 @@ from agentsystem.core.state import (
     add_issue,
 )
 from agentsystem.orchestration.quality_sentry import evaluate_quality_sentry_for_state
+from agentsystem.orchestration.story_contracts import collect_file_scope
 
 
 class CodeStyleReviewerAgent:
@@ -29,13 +30,14 @@ class CodeStyleReviewerAgent:
         style_guide_path = self.worktree_path / ".agents" / "style_guide.md"
         style_guide = style_guide_path.read_text(encoding="utf-8") if style_guide_path.exists() else ""
         max_line_length = int(config.project.get("code_style", {}).get("line_length", 120))
-        changed_files = _collect_changed_files(state)
+        changed_files = _collect_style_review_files(state)
 
         blocking_issues: list[str] = []
         important_issues: list[str] = []
         notes: list[str] = []
         quality = evaluate_quality_sentry_for_state(state, self.worktree_path, changed_files=changed_files)
-        blocking_issues.extend(_format_quality_issues(quality))
+        blocking_issues.extend(_format_style_quality_issues(quality))
+        important_issues.extend(_format_non_style_quality_issues(quality))
 
         if not changed_files:
             important_issues.append("No changed files were recorded for style review.")
@@ -43,7 +45,7 @@ class CodeStyleReviewerAgent:
         for relative_path in changed_files:
             file_path = self.worktree_path / relative_path
             if not file_path.exists():
-                blocking_issues.append(f"Changed file is missing from worktree: {relative_path}")
+                important_issues.append(f"Changed file is missing from worktree: {relative_path}")
                 continue
             try:
                 content = file_path.read_text(encoding="utf-8")
@@ -75,7 +77,13 @@ def code_style_review_node(state: DevState) -> DevState:
 
     issues: list[Issue] = []
     for raw_issue in state.get("code_style_review_issues") or []:
-        severity = IssueSeverity.BLOCKING if "tabs are not allowed" in raw_issue or "trailing spaces" in raw_issue or "not readable as UTF-8" in raw_issue or "missing from worktree" in raw_issue else IssueSeverity.IMPORTANT
+        severity = (
+            IssueSeverity.BLOCKING
+            if "tabs are not allowed" in raw_issue
+            or "trailing spaces" in raw_issue
+            or "not readable as UTF-8" in raw_issue
+            else IssueSeverity.IMPORTANT
+        )
         issue = Issue(
             issue_id=str(uuid.uuid4()),
             severity=severity,
@@ -91,7 +99,11 @@ def code_style_review_node(state: DevState) -> DevState:
 
     # Build risk list with context
     risks: list[str] = []
-    blocking_issues = [str(item) for item in (state.get("code_style_review_issues") or []) if "tabs are not allowed" in str(item) or "trailing spaces" in str(item) or "not readable" in str(item) or "missing from worktree" in str(item)]
+    blocking_issues = [
+        str(item)
+        for item in (state.get("code_style_review_issues") or [])
+        if "tabs are not allowed" in str(item) or "trailing spaces" in str(item) or "not readable" in str(item)
+    ]
     important_issues = [str(item) for item in (state.get("code_style_review_issues") or []) if "line length exceeds" in str(item)]
 
     if blocking_issues:
@@ -166,6 +178,50 @@ def _collect_changed_files(state: DevState) -> list[str]:
     return unique
 
 
+def _collect_style_review_files(state: DevState) -> list[str]:
+    changed_files = _collect_changed_files(state)
+    task_payload = dict(state.get("task_payload") or {})
+    declared_scope = _collect_declared_scope(task_payload)
+    if not declared_scope:
+        return changed_files
+
+    in_scope = [path for path in changed_files if path in declared_scope]
+    merged: list[str] = []
+    seen: set[str] = set()
+    for path in [*in_scope, *declared_scope]:
+        if path in seen:
+            continue
+        seen.add(path)
+        merged.append(path)
+    return merged
+
+
+def _collect_declared_scope(task_payload: dict[str, object]) -> list[str]:
+    candidates: list[str] = []
+    for key in ("primary_files", "secondary_files", "related_files"):
+        candidates.extend(str(item) for item in (task_payload.get(key) or []) if str(item).strip())
+
+    implementation_contract = task_payload.get("implementation_contract")
+    if isinstance(implementation_contract, dict):
+        artifact_inventory = implementation_contract.get("artifact_inventory")
+        if isinstance(artifact_inventory, dict):
+            for values in artifact_inventory.values():
+                if isinstance(values, list):
+                    candidates.extend(str(item) for item in values if str(item).strip())
+
+    candidates.extend(str(item) for item in collect_file_scope(task_payload) if str(item).strip())
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        normalized = _normalize_changed_path(item)
+        if not normalized or _is_ignored_changed_path(normalized) or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized)
+    return unique
+
+
 def _normalize_changed_path(path: str) -> str:
     text = str(path).replace("\\", "/")
     if text.startswith("./"):
@@ -185,6 +241,12 @@ def _is_ignored_changed_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
     return (
         normalized.startswith(".git/")
+        or normalized.startswith(".gstack/")
+        or normalized.startswith(".meta/")
+        or normalized.startswith("node_modules/")
+        or "/node_modules/" in normalized
+        or normalized.startswith(".next/")
+        or "/.next/" in normalized
         or normalized.startswith("tasks/runtime/")
         or normalized.startswith("docs/handoff/")
         or "__pycache__/" in normalized
@@ -252,10 +314,21 @@ def _build_report(
     return "\n".join(lines)
 
 
-def _format_quality_issues(quality: dict[str, object]) -> list[str]:
+def _format_style_quality_issues(quality: dict[str, object]) -> list[str]:
     issues = quality.get("issues") if isinstance(quality.get("issues"), list) else []
     return [
         f"{item.get('file') or 'story'}: {item.get('issue_type')}: {item.get('detail')}"
         for item in issues
         if isinstance(item, dict)
+        and str(item.get("issue_type") or "") in {"syntax_invalid", "cross_language_contamination", "placeholder_artifact"}
+    ]
+
+
+def _format_non_style_quality_issues(quality: dict[str, object]) -> list[str]:
+    issues = quality.get("issues") if isinstance(quality.get("issues"), list) else []
+    return [
+        f"{item.get('file') or 'story'}: {item.get('issue_type')}: {item.get('detail')}"
+        for item in issues
+        if isinstance(item, dict)
+        and str(item.get("issue_type") or "") not in {"syntax_invalid", "cross_language_contamination", "placeholder_artifact"}
     ]
